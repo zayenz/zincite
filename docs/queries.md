@@ -1255,7 +1255,7 @@ retain their existing closed subset.
 
 ## Render a mixed native report
 
-The development Git dependency at Zirql `62b2d350f61d52e5bfd554724d750143ed451008`
+The development Git dependency at Zirql `843190701089ef2d1644cea8dc0abe92f080a63b`
 uses the shared tagged-data codec inside native reports. Against `model.mzn`
 above, run:
 
@@ -1270,3 +1270,39 @@ and native string dictionaries keep field order. The `complete`, `limitations`
 and `result` envelope belongs to Zincite, including original file coordinates.
 A rendering error leaves stdout empty even after an earlier emitter. MiniZinc
 source output still uses Zincite's source-preserving renderer.
+
+## Markdown reports
+
+End a read-only report expression with `| markdown` to print a table. This
+requires the development checkout and its pinned Zirql revision above;
+published Zincite 0.2.0 does not include this emitter. Save this as
+`report.zq`:
+
+```zirql
+[(message: "inspect declaration", subject: items | head(1), nested: [1,2])]
+| markdown;
+```
+
+Run the same program inline or from the saved file:
+
+```sh
+printf 'int: x;\nint: y;\n' | cargo run --locked --bin zincite-query -- \
+  --stdin-filepath model.mzn --program \
+  '[(message: "inspect declaration", subject: items | head(1), nested: [1,2])] | markdown;'
+printf 'int: x;\nint: y;\n' | cargo run --locked --bin zincite-query -- \
+  --stdin-filepath model.mzn --program-file report.zq
+```
+
+`zincite query` accepts the same program flags. Each row keeps a native source
+selection until rendering; `subject` becomes its ordinary descriptor in one
+compact JSON cell. Constructed scalars and arrays use ordinary Markdown data,
+without Zincite's tagged JSON wrappers. The
+[shared layout contract](https://zayenz.se/zirql/guides/library-rendering/#render_report_markdown)
+defines column order, escaping, nested cells and empty results.
+
+Markdown is a terminal emitter. Bindings, pure functions and data-edit programs
+cannot emit it. It writes only report data; completeness and limitations remain
+available on `ProgramResult` and through the CLI's existing diagnostics and exit
+status. Evaluation and rendering finish before any bytes reach stdout. The
+[library reference](reference.md#markdown-program-results) shows the same report
+through `Program::parse`, `evaluate` and `render`.

@@ -2033,3 +2033,89 @@ fn adopted_report_suffixes_agree_inline_and_in_files() {
     assert!(file.status.success(), "{file:?}");
     assert_eq!(inline.stdout, file.stdout);
 }
+
+#[test]
+fn markdown_reports_keep_native_subjects_and_buffer_later_errors() {
+    use zincite_query::{Input, Program, ProgramLimits};
+    let source = include_str!("fixtures/markdown-report.zq");
+    let file = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/markdown-report.zq"
+    );
+    let input = b"int: x;\nint: y;\n";
+    let native =
+        Input::parse_named(input.to_vec(), zincite_syntax::FileMode::Model, "model.mzn").unwrap();
+    let limits = ProgramLimits::default();
+    let mut result = Program::parse(source, limits)
+        .unwrap()
+        .evaluate(&native, limits)
+        .unwrap();
+    assert!(result.is_complete());
+    assert!(result.emissions()[0].is_markdown());
+    assert!(!result.emissions()[0].is_json());
+    let expected = result.render().unwrap();
+    let text = String::from_utf8_lossy(&expected);
+    assert!(
+        text.starts_with("\n| message | subject | nested |\n| --- | --- | --- |\n| a\\|b&lt; |")
+    );
+    assert!(text.contains("int: x;"));
+    assert!(text.contains("| \\[1,2\\] |\n\n"));
+    for arguments in [vec!["--program", source], vec!["--program-file", file]] {
+        let mut args = vec!["--stdin-filepath", "model.mzn"];
+        args.extend(arguments);
+        let output = run(&args, input);
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(output.stdout, expected);
+    }
+    for source in [
+        format!("{source} report [1][2];"),
+        "let bad = items | markdown; bad;".into(),
+        "items | markdown | count;".into(),
+        "fn bad() -> int { items | markdown } report 1;".into(),
+        "let bad = items | markdown; create z = 1; emit;".into(),
+    ] {
+        let failed = run(
+            &["--stdin-filepath", "model.mzn", "--program", &source],
+            input,
+        );
+        assert_eq!(failed.status.code(), Some(2), "{source}: {failed:?}");
+        assert!(failed.stdout.is_empty());
+    }
+    let edited = run(
+        &[
+            "--stdin-filepath",
+            "data.dzn",
+            "--program",
+            r#"filter(name("x")) | set_value("3") | markdown;"#,
+        ],
+        b"x = 1;\n",
+    );
+    assert_eq!(edited.status.code(), Some(2), "{edited:?}");
+    assert!(edited.stdout.is_empty());
+    assert!(
+        String::from_utf8_lossy(&edited.stderr)
+            .contains("only emit may follow a transformation stage")
+    );
+    let rendering_limits = ProgramLimits {
+        results: 300,
+        ..limits
+    };
+    let mut limited_result = Program::parse(source, rendering_limits)
+        .unwrap()
+        .evaluate(&native, rendering_limits)
+        .unwrap();
+    assert!(limited_result.render().is_err());
+    let limited = run(
+        &[
+            "--stdin-filepath",
+            "model.mzn",
+            "--program",
+            source,
+            "--max-results",
+            "300",
+        ],
+        input,
+    );
+    assert_eq!(limited.status.code(), Some(2), "{limited:?}");
+    assert!(limited.stdout.is_empty());
+}

@@ -1740,3 +1740,52 @@ fn source_copy_program_writes_only_a_complete_candidate() {
     std::fs::remove_file(path).unwrap();
     std::fs::remove_dir_all(library).unwrap();
 }
+
+#[test]
+fn query_markdown_inline_and_file_keep_native_subjects_and_buffer_errors() {
+    let source = include_str!("../crates/zincite-query/tests/fixtures/markdown-report.zq");
+    let file = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/crates/zincite-query/tests/fixtures/markdown-report.zq"
+    );
+    let input = "int: x;\nint: y;\n";
+    let mut expected = None;
+    for arguments in [vec!["--program", source], vec!["--program-file", file]] {
+        let mut args = vec!["query", "--stdin-filepath", "model.mzn"];
+        args.extend(arguments);
+        let output = run(&args, input);
+        assert!(output.status.success(), "{output:?}");
+        assert!(String::from_utf8_lossy(&output.stdout).contains("| message | subject | nested |"));
+        if let Some(expected) = &expected {
+            assert_eq!(&output.stdout, expected);
+        } else {
+            expected = Some(output.stdout);
+        }
+    }
+    let failed = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "model.mzn",
+            "--program",
+            &format!("{source} report [1][2];"),
+        ],
+        input,
+    );
+    assert_eq!(failed.status.code(), Some(2));
+    assert!(failed.stdout.is_empty());
+    let limited = run(
+        &[
+            "query",
+            "--stdin-filepath",
+            "model.mzn",
+            "--program",
+            source,
+            "--max-results",
+            "300",
+        ],
+        input,
+    );
+    assert_eq!(limited.status.code(), Some(2));
+    assert!(limited.stdout.is_empty());
+}

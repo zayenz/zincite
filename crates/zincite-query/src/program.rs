@@ -134,6 +134,7 @@ impl ProgramLimits {
 enum Emitter {
     Source,
     Json,
+    Markdown,
 }
 #[derive(Clone, Debug, PartialEq)]
 enum Kind {
@@ -257,6 +258,10 @@ impl<'a> ProgramEmission<'a> {
     pub fn is_json(&self) -> bool {
         self.emitter == Emitter::Json
     }
+    /// Whether this request explicitly selects Markdown report rendering.
+    pub fn is_markdown(&self) -> bool {
+        self.emitter == Emitter::Markdown
+    }
 }
 
 /// Successful evaluation returns all emission requests together. No callback
@@ -297,9 +302,10 @@ impl<'a> ProgramResult<'a> {
     }
 
     /// Render all requested outputs into one buffer. Zirql traverses mixed report
-    /// containers and encodes constructed nodes as tagged data; Zincite supplies
-    /// native projections and completion fields. Repeated rendering charges the
-    /// allowance again; a failure returns no partial bytes.
+    /// containers and renders JSON or Markdown. JSON uses tagged constructed data
+    /// and a completion envelope; Markdown retains completion metadata on this
+    /// result. Repeated rendering charges the allowance again; a failure returns
+    /// no partial bytes.
     pub fn render(&mut self) -> Result<Vec<u8>, QueryError> {
         if let Some(candidate) = &self.candidate {
             self.budget
@@ -313,6 +319,19 @@ impl<'a> ProgramResult<'a> {
         let mut bytes = Vec::new();
         for emission in &self.emissions {
             let mut output = match (&emission.emitter, &emission.value) {
+                (Emitter::Markdown, value) => zirql::render_report_markdown(
+                    &mut ReportRenderer {
+                        semantic: self.semantic.as_ref(),
+                        range: &emission.range,
+                    },
+                    value,
+                    &mut self.budget,
+                    zirql::Location::Query(emission.range.clone()),
+                )
+                .map_err(|error| match error {
+                    zirql::EvaluationError::Core(error) => pipeline::core_error(error),
+                    zirql::EvaluationError::Host(error) => error,
+                })?,
                 (Emitter::Source, ReportValue::Query(SemanticStream::Inspection(result))) => {
                     charge_render(
                         &emission.value,
@@ -443,7 +462,7 @@ fn is_program_binding_keyword(name: &str) -> bool {
     (zirql::is_common_keyword(name) && matches!(name, "let" | "report"))
         || matches!(
             name,
-            "json" | "emit" | "create" | "replace" | "emit_document"
+            "json" | "markdown" | "emit" | "create" | "replace" | "emit_document"
         )
 }
 
@@ -1197,7 +1216,7 @@ impl Program {
         for emission in &emissions {
             validate_value(
                 &emission.value,
-                emission.emitter == Emitter::Json
+                matches!(emission.emitter, Emitter::Json | Emitter::Markdown)
                     || matches!(emission.value, ReportValue::Record(_)),
                 &mut budget,
                 &emission.range,

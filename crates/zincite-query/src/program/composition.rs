@@ -161,10 +161,89 @@ impl Parser<'_> {
         native_record: bool,
         binding: bool,
     ) -> Result<(Expression, Kind, bool), QueryError> {
+        if let Some(suffix) = self.markdown_suffix(&range)? {
+            let (mut expression, kind, emits) =
+                self.composition_value(range.start..suffix.start, native_record, binding)?;
+            if emits {
+                zirql::dispose_expression(expression);
+                return Err(QueryError::query(
+                    suffix,
+                    "markdown cannot follow another terminal emitter",
+                ));
+            }
+            self.preflight
+                .charge(3, zirql::Location::Query(suffix.clone()))
+                .map_err(pipeline::core_error)?;
+            self.preflight
+                .charge_results(3, zirql::Location::Query(suffix.clone()))
+                .map_err(pipeline::core_error)?;
+            let step = Located::new(
+                ExpressionStep::Emit {
+                    emitter: Emitter::Markdown,
+                    policy: EmissionPolicy::Terminal,
+                },
+                suffix,
+            );
+            if let ExpressionKind::Sequence { steps, .. } = &mut expression.value {
+                steps.push(step);
+            } else {
+                expression = Located::new(
+                    ExpressionKind::Sequence {
+                        input: Box::new(expression),
+                        steps: vec![step],
+                    },
+                    range.clone(),
+                );
+            }
+            expression.range = range.clone();
+            check_edit_order(&expression, &self.queries, &mut false)?;
+            self.cursor.position = range.end;
+            return Ok((expression, kind, true));
+        }
+        self.composition_value(range, native_record, binding)
+    }
+
+    fn markdown_suffix(
+        &mut self,
+        range: &Range<usize>,
+    ) -> Result<Option<Range<usize>>, QueryError> {
+        use zincite_syntax::TokenKind as T;
+        let tokens = self.lexed.tokens();
+        let end = tokens.partition_point(|token| token.range.end <= range.end);
+        let mut scanned = 0;
+        let mut tail = tokens[..end]
+            .iter()
+            .rev()
+            .take_while(|token| token.range.start >= range.start)
+            .inspect(|_| scanned += 1)
+            .filter(|token| {
+                !matches!(token.kind, T::Whitespace | T::LineComment | T::BlockComment)
+            });
+        let suffix = match (tail.next(), tail.next()) {
+            (Some(name), Some(pipe))
+                if &self.cursor.source[name.range.clone()] == "markdown"
+                    && pipe.kind == T::Pipe =>
+            {
+                Some(pipe.range.start..name.range.end)
+            }
+            _ => None,
+        };
+        self.preflight
+            .charge(scanned, zirql::Location::Query(range.clone()))
+            .map_err(pipeline::core_error)?;
+        Ok(suffix)
+    }
+
+    fn composition_value(
+        &mut self,
+        range: Range<usize>,
+        native_record: bool,
+        binding: bool,
+    ) -> Result<(Expression, Kind, bool), QueryError> {
         self.begin_pure(range.clone())?;
         let mut budget =
             std::mem::replace(&mut self.preflight, Budget::for_program(self.limits.core()));
-        let mut reader = zirql::ArgumentReader::new(self.cursor.source, range.start)
+        let mut reader = zirql::ArgumentReader::new(&self.cursor.source[..range.end], range.start)
             .map_err(pipeline::core_error)?;
         let locals = self.reader_locals();
         let parsed = zirql::read_value_expression_in_scope(
@@ -561,6 +640,7 @@ pub(super) fn domain_stage(name: &str) -> bool {
             | "filter_elements"
             | "project"
             | "json"
+            | "markdown"
             | "emit"
             | "set_value"
             | "remove"
@@ -651,6 +731,13 @@ impl ValueReaderHost for Parser<'_> {
         reader: &mut zirql::ArgumentReader<'_>,
         budget: &mut Budget,
     ) -> Result<ExpressionStep<Stage, Emitter>, zirql::QueryError> {
+        if reader.keyword("markdown") {
+            self.cursor.position = reader.position();
+            return Ok(ExpressionStep::Emit {
+                emitter: Emitter::Markdown,
+                policy: EmissionPolicy::Terminal,
+            });
+        }
         let mut copy_probe = zirql::ArgumentReader::new(reader.source(), reader.position())?;
         if let Ok(name) = copy_probe.word()
             && matches!(

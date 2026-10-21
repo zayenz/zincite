@@ -200,7 +200,7 @@ by the objective expression. Each node retains its precise source range.
 ## Development report transformations
 
 The development query adapter pins Zirql Git revision
-`62b2d350f61d52e5bfd554724d750143ed451008`. It supports positional `map` and
+`843190701089ef2d1644cea8dc0abe92f080a63b`. It supports positional `map` and
 `flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
 with `with`, and full `align` by a unique field. The
 [report transformation example](query-comprehension-contract.md#transform-report-rows)
@@ -964,7 +964,7 @@ extract exactly one value from a projection. Native node and semantic selections
 retain their identities; use an explicit projection before passing them to a
 scalar operation or comprehension.
 
-The development dependency pins Zirql `90d184e9376a5ab039eecba0e62f3f1afd778a9b`.
+The development dependency pins Zirql `843190701089ef2d1644cea8dc0abe92f080a63b`.
 Zirql traverses mixed native/constructed containers, converts constructed nodes
 with its tagged-data codec, and writes JSON with the active request budget.
 Zincite supplies native source/semantic descriptors, shape admission and the
@@ -1762,3 +1762,34 @@ array indices; its findings carry no fixes. See
 A rule's fix support describes whether it can provide automatic edits. Each
 proposed edit still has its own safety classification; the rule's severity and
 advisory wording do not determine that safety.
+
+## Markdown program results
+
+A terminal `| markdown` suffix selects Zirql's
+[mixed-report Markdown renderer](https://zayenz.se/zirql/guides/library-rendering/#render_report_markdown).
+It accepts constructed scalars, ordered collections, records, dictionaries and
+native descriptors; record sequences become rows and nested values become
+compact JSON cells. Computational queues and identity sets remain non-renderable.
+The legacy `Query` API retains its existing source and JSON output.
+
+```rust
+use zincite_query::{Input, Program, ProgramLimits};
+use zincite_syntax::FileMode;
+let input = Input::parse(b"int: x;\n".to_vec(), FileMode::Model)?;
+let limits = ProgramLimits::default();
+let program = Program::parse(
+    "[(message: \"inspect declaration\", subject: items | head(1))] | markdown;",
+    limits,
+)?;
+let mut result = program.evaluate(&input, limits)?;
+assert!(result.emissions()[0].is_markdown());
+assert!(result.is_complete());
+let bytes = result.render()?;
+```
+
+`ProgramEmission::is_markdown` and `is_json` identify the requested rendering.
+`is_complete()` and `limitations()` retain analysis metadata independently of
+Markdown bytes. `render()` buffers all emission requests together and spends
+the remaining request budget; an error returns no partial output. JSON keeps its
+existing completion envelope, and native source/candidate output keeps Zincite's
+source-preserving path. See the [inline and file recipe](queries.md#markdown-reports).

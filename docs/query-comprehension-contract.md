@@ -1,7 +1,7 @@
 # Query expressions and data construction
 
 A query program can calculate values from MiniZinc data and either return a
-JSON report or construct a new `.dzn` file. It reads literal assignments,
+JSON or Markdown report, or construct a new `.dzn` file. It reads literal assignments,
 binds their values with `let`, and uses expressions and comprehensions to build
 the result. It does not evaluate the MiniZinc model or run a solver.
 
@@ -76,7 +76,7 @@ their declared native or constructed result kind after all declarations are read
 Binding names use the common reader's identifier spelling and Zincite's
 MiniZinc identifier rules. Contextual names such as `if`, `match` and `present`
 remain available where admitted; quoted names retain their logical identity.
-The program reserves `let`, `report`, `json`, `emit`, `create`, `replace` and
+The program reserves `let`, `report`, `json`, `markdown`, `emit`, `create`, `replace` and
 `emit_document` in binding positions. Function declarations also reject common
 operation names and Zincite's native operations. MiniZinc source grammar,
 nominal member lookup, native ownership and the closed Data/edit policy remain
@@ -85,7 +85,7 @@ Zincite responsibilities.
 ## Transform report rows
 
 The development checkout pins Zirql
-[`62b2d350f61d52e5bfd554724d750143ed451008`](https://github.com/zayenz/zirql/commit/62b2d350f61d52e5bfd554724d750143ed451008).
+[`843190701089ef2d1644cea8dc0abe92f080a63b`](https://github.com/zayenz/zirql/commit/843190701089ef2d1644cea8dc0abe92f080a63b).
 The following report forms require that checkout; the published Zirql 0.2.0
 integration predates them.
 
@@ -164,7 +164,10 @@ Expressions outside bindings emit their results. Native selections keep source
 output and native counts print as numbers; calculated values and records produce
 JSON. The final expression's semicolon is optional. `report expression;`
 explicitly emits JSON for a native result, including intermediate inspection
-results. Use `let` for an intermediate calculation that should not print.
+results. A terminal `| markdown` suffix selects a table for read-only report data;
+see [Markdown reports](queries.md#markdown-reports). Native subjects retain their
+ordinary descriptor cells; constructed data uses the shared Markdown layouts.
+This emitter is unavailable in bindings, pure functions and data-edit programs. Use `let` for an intermediate calculation that should not print.
 
 A data request ends in one atomic edit batch and cannot include output
 expressions. Input reads and calculations may interleave before the batch;
