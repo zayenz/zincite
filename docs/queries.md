@@ -636,6 +636,14 @@ name, and `one` requires exactly one value. `uses` finds that declaration's
 references. `unique` removes repeated visits to the same declaration; two
 local declarations with the same name would remain distinct.
 
+Zirql prepares the fields before visiting declarations, so an empty selection
+still receives scope, type and purity checks. Fields run in written order and
+the resulting array retains its record schema, including when it is empty.
+Declaration and use selections keep their native identities and source
+coordinates; only the projected names and counts enter these report fields. The
+[core projection contract](https://zayenz.se/zirql/guides/host-integration/#correlated-native-projection)
+describes this boundary for embedding callers.
+
 For individual uses, save this as `uses.zq`:
 
 ```zirql title="uses.zq"
@@ -1255,7 +1263,7 @@ retain their existing closed subset.
 
 ## Render a mixed native report
 
-The development Git dependency at Zirql `402eede8a28008b52a36afa1fd301b3bab251e0a`
+The development Git dependency at Zirql `5d6a466a6ee9bac2a90c2dfbc5579a0b0c12f08d`
 uses the shared tagged-data codec inside native reports. Against `model.mzn`
 above, run:
 

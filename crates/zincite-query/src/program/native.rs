@@ -19,23 +19,7 @@ impl OrderingStage {
     }
 }
 /// Function selectors consume the singleton; explicit native sources still read input.
-fn selector_value(mut selector: Expression) -> zirql::ValueExpression<Expression> {
-    let mut source = &mut selector;
-    loop {
-        match &mut source.value {
-            ExpressionKind::Group(value) => source = value,
-            ExpressionKind::Sequence { input, steps } => {
-                for step in steps {
-                    if let ExpressionStep::Stage(Stage::FunctionSource(value)) = &mut step.value {
-                        let value = std::mem::replace(value, empty_selector());
-                        step.value = ExpressionStep::Stage(Stage::FunctionValue(value));
-                    }
-                }
-                source = input;
-            }
-            _ => break,
-        }
-    }
+fn selector_value(selector: Expression) -> zirql::ValueExpression<Expression> {
     let range = selector.range.clone();
     Located::new(
         zirql::ValueExpressionKind::NativeValue(Box::new(selector)),

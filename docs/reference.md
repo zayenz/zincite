@@ -200,13 +200,22 @@ by the objective expression. Each node retains its precise source range.
 ## Development report transformations
 
 The development query adapter pins Zirql Git revision
-`402eede8a28008b52a36afa1fd301b3bab251e0a`. It supports positional `map` and
+`5d6a466a6ee9bac2a90c2dfbc5579a0b0c12f08d`. It supports positional `map` and
 `flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
 with `with`, and full `align` by a unique field. The
 [report transformation example](query-comprehension-contract.md#transform-report-rows)
 shows their syntax and required checkout. Text programs and
 `Program::from_values` use the same evaluator and retain native selections
 inside report records. Data edits keep their closed expression subset.
+
+Ordinary value sources and `project` lower directly to Zirql's core `Value`
+and `Projection` steps. A request prepares those expressions once through
+`PreparedFunctions::prepare_expression`, using the current lexical kinds and
+optional input, then executes them through the same unit. Zincite retains
+statement and pattern-binding bookkeeping, native operations and model facts.
+Its transition policy checks required complete observations and carries incoming
+incomplete-selection evidence through core value and projection results.
+
 Zirql also supplies expression-start recognition, ordering-call lookahead and
 constructed suffix classification. Zincite retains native stage payloads and
 late-known forward function result facts. Its
@@ -558,6 +567,11 @@ iteratively. Caller-supplied source ranges are preserved. Evaluation uses the
 current input and model, with the same checks as a parsed program. Native fields
 preserve their capture views, handles and source coordinates.
 
+Core `Value` and `Projection` syntax inside native wrappers must have one `Arc`
+owner so construction can lower their native payloads. This restriction applies
+to those syntax carriers; evaluated values and native results retain their
+existing immutable sharing.
+
 These constructs are report-only. Data edits reject them, including in unused
 bindings and skipped branches. The [pattern examples](queries.md#destructure-a-report)
 show a destructured native report and an optional guarded match through both
@@ -752,6 +766,11 @@ to the projection and cannot shadow a visible binding. Native handles need
 `names`, `text`, `count` or another supported scalar projection before entering
 a constructed field; `one` extracts exactly one projected value. Ordinary MiniZinc
 records and field access use the syntax shown in the value examples below.
+Zirql prepares the core projection fields against the declared singleton kind
+before enumerating subjects. The prepared record schema survives empty results,
+saved values and nested function calls. Its
+[projection adapter reference](https://zayenz.se/zirql/guides/host-integration/#correlated-native-projection)
+describes the native subject and scalar boundaries.
 
 `match { ... }` returns `ReportValue::Captures`. `CaptureMatches::rows()` borrows
 its ordered `zirql::NativeCapture<ReportValue>` rows. The retained schema checks
@@ -969,7 +988,7 @@ extract exactly one value from a projection. Native node and semantic selections
 retain their identities; use an explicit projection before passing them to a
 scalar operation or comprehension.
 
-The development dependency pins Zirql `402eede8a28008b52a36afa1fd301b3bab251e0a`.
+The development dependency pins Zirql `5d6a466a6ee9bac2a90c2dfbc5579a0b0c12f08d`.
 Zirql traverses mixed native/constructed containers, converts constructed nodes
 with its tagged-data codec, and writes JSON with the active request budget.
 Zincite supplies native source/semantic descriptors, shape admission and the

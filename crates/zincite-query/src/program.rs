@@ -26,8 +26,6 @@ type Expression = zirql::Expression<Stage, zirql::NativeSetOperator, Emitter>;
 #[derive(Debug)]
 enum Stage {
     Parameter(usize),
-    FunctionValue(zirql::ValueExpression<Expression>),
-    FunctionSource(zirql::ValueExpression<Expression>),
     PatternBinding(zirql::Pattern, zirql::ValueExpression<Expression>),
     Member(comprehension::MemberRequest),
     Query(usize, Rc<Vec<QueryArgument>>),
@@ -37,7 +35,6 @@ enum Stage {
     Mapping(native::MappingStage),
     MapSorting,
     RetainPayload,
-    Projection(composition::ProjectionStage),
     Match(composition::MatchStage),
     Paths(composition::PathStage),
     Filter(composition::FilterStage),
@@ -54,9 +51,6 @@ impl Drop for Stage {
             )
         };
         match self {
-            Self::FunctionValue(value) | Self::FunctionSource(value) => {
-                zirql::dispose_native_value(std::mem::replace(value, empty()))
-            }
             Self::PatternBinding(pattern, value) => {
                 zirql::dispose_pattern(std::mem::replace(
                     pattern,
@@ -74,7 +68,6 @@ impl Drop for Stage {
             | Self::Mapping(_)
             | Self::MapSorting
             | Self::RetainPayload
-            | Self::Projection(_)
             | Self::Match(_)
             | Self::Filter(_)
             | Self::Paths(_)
@@ -919,14 +912,6 @@ impl Program {
                 "expected a program statement",
             ));
         }
-        if parser.prepared {
-            let preserve_native = parser.functions.is_empty()
-                && !statements.iter().any(|statement| {
-                    matches!(statement.value, zirql::Statement::BindFields { .. })
-                });
-            statements =
-                functions::wrap_program_entries(statements, preserve_native, &parser.queries);
-        }
         Ok(Self {
             parameters,
             program: zirql::Program::new(statements, 0..source.len()),
@@ -1122,6 +1107,10 @@ impl Program {
         )?;
         let signatures = functions::resolve_signatures(&self.functions, &mut context, &mut budget)?;
         let host = NativeHost {
+            project_reports: !self.functions.is_empty()
+                || self.program.statements().iter().any(|statement| {
+                    matches!(&statement.value, zirql::Statement::BindFields { .. })
+                }),
             functions: self.prepared,
             signatures: &signatures,
             declarations: &self.functions,
@@ -1148,13 +1137,22 @@ impl Program {
             )?)
         };
         context.functions = session.as_ref();
-        zirql::evaluate_program(
+        zirql::evaluate_program_with(
             &self.program,
             &host,
             input_value,
             &mut context,
             bindings,
             &mut budget,
+            &mut |expression, input, context, bindings, budget| {
+                if let Some(session) = context.functions {
+                    session
+                        .run_expression(expression, bindings, &input, context, budget)
+                        .map_err(zirql::EvaluationError::Host)
+                } else {
+                    zirql::evaluate_expression(expression, &host, input, context, bindings, budget)
+                }
+            },
         )
         .map_err(pipeline::evaluation_error)?;
         let report_limitations = if context.facts_admitted {
@@ -1528,6 +1526,19 @@ impl<'a> Parser<'a> {
     }
 }
 
+fn core_value(value: zirql::ValueExpression<Expression>, range: Range<usize>) -> Expression {
+    Located::new(
+        ExpressionKind::Sequence {
+            input: Box::new(Located::new(ExpressionKind::Input, range.clone())),
+            steps: vec![Located::new(
+                ExpressionStep::Value(value.into()),
+                range.clone(),
+            )],
+        },
+        range,
+    )
+}
+
 fn value_stage(stage: Stage, range: Range<usize>) -> Expression {
     Located::new(
         ExpressionKind::Sequence {
@@ -1879,6 +1890,7 @@ impl zirql::ValueQueryHost<()> for ReportReads<'_, '_, '_> {
 }
 struct NativeHost<'q> {
     functions: bool,
+    project_reports: bool,
     signatures: &'q [zirql::ResolvedPatternFunctionSignature<'q, Kind>],
     declarations: &'q [zirql::UnresolvedPatternFunctionDeclaration<Expression>],
     parameters: &'q [zirql::ParameterDeclaration],
@@ -1929,17 +1941,6 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
         }
         let result = (|| {
             let index = match stage {
-                Stage::FunctionValue(expression) | Stage::FunctionSource(expression) => {
-                    let session = context.functions.ok_or_else(|| {
-                        zirql::EvaluationError::Host(QueryError::query(
-                            range.clone(),
-                            "function session is unavailable",
-                        ))
-                    })?;
-                    return session
-                        .run(expression, bindings, &value, context, budget)
-                        .map_err(zirql::EvaluationError::Host);
-                }
                 Stage::PatternBinding(_, expression) => {
                     let session = context.functions.expect("prepared pattern program");
                     return session
@@ -1989,18 +1990,6 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                 Stage::Ordering(ordering) => {
                     return composition::CompositionHost(self)
                         .order(ordering, value, context, bindings, budget, range);
-                }
-                Stage::Projection(projection) => {
-                    let host = composition::CompositionHost(self);
-                    return zirql::evaluate_projection(
-                        projection.get(),
-                        &host,
-                        value,
-                        context,
-                        bindings,
-                        budget,
-                    )
-                    .map(ReportValue::Constructed);
                 }
                 Stage::Filter(predicate) => {
                     return composition::CompositionHost(self).guard_filter(
@@ -2118,6 +2107,17 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
         range: &Range<usize>,
     ) -> Result<(), zirql::EvaluationError<QueryError>> {
         let value = copy_value(value, budget, range).map_err(zirql::EvaluationError::Host)?;
+        let value = if self.project_reports {
+            let host = composition::CompositionHost(self);
+            let kind = host.kind(&value, budget, range)?;
+            if host.scalar_types(&kind, budget, range)?.is_some() {
+                ReportValue::Constructed(host.project_value(value, context, budget, range)?)
+            } else {
+                value
+            }
+        } else {
+            value
+        };
         budget.charge_results(1, zirql::Location::Query(range.clone()))?;
         context.emissions.push(ProgramEmission {
             value,
@@ -3288,7 +3288,7 @@ pub(crate) fn filter_query_rows<'a>(
     let program = zirql::Program::new(
         vec![Located::new(
             zirql::Statement::Evaluate {
-                expression: value_stage(Stage::FunctionValue(value), range.clone()),
+                expression: core_value(value, range.clone()),
                 implicit_output: None,
             },
             range.clone(),
@@ -3346,6 +3346,7 @@ pub(crate) fn filter_query_rows<'a>(
         predicate.nesting.min(limits.nesting),
     )?;
     let host = NativeHost {
+        project_reports: false,
         functions: true,
         signatures: &[],
         declarations: &[],
@@ -3372,14 +3373,9 @@ pub(crate) fn filter_query_rows<'a>(
     let zirql::Statement::Evaluate { expression, .. } = &program.statements()[0].value else {
         unreachable!()
     };
-    let ExpressionKind::Sequence { steps, .. } = &expression.value else {
-        unreachable!()
-    };
-    let ExpressionStep::Stage(Stage::FunctionValue(value)) = &steps[0].value else {
-        unreachable!()
-    };
     let bindings = Bindings::new(Vec::new()).map_err(pipeline::core_error)?;
-    let result = session.run(value, &bindings, &input_value, &mut context, budget)?;
+    let result =
+        session.run_expression(expression, &bindings, &input_value, &mut context, budget)?;
     let ReportValue::Query(stream) = functions::owned(result, budget, range)? else {
         return Err(QueryError::query(
             range.clone(),
@@ -3418,6 +3414,13 @@ fn admit_written_members<'v, 'a>(
             ExpressionKind::Sequence { input, steps } => {
                 native.push(input);
                 for step in steps {
+                    match &step.value {
+                        ExpressionStep::Value(value) => values.push(value.as_ref()),
+                        ExpressionStep::Projection(projection) => {
+                            values.extend(projection.fields.iter().map(|(_, value)| value))
+                        }
+                        _ => {}
+                    }
                     let ExpressionStep::Stage(stage) = &step.value else {
                         continue;
                     };
@@ -3432,9 +3435,7 @@ fn admit_written_members<'v, 'a>(
                                 &member.range,
                             )?;
                         }
-                        Stage::FunctionValue(value)
-                        | Stage::FunctionSource(value)
-                        | Stage::PatternBinding(_, value) => values.push(value),
+                        Stage::PatternBinding(_, value) => values.push(value),
                         Stage::Query(_, arguments) => {
                             values.extend(arguments.iter().map(|argument| &argument.expression))
                         }
@@ -3443,9 +3444,6 @@ fn admit_written_members<'v, 'a>(
                         }
                         Stage::Mapping(mapping) => values.extend([&mapping.key, &mapping.value]),
                         Stage::Ordering(ordering) => values.extend(ordering.selector.iter()),
-                        Stage::Projection(projection) => {
-                            values.extend(projection.get().fields.iter().map(|(_, value)| value))
-                        }
                         Stage::Filter(predicate) => {
                             for guard in composition::guard_leaves(predicate.get()) {
                                 values.extend(guard.values());

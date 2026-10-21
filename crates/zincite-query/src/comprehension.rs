@@ -118,8 +118,7 @@ impl zirql::ValueReaderHost for DataReader {
         ))
     }
     fn filter(&mut self, _: zirql::Predicate<()>, _: Range<usize>) {}
-    fn projection(&mut self, _: zirql::Projection<zirql::Expression<(), (), ()>>, _: Range<usize>) {
-    }
+
     fn set_operator(&self, _: &str) -> Option<()> {
         None
     }

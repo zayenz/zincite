@@ -24,9 +24,19 @@ The [projection examples](queries.md#correlate-declarations-with-their-uses)
 show both forms. Selections keep their declaration identity and source
 locations throughout the report.
 
+Zirql owns the ordinary value-source and projection steps. Preparation checks
+every field once against its subject's declared singleton kind and lexical scope
+before execution. Fields run in written order for each subject; empty reports
+retain their field schema. Zincite supplies native selection and scalar views,
+model facts and the report envelope. Native handles stay native until an
+explicit projection or rendering request.
+
 A guard that remains unknown fails at the model location responsible. A known
 true alternative can still keep a row, with any analysis limitations attached.
 Empty matches keep their field names so later projections can be checked.
+When a nested operation requires a complete observation, Zincite refuses an
+incomplete incoming selection before the value or projection runs. Other report
+transitions retain its incomplete-selection evidence and located limitations.
 
 `paths(referenced_declarations, to=predicate, max_depth=n)` finds connections
 between declarations. Each result contains a source, a sink and the declarations
@@ -85,7 +95,7 @@ Zincite responsibilities.
 ## Transform report rows
 
 The development checkout pins Zirql
-[`402eede8a28008b52a36afa1fd301b3bab251e0a`](https://github.com/zayenz/zirql/commit/402eede8a28008b52a36afa1fd301b3bab251e0a).
+[`5d6a466a6ee9bac2a90c2dfbc5579a0b0c12f08d`](https://github.com/zayenz/zirql/commit/5d6a466a6ee9bac2a90c2dfbc5579a0b0c12f08d).
 The following report forms require that checkout; the published Zirql 0.2.0
 integration predates them.
 
@@ -911,9 +921,10 @@ For library callers, the accounting rules are:
 - Grouping, `entries` and `zip_exact` count field and key comparisons, enum
   metadata checks, temporary containers and copied keys or labels. Moving an
   already evaluated row or cell into its result does not deep-copy that value.
-- Native projections prepare their bodies and primitive arguments once per
-  invocation. Operations still run for each selected subject. Reusing an input
-  value spends reference and slot work; new input values and changed contracts
+- Core projection steps prepare their fields and native arguments once per
+  request, before subjects are enumerated. Operations still run for each selected
+  subject. Reusing an input value spends reference and slot work; new input
+  values and changed contracts
   must be checked again.
 - Scope metadata and storage growth consume budget before allocation. Leaving
   a scope does not refund work. Output snapshots and each rendering spend the
@@ -933,11 +944,13 @@ batch. Some incomplete reductions can be previewed as described in the
 requires a complete candidate. An actual evaluation or rendering error leaves
 stdout empty.
 
-Zirql reads and evaluates query expressions, bindings, predicate bodies and
-comprehensions. Zincite parses input MiniZinc files and supplies source
-selections, model facts and literal values. Zincite then renders a report or validates and serializes the
-complete edited data file. The report and edit forms share that evaluator and
-budget, while data edits allow fewer operations. Neither form runs a MiniZinc
+Zirql reads and evaluates query expressions, bindings, predicate bodies,
+comprehensions and core projection fields. Zincite parses input MiniZinc files
+and supplies source selections, model facts and literal values. Zirql renders
+ordinary report data; Zincite supplies native descriptors and completeness
+envelopes, or validates and serializes the complete edited data file. The report
+and edit forms share that evaluator and budget, while data edits allow fewer
+operations. Neither form runs a MiniZinc
 compiler or solver.
 
 Use `--model` to supply target declarations, `--diff` to inspect changes and

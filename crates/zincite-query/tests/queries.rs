@@ -7732,6 +7732,21 @@ fn adopted_report_extensions_keep_order_and_native_builder_values() {
         _ => panic!("scalar field"),
     };
     assert_eq!(count.data(), &V::Integer(2));
+    let shared: std::sync::Arc<ProgramValue> = e(K::Literal(V::Integer(1))).into();
+    let native = Located::new(
+        zirql::ExpressionKind::Sequence {
+            input: Box::new(Located::new(zirql::ExpressionKind::Input, 10..20)),
+            steps: vec![Located::new(
+                zirql::ExpressionStep::Value(std::sync::Arc::clone(&shared)),
+                12..18,
+            )],
+        },
+        10..20,
+    );
+    let error = Program::from_values(vec![], vec![], e(K::NativeValue(Box::new(native))), limits)
+        .unwrap_err();
+    assert_eq!(error.range, 12..18);
+    assert!(error.message.contains("one owner"));
     for source in [
         "let unused=[n | case n in [1]]; create changed=1; emit;",
         "create changed=if false then [n | case n in [1]] else [1] endif; emit;",

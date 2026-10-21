@@ -118,10 +118,14 @@ impl Program {
     ///
     /// All input trees transfer to this call, including on failure. Preparation
     /// against the current input/model happens during ordinary evaluation.
+    /// Core value/projection syntax inside a native operand must have one owner:
+    /// lowering consumes its opaque native payloads. Sharing runtime values does
+    /// not impose this syntax-ownership requirement.
     ///
     /// # Errors
     /// Unsupported constructs, duplicate names and exhausted construction bounds
-    /// retain caller-supplied ranges. Evaluation also checks scope, purity,
+    /// retain caller-supplied ranges. Shared syntax requiring native-payload mapping
+    /// is refused before lowering. Evaluation also checks scope, purity,
     /// pattern compatibility and native types before executing statements.
     pub fn from_values(
         functions: Vec<ProgramFunction>,
@@ -217,11 +221,10 @@ impl Program {
         }
         statements.push(Located::new(
             zirql::Statement::Evaluate {
-                expression: value_stage(
-                    Stage::FunctionValue(zirql::map_value_payloads(
-                        inputs.report.take().unwrap(),
-                        &mut |query| map_native(query, &mut lower),
-                    )),
+                expression: core_value(
+                    zirql::map_value_payloads(inputs.report.take().unwrap(), &mut |query| {
+                        map_native(query, &mut lower)
+                    }),
                     range.clone(),
                 ),
                 implicit_output: Some(Emitter::Json),
@@ -244,9 +247,13 @@ impl Program {
             };
             if let ExpressionKind::Sequence { steps, .. } = &mut expression.value {
                 for step in steps {
-                    if let ExpressionStep::Stage(
-                        Stage::FunctionValue(value) | Stage::PatternBinding(_, value),
-                    ) = &mut step.value
+                    let value = match &mut step.value {
+                        ExpressionStep::Value(value) => {
+                            Arc::get_mut(value).expect("builder-owned value")
+                        }
+                        ExpressionStep::Stage(Stage::PatternBinding(_, value)) => value,
+                        _ => continue,
+                    };
                     {
                         functions::normalize_value(
                             value,
@@ -319,6 +326,54 @@ fn map_native(
                 let mut input = map_native(*input, lower);
                 for step in steps {
                     match step.value {
+                        ExpressionStep::Value(value) => {
+                            let value = Arc::try_unwrap(value).expect("builder-owned value");
+                            let value = zirql::map_value_payloads(value, &mut |query| {
+                                map_native(query, lower)
+                            });
+                            input = Located::new(
+                                ExpressionKind::Sequence {
+                                    input: Box::new(input),
+                                    steps: vec![Located::new(
+                                        ExpressionStep::Value(value.into()),
+                                        step.range.clone(),
+                                    )],
+                                },
+                                step.range,
+                            );
+                        }
+                        ExpressionStep::Projection(projection) => {
+                            let projection =
+                                Arc::try_unwrap(projection).expect("builder-owned projection");
+                            let fields = projection
+                                .fields
+                                .into_iter()
+                                .map(|(label, value)| {
+                                    (
+                                        label,
+                                        zirql::map_value_payloads(value, &mut |query| {
+                                            map_native(query, lower)
+                                        }),
+                                    )
+                                })
+                                .collect();
+                            input = Located::new(
+                                ExpressionKind::Sequence {
+                                    input: Box::new(input),
+                                    steps: vec![Located::new(
+                                        ExpressionStep::Projection(
+                                            zirql::Projection {
+                                                subject: projection.subject,
+                                                fields,
+                                            }
+                                            .into(),
+                                        ),
+                                        step.range.clone(),
+                                    )],
+                                },
+                                step.range,
+                            );
+                        }
                         ExpressionStep::Stage(mut stage) => {
                             let mut leaf = match &mut stage {
                                 ProgramNative::Query(query) => lower(
@@ -411,6 +466,7 @@ fn check_native(
     budget: &mut Budget,
     nesting: usize,
 ) -> Result<(), QueryError> {
+    zirql::walk_expression(query, budget, nesting, |_, _| Ok(())).map_err(pipeline::core_error)?;
     let mut pending = vec![(query, 0)];
     while let Some((query, depth)) = pending.pop() {
         if depth >= nesting.min(64) {
@@ -448,6 +504,38 @@ fn check_native(
                         .charge_results(1, zirql::Location::Query(step.range.clone()))
                         .map_err(pipeline::core_error)?;
                     match &step.value {
+                        ExpressionStep::Value(value) => {
+                            if Arc::strong_count(value) != 1 {
+                                return Err(QueryError::query(
+                                    step.range.clone(),
+                                    "typed native value syntax must have one owner before lowering",
+                                ));
+                            }
+                            for query in functions::check_value(
+                                value,
+                                budget,
+                                nesting.saturating_sub(depth + 1),
+                            )? {
+                                pending.push((query, depth + 1));
+                            }
+                        }
+                        ExpressionStep::Projection(projection) => {
+                            if Arc::strong_count(projection) != 1 {
+                                return Err(QueryError::query(
+                                    step.range.clone(),
+                                    "typed native projection syntax must have one owner before lowering",
+                                ));
+                            }
+                            for (_, value) in &projection.fields {
+                                for query in functions::check_value(
+                                    value,
+                                    budget,
+                                    nesting.saturating_sub(depth + 1),
+                                )? {
+                                    pending.push((query, depth + 1));
+                                }
+                            }
+                        }
                         ExpressionStep::Stage(ProgramNative::Query(query))
                             if !query.is_editing()
                                 && !query.stages.iter().any(|stage| {
