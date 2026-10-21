@@ -200,13 +200,19 @@ by the objective expression. Each node retains its precise source range.
 ## Development report transformations
 
 The development query adapter pins Zirql Git revision
-`dd8aca20bf5313cf8a735753cc687996bb114003`. It supports positional `map` and
+`b2b7a9e37584cf30079fabea98558f0c750f2fce`. It supports positional `map` and
 `flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
 with `with`, and full `align` by a unique field. The
 [report transformation example](query-comprehension-contract.md#transform-report-rows)
 shows their syntax and required checkout. Text programs and
 `Program::from_values` use the same evaluator and retain native selections
 inside report records. Data edits keep their closed expression subset.
+
+The shared [infix operators](https://zayenz.se/zirql/guides/library-operators/#equality)
+apply the same numeric and compatible-type admission to ordinary data in native
+tuples, captures and positional sequences. Native CST leaves keep source identity.
+Deferred equality checks occur only on evaluation, including later incompatible
+pairs after an earlier unequal pair. The closed Data/edit subset is unchanged.
 
 ### Native composition boundary
 
@@ -1012,7 +1018,7 @@ extract exactly one value from a projection. Native node and semantic selections
 retain their identities; use an explicit projection before passing them to a
 scalar operation or comprehension.
 
-The development dependency pins Zirql `dd8aca20bf5313cf8a735753cc687996bb114003`.
+The development dependency pins Zirql `b2b7a9e37584cf30079fabea98558f0c750f2fce`.
 Zirql traverses mixed native/constructed containers, converts constructed nodes
 with its tagged-data codec, and writes JSON with the active request budget.
 Zincite supplies native source/semantic descriptors, shape admission and the

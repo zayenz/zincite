@@ -70,6 +70,14 @@ schemas; `.field` selects a static string field. Bracket access accepts general
 keys and fails when missing; `lookup(d,key)` returns absence for a valid missing key.
 Arrays and tuples compare by position, sets by membership, and dictionaries by
 associations, independently of insertion order. Different kinds remain distinct.
+Infix equality requires compatible underlying types, including native tuples,
+capture records and positional sequences holding ordinary data. For example,
+`[1, 2] == [9, true]` fails even though the first pair already differs. Deferred
+checks run when the comparison executes; an untaken branch does not inspect its
+values. Optional declarations and empty sequence schemas remain part of admission.
+Infix `<`, `<=`, `>` and `>=` require present numbers with exact mixed-number
+conversion. Native collection wrappers retain that rule; structural sort order
+is a separate operation. Native CST leaves retain their exact source identity.
 
 Bare sets accept `{3, 1, 3}` and `{n mod 3 for n in 1..5}`. They keep `3, 1`
 and `1, 2, 0` respectively. Empty `{}` is a dictionary in this report syntax;
@@ -108,7 +116,7 @@ Zincite responsibilities.
 ## Transform report rows
 
 The development checkout pins Zirql
-[`dd8aca20bf5313cf8a735753cc687996bb114003`](https://github.com/zayenz/zirql/commit/dd8aca20bf5313cf8a735753cc687996bb114003).
+[`b2b7a9e37584cf30079fabea98558f0c750f2fce`](https://github.com/zayenz/zirql/commit/b2b7a9e37584cf30079fabea98558f0c750f2fce).
 The following report forms require that checkout; the published Zirql 0.2.0
 integration predates them.
 
