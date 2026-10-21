@@ -229,7 +229,7 @@ impl Program {
             range.clone(),
         ));
         for function in &mut functions {
-            functions::lower_primitives(
+            functions::normalize_value(
                 &mut function.value,
                 &BTreeMap::new(),
                 &queries,
@@ -248,7 +248,7 @@ impl Program {
                         Stage::FunctionValue(value) | Stage::PatternBinding(_, value),
                     ) = &mut step.value
                     {
-                        functions::lower_primitives(
+                        functions::normalize_value(
                             value,
                             &BTreeMap::new(),
                             &queries,

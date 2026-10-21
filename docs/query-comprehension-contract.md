@@ -85,7 +85,7 @@ Zincite responsibilities.
 ## Transform report rows
 
 The development checkout pins Zirql
-[`843190701089ef2d1644cea8dc0abe92f080a63b`](https://github.com/zayenz/zirql/commit/843190701089ef2d1644cea8dc0abe92f080a63b).
+[`aa6e7c3eed515e703fe055c8d880e2685d0ac7f6`](https://github.com/zayenz/zirql/commit/aa6e7c3eed515e703fe055c8d880e2685d0ac7f6).
 The following report forms require that checkout; the published Zirql 0.2.0
 integration predates them.
 
@@ -402,8 +402,10 @@ These forms are report-only, including in unused bindings and skipped branches. 
 [patterns reference](reference.md#patterns-and-pure-control-values) and
 [complete examples](queries.md#destructure-a-report).
 
-Query functions do not execute model functions. Their calls share the program's
-work and result limits; see the [function reference](reference.md#typed-query-functions).
+Query functions and the five [native functions](reference.md#typed-query-functions)
+use Zirql's ordinary calls and share the program's work and result limits.
+They do not execute model functions. Native owners, source coordinates and model
+completeness remain Zincite checks.
 Data-edit programs reject function declarations and calls, even when unused.
 
 Numbers use signed 64-bit integers and finite binary64 decimal floats. Integer

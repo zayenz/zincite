@@ -2,25 +2,76 @@
 use super::*;
 use zirql::{DeclaredType as D, ProjectionHost, ValueExpression as E, ValueExpressionKind as K};
 
-#[derive(Clone, Copy, Debug)]
-pub(super) enum Primitive {
-    DirectChildren,
-    NodeKind,
-    WrittenCallName,
-    SameDeclaration,
-    ReferenceInfo,
+const NATIVE_FUNCTION_NAMES: &[&str] = &[
+    "direct_children",
+    "node_kind",
+    "written_call_name",
+    "same_declaration",
+    "reference_info",
+];
+pub(super) fn is_native_function(name: &str) -> bool {
+    NATIVE_FUNCTION_NAMES.contains(&name)
 }
-impl Primitive {
-    pub(super) fn named(name: &str) -> Option<Self> {
-        match name {
-            "same_declaration" => Some(Self::SameDeclaration),
-            "reference_info" => Some(Self::ReferenceInfo),
-            "direct_children" => Some(Self::DirectChildren),
-            "node_kind" => Some(Self::NodeKind),
-            "written_call_name" => Some(Self::WrittenCallName),
-            _ => None,
+
+fn native_function<'c, 'a, 'h, 'q>(
+    name: &str,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<
+    Option<zirql::NativeFunction<Context<'c, 'a>, composition::CompositionHost<'h, 'q>>>,
+    zirql::QueryError,
+> {
+    let Some(index) = NATIVE_FUNCTION_NAMES
+        .iter()
+        .position(|candidate| *candidate == name)
+    else {
+        return Ok(None);
+    };
+    // Every definition below has at most two parameters and one nested result.
+    budget.charge_results(8, zirql::Location::Query(range.clone()))?;
+    budget.charge(
+        8 * std::mem::size_of::<D<Kind>>(),
+        zirql::Location::Query(range.clone()),
+    )?;
+    let (parameters, result, invoke): (
+        _,
+        _,
+        zirql::NativeFunctionImplementation<Context<'c, 'a>, composition::CompositionHost<'h, 'q>>,
+    ) = match index {
+        0 => (
+            vec![D::Native(Kind::Node)],
+            D::Sequence(Box::new(D::Native(Kind::Node))),
+            direct_children,
+        ),
+        1 => (vec![D::Native(Kind::Node)], D::String, node_kind),
+        2 => (
+            vec![D::Native(Kind::Node)],
+            D::Optional(Box::new(D::String)),
+            written_call_name,
+        ),
+        3 => (
+            vec![D::Native(Kind::Declaration), D::Native(Kind::Declaration)],
+            D::Boolean,
+            same_declaration,
+        ),
+        4 => {
+            budget.charge("targets".len(), zirql::Location::Query(range.clone()))?;
+            (
+                vec![D::Native(Kind::Declaration)],
+                D::Record(vec![(
+                    "targets".into(),
+                    D::Sequence(Box::new(D::Native(Kind::Declaration))),
+                )]),
+                reference_info,
+            )
         }
-    }
+        _ => unreachable!("native definition index"),
+    };
+    Ok(Some(zirql::NativeFunction {
+        name: NATIVE_FUNCTION_NAMES[index],
+        signature: zirql::OperationSignature { parameters, result },
+        invoke,
+    }))
 }
 
 impl Parser<'_> {
@@ -115,7 +166,7 @@ impl Parser<'_> {
             .map(|function| function.name.value.clone())
             .collect();
         for function in &mut self.functions {
-            lower_primitives(
+            normalize_value(
                 &mut function.value,
                 &BTreeMap::new(),
                 &self.queries,
@@ -160,7 +211,7 @@ impl Parser<'_> {
             ));
         }
         written_value_natives(&value, &mut self.preflight, nesting)?;
-        lower_primitives(
+        normalize_value(
             &mut value,
             &self.names,
             &self.queries,
@@ -170,7 +221,7 @@ impl Parser<'_> {
     }
 }
 
-pub(super) fn lower_primitives(
+pub(super) fn normalize_value(
     expression: &mut E<Expression>,
     names: &BTreeMap<String, Kind>,
     queries: &[ProgramQuery],
@@ -216,20 +267,8 @@ pub(super) fn lower_recovered_value(
     // Admission bounded this tree before lowering. Hosts rewrite native leaves;
     // Zirql owns child and generator structure and ordinary record evaluation.
     zirql::for_each_value_child_mut(expression, |child| {
-        lower_primitives(child, names, queries, constructed_functions);
+        normalize_value(child, names, queries, constructed_functions);
     });
-    if let K::Call {
-        function,
-        arguments,
-    } = &mut expression.value
-        && let Some(primitive) = Primitive::named(&function.value)
-    {
-        let arguments = std::mem::take(arguments);
-        expression.value = K::NativeValue(Box::new(value_stage(
-            Stage::Primitive(primitive, arguments),
-            expression.range.clone(),
-        )));
-    }
 }
 
 pub(super) fn recover_call_value(
@@ -710,7 +749,15 @@ pub(super) fn owned<'a>(
         }
     }
 }
-impl<'a> zirql::FunctionHost<Context<'_, 'a>> for composition::CompositionHost<'_, '_> {
+impl<'c, 'a> zirql::FunctionHost<Context<'c, 'a>> for composition::CompositionHost<'_, '_> {
+    fn native_function(
+        &self,
+        name: &str,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<Option<zirql::NativeFunction<Context<'c, 'a>, Self>>, zirql::QueryError> {
+        native_function(name, budget, range)
+    }
     fn retains_native_admission(&self) -> bool {
         true
     }
@@ -934,7 +981,6 @@ impl<'a> zirql::FunctionHost<Context<'_, 'a>> for composition::CompositionHost<'
     fn is_operation_name(&self, name: &str) -> bool {
         zirql::is_common_operation_name(name)
             || composition::domain_stage(name)
-            || Primitive::named(name).is_some()
             || matches!(
                 name,
                 "source"
@@ -1265,102 +1311,118 @@ fn admit_capture<'a>(
     Ok(())
 }
 
-pub(super) fn primitive<'a>(
-    primitive: Primitive,
-    values: &[&ReportValue<'a>],
-    context: &mut Context<'_, 'a>,
-    budget: &mut Budget,
-    range: &Range<usize>,
-    host: &composition::CompositionHost<'_, '_>,
-) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
-    let value = values[0];
-    if matches!(primitive, Primitive::SameDeclaration) {
-        return Ok(ReportValue::Constructed(zirql::ConstructedValue::Boolean(
-            host.identity(value, &Kind::Declaration, context, budget, range)?
-                == host.identity(values[1], &Kind::Declaration, context, budget, range)?,
-        )));
-    }
-    if matches!(primitive, Primitive::ReferenceInfo) {
-        host.identity(value, &Kind::Declaration, context, budget, range)?;
-        let ReportValue::Query(SemanticStream::Entities(rows)) = unretained(value) else {
-            unreachable!("admitted declaration")
-        };
-        let semantic::SemanticEntity::Declaration(id) = rows[0] else {
-            unreachable!("admitted declaration")
-        };
-        let owner = worklists::owner(value).cloned();
-        let report = context.query.report.as_mut().ok_or_else(|| {
-            zirql::QueryError::query(range.clone(), "reference_info requires model facts")
-        })?;
-        let rows = report
-            .complete_targets(id, &mut Work { budget }, range, host.0.limits)
-            .map_err(zirql::EvaluationError::Host)?;
-        budget.charge_results(3, zirql::Location::Query(range.clone()))?;
-        return Ok(ReportValue::Capture(zirql::NativeCapture {
-            fields: vec![(
-                "targets".to_owned(),
-                ReportValue::EntitySequence {
-                    declarations: true,
-                    owner,
-                    value: Box::new(ReportValue::Query(SemanticStream::Entities(rows))),
-                },
-            )],
-        }));
-    }
-    zirql::admit_value(
-        value,
-        &D::Native(Kind::Node),
-        host,
-        context,
-        budget,
-        zirql::Location::Query(range.clone()),
-    )?;
+fn native_node<'a>(value: &ReportValue<'a>) -> &'a zincite_syntax::SyntaxNode {
     let ReportValue::Query(SemanticStream::Inspection(result)) = unretained(value) else {
         unreachable!("admitted node")
     };
-    let node = match result.as_ref() {
+    match result.as_ref() {
         QueryResult::Nodes(selection) => selection.nodes[0].node,
         QueryResult::Selection(selection) => selection.items[0].node,
         _ => unreachable!("admitted node"),
-    };
+    }
+}
+fn direct_children<'a>(
+    _: &composition::CompositionHost<'_, '_>,
+    values: Vec<Located<ReportValue<'a>>>,
+    context: &mut Context<'_, 'a>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+    let node = native_node(&values[0].value);
     let input = context.input;
-    let value = match primitive {
-        Primitive::SameDeclaration | Primitive::ReferenceInfo => {
-            unreachable!("declaration primitives returned above")
-        }
-        Primitive::DirectChildren => {
-            let count = node.child_nodes().count();
-            budget.charge(count, zirql::Location::Query(range.clone()))?;
-            budget.charge_results(count + 1, zirql::Location::Query(range.clone()))?;
-            budget.check_items(count, zirql::Location::Query(range.clone()))?;
-            ReportValue::Query(SemanticStream::Inspection(Box::new(QueryResult::Nodes(
-                crate::NodeSelection {
-                    input,
-                    nodes: node
-                        .child_nodes()
-                        .map(|node| crate::SelectedNode {
-                            node,
-                            file: input.file(),
-                            range: input.original_range(node.range()),
-                        })
-                        .collect(),
-                },
-            ))))
-        }
-        Primitive::NodeKind => ReportValue::Constructed(zirql::ConstructedValue::String(
-            inspection::kind_name(node.kind()),
-        )),
-        Primitive::WrittenCallName => {
-            ReportValue::Constructed(match inspection::call_name(input, node) {
-                Some(name) => {
-                    budget.charge(name.len(), zirql::Location::Query(range.clone()))?;
-                    zirql::ConstructedValue::String(name.to_owned())
-                }
-                None => zirql::ConstructedValue::Absent,
-            })
-        }
+    let count = node.child_nodes().count();
+    budget.charge(count, zirql::Location::Query(range.clone()))?;
+    budget.charge_results(count + 1, zirql::Location::Query(range.clone()))?;
+    budget.check_items(count, zirql::Location::Query(range.clone()))?;
+    Ok(ReportValue::Query(SemanticStream::Inspection(Box::new(
+        QueryResult::Nodes(crate::NodeSelection {
+            input,
+            nodes: node
+                .child_nodes()
+                .map(|node| crate::SelectedNode {
+                    node,
+                    file: input.file(),
+                    range: input.original_range(node.range()),
+                })
+                .collect(),
+        }),
+    ))))
+}
+fn node_kind<'a>(
+    _: &composition::CompositionHost<'_, '_>,
+    values: Vec<Located<ReportValue<'a>>>,
+    _: &mut Context<'_, 'a>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+    let name = inspection::kind_name(native_node(&values[0].value).kind());
+    budget.charge(name.len(), zirql::Location::Query(range.clone()))?;
+    Ok(ReportValue::Constructed(zirql::ConstructedValue::String(
+        name,
+    )))
+}
+fn written_call_name<'a>(
+    _: &composition::CompositionHost<'_, '_>,
+    values: Vec<Located<ReportValue<'a>>>,
+    context: &mut Context<'_, 'a>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+    Ok(ReportValue::Constructed(
+        match inspection::call_name(context.input, native_node(&values[0].value)) {
+            Some(name) => {
+                budget.charge(name.len(), zirql::Location::Query(range.clone()))?;
+                zirql::ConstructedValue::String(name.to_owned())
+            }
+            None => zirql::ConstructedValue::Absent,
+        },
+    ))
+}
+fn same_declaration<'a>(
+    host: &composition::CompositionHost<'_, '_>,
+    values: Vec<Located<ReportValue<'a>>>,
+    context: &mut Context<'_, 'a>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+    Ok(ReportValue::Constructed(zirql::ConstructedValue::Boolean(
+        host.identity(&values[0].value, &Kind::Declaration, context, budget, range)?
+            == host.identity(&values[1].value, &Kind::Declaration, context, budget, range)?,
+    )))
+}
+fn reference_info<'a>(
+    host: &composition::CompositionHost<'_, '_>,
+    values: Vec<Located<ReportValue<'a>>>,
+    context: &mut Context<'_, 'a>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<ReportValue<'a>, zirql::EvaluationError<QueryError>> {
+    let value = &values[0].value;
+    host.identity(value, &Kind::Declaration, context, budget, range)?;
+    let ReportValue::Query(SemanticStream::Entities(rows)) = unretained(value) else {
+        unreachable!("admitted declaration")
     };
-    Ok(value)
+    let semantic::SemanticEntity::Declaration(id) = rows[0] else {
+        unreachable!("admitted declaration")
+    };
+    let owner = worklists::owner(value).cloned();
+    let report = context.query.report.as_mut().ok_or_else(|| {
+        zirql::QueryError::query(range.clone(), "reference_info requires model facts")
+    })?;
+    let rows = report
+        .complete_targets(id, &mut Work { budget }, range, host.0.limits)
+        .map_err(zirql::EvaluationError::Host)?;
+    budget.charge_results(3, zirql::Location::Query(range.clone()))?;
+    Ok(ReportValue::Capture(zirql::NativeCapture {
+        fields: vec![(
+            "targets".to_owned(),
+            ReportValue::EntitySequence {
+                declarations: true,
+                owner,
+                value: Box::new(ReportValue::Query(SemanticStream::Entities(rows))),
+            },
+        )],
+    }))
 }
 
 pub(super) fn into_value(mut expression: Expression) -> E<Expression> {
@@ -1479,7 +1541,6 @@ pub(super) fn value_kind(
     scope: &BTreeMap<String, Kind>,
     budget: &mut Budget,
 ) -> Result<Kind, zirql::QueryError> {
-    use zirql::FunctionHost;
     budget.charge(1, zirql::Location::Query(expression.range.clone()))?;
     match &expression.value {
         K::Name(name) => scope.get(name).cloned().ok_or_else(|| {
@@ -1488,30 +1549,7 @@ pub(super) fn value_kind(
                 format!("undefined binding: {name}"),
             )
         }),
-        K::Call {
-            function,
-            arguments,
-        } => {
-            let signature = host
-                .0
-                .signatures
-                .iter()
-                .find(|signature| signature.name.value == function.value)
-                .ok_or_else(|| {
-                    zirql::QueryError::query(
-                        function.range.clone(),
-                        format!("undefined function: {}", function.value),
-                    )
-                })?;
-            if signature.parameters.len() != arguments.len() {
-                return Err(zirql::QueryError::query(
-                    expression.range.clone(),
-                    "function argument count mismatch",
-                ));
-            }
-            host.declaration_kind(&signature.result.value, budget, &expression.range)
-        }
-        K::SubjectScope { .. } | K::Field { .. } | K::TupleAccess { .. } => {
+        K::Call { .. } | K::SubjectScope { .. } | K::Field { .. } | K::TupleAccess { .. } => {
             zirql::pattern_function_value_kind_borrowed(
                 host.0
                     .declarations
@@ -1842,7 +1880,7 @@ fn check_values<'v, Q>(
                 | K::Continue(_)
                 | K::Fold { .. }
                 | K::Scan { .. }
-        ) || matches!(&value.value, K::Call { function, .. } if Primitive::named(&function.value).is_some());
+        ) || matches!(&value.value, K::Call { function, .. } if is_native_function(&function.value));
         if depth >= nesting.min(64) {
             return Err(QueryError::query(
                 value.range.clone(),

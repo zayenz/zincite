@@ -1255,7 +1255,7 @@ retain their existing closed subset.
 
 ## Render a mixed native report
 
-The development Git dependency at Zirql `843190701089ef2d1644cea8dc0abe92f080a63b`
+The development Git dependency at Zirql `aa6e7c3eed515e703fe055c8d880e2685d0ac7f6`
 uses the shared tagged-data codec inside native reports. Against `model.mzn`
 above, run:
 

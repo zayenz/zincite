@@ -200,7 +200,7 @@ by the objective expression. Each node retains its precise source range.
 ## Development report transformations
 
 The development query adapter pins Zirql Git revision
-`843190701089ef2d1644cea8dc0abe92f080a63b`. It supports positional `map` and
+`aa6e7c3eed515e703fe055c8d880e2685d0ac7f6`. It supports positional `map` and
 `flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
 with `with`, and full `align` by a unique field. The
 [report transformation example](query-comprehension-contract.md#transform-report-rows)
@@ -657,25 +657,30 @@ Enum names resolve once per evaluation against its current `ModelFacts`,
 including nested and set signatures. A name alone never establishes enum
 identity. A `.dzn` request with nominal signatures needs `--model`.
 
-A function sees its parameters, earlier local lets, named query functions and
-registered pure operations. It cannot capture top-level bindings or parameters,
-shadow an existing local, emit, edit data, or call a model function. Every
-written body, native argument and branch is preflighted before statements run,
-including unused declarations and skipped branches. Argument and result
-contracts check actual selected data. A failure returns no partial report.
-Function declarations and calls are excluded from atomic Data programs,
-including unused declarations and skipped expressions.
+Functions follow Zirql's [common scope, call and admission rules](https://zayenz.se/zirql/guides/functions-and-control-flow/).
+Zincite checks every written body and native argument before execution, including
+unused declarations and skipped branches. Functions cannot call MiniZinc model
+functions, emit or edit data. Atomic Data programs reject declarations and calls,
+even when unused. A failure returns no partial report.
 
-Three pure operations inspect explicit native nodes:
+Zincite defines these eager pure native functions:
 
-| Operation | Result |
+| Signature | Result and domain rule |
 | --- | --- |
-| `direct_children(node)` | `sequence<Node>` in direct containment order. |
-| `node_kind(node)` | The CST kind string, such as `call_expression` or `generator_call_expression`. |
-| `written_call_name(node)` | `opt string` containing the direct written call name. |
+| `direct_children(node: Node) -> sequence<Node>` | Direct CST containment order, including empty children. |
+| `node_kind(node: Node) -> string` | CST kind, such as `call_expression` or `generator_call_expression`. |
+| `written_call_name(node: Node) -> opt string` | Direct written call name, or absence. |
+| `same_declaration(a: Declaration, b: Declaration) -> bool` | Exact retained binding owner and declaration ID. |
+| `reference_info(d: Declaration) -> record{targets: sequence<Declaration>}` | Complete model adjacency; incomplete facts produce a located refusal. |
 
-These operations inspect syntax. They do not resolve or execute a MiniZinc
-model call or run a solver. [Count written calls](queries.md#count-written-calls-with-a-function)
+All five use ordinary shared call parsing, preparation and runtime signature
+admission. Native arguments must belong to the current source/model and satisfy
+the singleton contract. Each implementation retains its syntax or model checks.
+The [embedding guide](https://zayenz.se/zirql/guides/embedding-programs/#define-a-native-function)
+shows how the host supplies one signature and implementation.
+
+`direct_children`, `node_kind` and `written_call_name` inspect syntax. They do
+not resolve or execute a MiniZinc model call or run a solver. [Count written calls](queries.md#count-written-calls-with-a-function)
 contains a complete recursive program and input. Declaration navigation still
 uses the semantic adapters, retaining incomplete facts and located Unknown
 refusals. Calls in projection fields, computed native arguments, dependent
@@ -964,7 +969,7 @@ extract exactly one value from a projection. Native node and semantic selections
 retain their identities; use an explicit projection before passing them to a
 scalar operation or comprehension.
 
-The development dependency pins Zirql `843190701089ef2d1644cea8dc0abe92f080a63b`.
+The development dependency pins Zirql `aa6e7c3eed515e703fe055c8d880e2685d0ac7f6`.
 Zirql traverses mixed native/constructed containers, converts constructed nodes
 with its tagged-data codec, and writes JSON with the active request budget.
 Zincite supplies native source/semantic descriptors, shape admission and the

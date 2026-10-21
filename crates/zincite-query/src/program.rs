@@ -29,10 +29,6 @@ enum Stage {
     FunctionValue(zirql::ValueExpression<Expression>),
     FunctionSource(zirql::ValueExpression<Expression>),
     PatternBinding(zirql::Pattern, zirql::ValueExpression<Expression>),
-    Primitive(
-        functions::Primitive,
-        Vec<zirql::ValueExpression<Expression>>,
-    ),
     Member(comprehension::MemberRequest),
     Query(usize, Rc<Vec<QueryArgument>>),
     Ordering(native::OrderingStage),
@@ -67,11 +63,6 @@ impl Drop for Stage {
                     Located::new(zirql::PatternKind::Wildcard, 0..0),
                 ));
                 zirql::dispose_native_value(std::mem::replace(value, empty()));
-            }
-            Self::Primitive(_, values) => {
-                for value in std::mem::take(values) {
-                    zirql::dispose_native_value(value);
-                }
             }
             Self::Copy(_)
             | Self::Parameter(_)
@@ -1955,13 +1946,6 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                         .bind(expression, bindings, &value, context, budget)
                         .map_err(zirql::EvaluationError::Host);
                 }
-                Stage::Primitive(_, _) => {
-                    return Err(zirql::QueryError::query(
-                        range.clone(),
-                        "native function primitive requires its active argument runner",
-                    )
-                    .into());
-                }
                 Stage::Member(member) => {
                     let facts = context
                         .report_facts(budget, &member.range)
@@ -3451,7 +3435,6 @@ fn admit_written_members<'v, 'a>(
                         Stage::FunctionValue(value)
                         | Stage::FunctionSource(value)
                         | Stage::PatternBinding(_, value) => values.push(value),
-                        Stage::Primitive(_, arguments) => values.extend(arguments),
                         Stage::Query(_, arguments) => {
                             values.extend(arguments.iter().map(|argument| &argument.expression))
                         }
