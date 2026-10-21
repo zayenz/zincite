@@ -13,11 +13,16 @@ This guide explains the syntax and result rules used in its examples. The
 [expression contract](query-comprehension-contract.md) lists supported operators,
 collection forms and the smaller language allowed in data edits.
 
-Zirql evaluates the shared expressions, bindings and collection operations;
-Zincite supplies MiniZinc input, source selections, model facts and native
-projections. Zirql renders the ordinary report containers and constructed data.
+Zirql evaluates shared expressions, bindings and collection operations, including
+native filtering, matching, ordering, dictionaries, existence, fixed points and
+paths. Zincite supplies MiniZinc input, domain operations and predicate facts,
+native identity, source ownership and complete-observation rules. Zirql renders
+the ordinary report containers and constructed data.
 The [Zirql language reference](https://zayenz.se/zirql/guides/language-reference/)
 offers further examples and background on the evaluator shared with other tools.
+Its [shared native reference](https://zayenz.se/zirql/guides/library-native/)
+describes common composition; the recipes below supply Zincite's actual native
+operations and source/model policies.
 
 Saved repository examples use the [v0.2.0 checkout](getting-started.md#build-from-a-checkout).
 Run their repository-relative paths from the checkout root. Examples that give
@@ -1294,7 +1299,7 @@ retain their existing closed subset.
 
 ## Render a mixed native report
 
-The development Git dependency at Zirql `23b4e4e70a9225dfeea51642c130da2431b12d9d`
+The development Git dependency at Zirql `dd8aca20bf5313cf8a735753cc687996bb114003`
 uses the shared tagged-data codec inside native reports. Against `model.mzn`
 above, run:
 

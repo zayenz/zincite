@@ -29,15 +29,7 @@ enum Stage {
     PatternBinding(zirql::Pattern, zirql::ValueExpression<Expression>),
     Member(comprehension::MemberRequest),
     Query(usize, Rc<Vec<QueryArgument>>),
-    Ordering(native::OrderingStage),
-    WhereExists(native::BodyStage),
-    FixedPoint(native::BodyStage),
-    Mapping(native::MappingStage),
-    MapSorting,
-    RetainPayload,
-    Match(composition::MatchStage),
-    Paths(composition::PathStage),
-    Filter(composition::FilterStage),
+    Guard(Box<composition::Guard>),
     Copy(source_copy::CopyStage),
     Data(Vec<data::Edit>, Vec<(Located<String>, Located<String>)>),
 }
@@ -62,15 +54,7 @@ impl Drop for Stage {
             | Self::Parameter(_)
             | Self::Member(_)
             | Self::Query(..)
-            | Self::Ordering(_)
-            | Self::WhereExists(_)
-            | Self::FixedPoint(_)
-            | Self::Mapping(_)
-            | Self::MapSorting
-            | Self::RetainPayload
-            | Self::Match(_)
-            | Self::Filter(_)
-            | Self::Paths(_)
+            | Self::Guard(_)
             | Self::Data(..) => {}
         }
     }
@@ -136,7 +120,6 @@ enum Kind {
     Tally,
     Record,
     Dictionary(Rc<Vec<Kind>>),
-    Payload(Rc<Kind>),
     Entities,
     Declarations,
     Types,
@@ -1621,54 +1604,12 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                     ));
                 }
                 Stage::Query(index, _) => *index,
-                Stage::RetainPayload => return Ok(value),
-                Stage::Mapping(mapping) => {
-                    return composition::CompositionHost(self)
-                        .mapping(mapping, value, context, bindings, budget, range);
-                }
-                Stage::MapSorting => {
-                    return composition::CompositionHost(self)
-                        .sort_map(value, context, budget, range);
-                }
-                Stage::WhereExists(body) => {
-                    return composition::CompositionHost(self)
-                        .where_exists(body, value, context, bindings, budget, range);
-                }
-                Stage::FixedPoint(body) => {
-                    return composition::CompositionHost(self)
-                        .fixed_point(body, value, context, bindings, budget, range);
-                }
-                Stage::Ordering(ordering) => {
-                    return composition::CompositionHost(self)
-                        .order(ordering, value, context, bindings, budget, range);
-                }
-                Stage::Filter(predicate) => {
-                    return composition::CompositionHost(self).guard_filter(
-                        predicate.get(),
-                        value,
-                        context,
-                        bindings,
-                        budget,
-                        range,
-                    );
-                }
-                Stage::Match(matching) => {
-                    return composition::CompositionHost(self).matching(
-                        matching.get(),
-                        value,
-                        context,
-                        bindings,
-                        budget,
-                    );
-                }
-                Stage::Paths(paths) => {
-                    return composition::CompositionHost(self).paths(
-                        paths.get(),
-                        value,
-                        context,
-                        bindings,
-                        budget,
-                    );
+                Stage::Guard(_) => {
+                    return Err(zirql::QueryError::query(
+                        range.clone(),
+                        "guard payload cannot execute as a stage",
+                    )
+                    .into());
                 }
                 Stage::Copy(stage) => {
                     return self.source_copy(stage, value, context, bindings, budget, range);
@@ -2855,7 +2796,7 @@ fn render_bytes<'a>(value: &ReportValue<'a>, semantic: Option<&SemanticResult<'a
 /// The fixed Query API retains the same shared predicate and native adapter.
 #[derive(Debug)]
 pub(crate) struct QueryPredicate {
-    filter: composition::FilterStage,
+    filter: Arc<zirql::Predicate<Stage>>,
     queries: Vec<ProgramQuery>,
     work: usize,
     nesting: usize,
@@ -2870,6 +2811,10 @@ impl QueryPredicate {
                 .any(|query| query.query.requires_model_facts())
     }
 }
+#[expect(
+    clippy::arc_with_non_send_sync,
+    reason = "Core expression steps share the immutable predicate through Arc"
+)]
 pub(crate) fn read_query_predicate(
     source: &str,
     start: usize,
@@ -2896,7 +2841,7 @@ pub(crate) fn read_query_predicate(
     .map_err(pipeline::core_error)?;
     Ok((
         Rc::new(QueryPredicate {
-            filter: composition::FilterStage::new(predicate),
+            filter: Arc::new(predicate),
             queries: std::mem::take(&mut parser.queries),
             work: before - budget.remaining_work(),
             nesting: limits.nesting,
@@ -2917,29 +2862,23 @@ pub(crate) fn filter_query_rows<'a>(
     budget
         .charge(
             predicate.work,
-            zirql::Location::Query(predicate.filter.get().range.clone()),
+            zirql::Location::Query(predicate.filter.range.clone()),
         )
         .map_err(pipeline::core_error)?;
-    let value = Located::new(
-        zirql::ValueExpressionKind::NativeValue(Box::new(Located::new(
-            ExpressionKind::Sequence {
-                input: Box::new(value_stage(
-                    Stage::Filter(predicate.filter.clone()),
-                    range.clone(),
-                )),
-                steps: vec![Located::new(
-                    ExpressionStep::Stage(Stage::RetainPayload),
-                    range.clone(),
-                )],
-            },
-            range.clone(),
-        ))),
+    let expression = Located::new(
+        ExpressionKind::Sequence {
+            input: Box::new(Located::new(ExpressionKind::Input, range.clone())),
+            steps: vec![Located::new(
+                ExpressionStep::Filter(Arc::clone(&predicate.filter)),
+                range.clone(),
+            )],
+        },
         range.clone(),
     );
     let program = zirql::Program::new(
         vec![Located::new(
             zirql::Statement::Evaluate {
-                expression: core_value(value, range.clone()),
+                expression,
                 implicit_output: None,
             },
             range.clone(),
@@ -3065,66 +3004,41 @@ fn admit_written_members<'v, 'a>(
             ExpressionKind::Sequence { input, steps } => {
                 native.push(input);
                 for step in steps {
-                    match &step.value {
-                        ExpressionStep::Value(value) => values.push(value.as_ref()),
-                        ExpressionStep::Projection(projection) => {
-                            values.extend(projection.fields.iter().map(|(_, value)| value))
+                    step.value.for_each_value(|value| values.push(value));
+                    let mut error = None;
+                    step.value.for_each_payload(|stage| {
+                        if error.is_some() {
+                            return;
                         }
-                        _ => {}
-                    }
-                    let ExpressionStep::Stage(stage) = &step.value else {
-                        continue;
-                    };
-                    match stage {
-                        Stage::Member(member) => {
-                            let facts = context.report_facts(budget, &member.range)?;
-                            comprehension::resolve_member(
-                                facts.as_deref(),
-                                Some(&member.enum_name.value),
-                                &member.member_name.value,
-                                budget,
-                                &member.range,
-                            )?;
-                        }
-                        Stage::PatternBinding(_, value) => values.push(value),
-                        Stage::Query(_, arguments) => {
-                            values.extend(arguments.iter().map(|argument| &argument.expression))
-                        }
-                        Stage::WhereExists(body) | Stage::FixedPoint(body) => {
-                            values.push(&body.expression)
-                        }
-                        Stage::Mapping(mapping) => values.extend([&mapping.key, &mapping.value]),
-                        Stage::Ordering(ordering) => values.extend(ordering.selector.iter()),
-                        Stage::Filter(predicate) => {
-                            for guard in composition::guard_leaves(predicate.get()) {
-                                values.extend(guard.values());
-                            }
-                        }
-                        Stage::Paths(paths) => {
-                            for guard in composition::guard_leaves(&paths.get().target) {
-                                values.extend(guard.values());
-                            }
-                        }
-                        Stage::Match(matching) => {
-                            for clause in &matching.get().clauses {
-                                match &clause.value {
-                                    zirql::MatchClause::From { source, .. }
-                                    | zirql::MatchClause::Bind { value: source, .. } => {
-                                        native.push(source)
-                                    }
-                                    zirql::MatchClause::Where { predicate } => {
-                                        for guard in composition::guard_leaves(predicate) {
-                                            values.extend(guard.values());
-                                        }
-                                    }
+                        match stage {
+                            Stage::Member(member) => {
+                                let result =
+                                    context
+                                        .report_facts(budget, &member.range)
+                                        .and_then(|facts| {
+                                            comprehension::resolve_member(
+                                                facts.as_deref(),
+                                                Some(&member.enum_name.value),
+                                                &member.member_name.value,
+                                                budget,
+                                                &member.range,
+                                            )
+                                            .map(|_| ())
+                                        });
+                                if let Err(failure) = result {
+                                    error = Some(failure);
                                 }
                             }
+                            Stage::PatternBinding(_, value) => values.push(value),
+                            Stage::Query(_, arguments) => {
+                                values.extend(arguments.iter().map(|argument| &argument.expression))
+                            }
+                            Stage::Guard(guard) => values.extend(guard.values()),
+                            _ => {}
                         }
-                        Stage::Copy(_)
-                        | Stage::Parameter(_)
-                        | Stage::Data(..)
-                        | Stage::MapSorting
-                        | Stage::RetainPayload => {}
+                    });
+                    if let Some(error) = error {
+                        return Err(error);
                     }
                 }
             }

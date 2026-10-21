@@ -31,12 +31,18 @@ The [projection examples](queries.md#correlate-declarations-with-their-uses)
 show both forms. Selections keep their declaration identity and source
 locations throughout the report.
 
-Zirql owns the ordinary value-source and projection steps. Preparation checks
-every field once against its subject's declared singleton kind and lexical scope
-before execution. Fields run in written order for each subject; empty reports
-retain their field schema. Zincite supplies native selection and scalar views,
-model facts and the report envelope. Native handles stay native until an
-explicit projection or rendering request.
+Zirql owns value sources, projection and common native composition: filters,
+matches, ordering, maps, existence, fixed points and paths. Preparation checks
+all written bodies against their exact input kinds and lexical scopes, including
+empty reports. Projection fields and selectors receive singleton subjects;
+existence relations use each singleton, while fixed points use the whole current
+selection. Match sources and guards see the original query input and earlier
+captures. Native bodies retain their actual native result kinds.
+
+Zincite supplies native operations and predicate leaves, selection/scalar views,
+identity, shape, model facts and complete-observation policy. The host retains
+source ownership, report envelopes and Data edit safety. Native handles stay
+native until an explicit projection or rendering request.
 
 A guard that remains unknown fails at the model location responsible. A known
 true alternative can still keep a row, with any analysis limitations attached.
@@ -102,7 +108,7 @@ Zincite responsibilities.
 ## Transform report rows
 
 The development checkout pins Zirql
-[`23b4e4e70a9225dfeea51642c130da2431b12d9d`](https://github.com/zayenz/zirql/commit/23b4e4e70a9225dfeea51642c130da2431b12d9d).
+[`dd8aca20bf5313cf8a735753cc687996bb114003`](https://github.com/zayenz/zirql/commit/dd8aca20bf5313cf8a735753cc687996bb114003).
 The following report forms require that checkout; the published Zirql 0.2.0
 integration predates them.
 
@@ -952,7 +958,7 @@ requires a complete candidate. An actual evaluation or rendering error leaves
 stdout empty.
 
 Zirql reads and evaluates query expressions, bindings, predicate bodies,
-comprehensions and core projection fields. Zincite parses input MiniZinc files
+comprehensions and common native composition. Zincite parses input MiniZinc files
 and supplies source selections, model facts and literal values. Zirql renders
 ordinary report data; Zincite supplies native descriptors and completeness
 envelopes, or validates and serializes the complete edited data file. The report

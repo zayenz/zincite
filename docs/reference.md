@@ -200,7 +200,7 @@ by the objective expression. Each node retains its precise source range.
 ## Development report transformations
 
 The development query adapter pins Zirql Git revision
-`23b4e4e70a9225dfeea51642c130da2431b12d9d`. It supports positional `map` and
+`dd8aca20bf5313cf8a735753cc687996bb114003`. It supports positional `map` and
 `flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
 with `with`, and full `align` by a unique field. The
 [report transformation example](query-comprehension-contract.md#transform-report-rows)
@@ -208,13 +208,23 @@ shows their syntax and required checkout. Text programs and
 `Program::from_values` use the same evaluator and retain native selections
 inside report records. Data edits keep their closed expression subset.
 
-Ordinary value sources and `project` lower directly to Zirql's core `Value`
-and `Projection` steps. A request prepares those expressions once through
-`PreparedFunctions::prepare_expression`, using the current lexical kinds and
-optional input, then executes them through the same unit. Zincite retains
-statement and pattern-binding bookkeeping, native operations and model facts.
-Its transition policy checks required complete observations and carries incoming
-incomplete-selection evidence through core value and projection results.
+### Native composition boundary
+
+Ordinary values, projection, native filters, matches, ordering, maps, existence,
+fixed points and paths lower directly to Zirql's core expression steps.
+`PreparedFunctions::prepare_expression` checks their lexical kinds, relative
+input, common arguments and effects before execution through the same request.
+Selectors and existence relations receive singleton input; a fixed-point body
+receives the complete current selection. Match sources and guards retain the
+original query input and only earlier capture names.
+
+Zincite supplies native operations and predicate leaves, kind and scalar views,
+identity, selection/dictionary shape and domain admission. It retains ModelFacts
+demand, source owners, complete-or-error observation, the report envelope and
+Data edit safety. Common composition has no executable Zincite stage wrapper.
+Native leaf argument hooks describe only arguments belonging to those leaves;
+they do not walk common selectors or match clauses. See the
+[shared adapter hooks](https://zayenz.se/zirql/guides/host-integration/#native-ordering-and-map-construction).
 
 Zirql also supplies expression-start recognition, ordering-call lookahead and
 constructed suffix classification. Zincite retains native stage payloads and
@@ -951,10 +961,14 @@ library iteration, including nested dictionaries. See the
 
 These operations are read-only program forms. Known unsupported kinds and
 impure selectors fail preflight even for empty inputs or unused branches.
-Typed programs use `ProgramNative::Query` leaves, `ProgramNative::Ordering`,
-`ProgramNative::Mapping`, `ProgramNative::MapSorting`, `ProgramNative::Exists`,
-`ProgramNative::FixedPoint` and `NativeSetOperator`
-in `ProgramValue`; they lower to the same execution.
+Typed programs use `ProgramNative::Query` for MiniZinc query leaves and
+Zirql `ExpressionStep` forms for common composition in `ProgramValue`.
+`Ordering`, `Mapping`, `MapSorting`, `WhereExists` and `FixedPoint` carry the
+same bodies as text programs. `NativeBody::new(expression, range)` retains a
+nested native expression; `NativeSetOperator` retains set operation identity.
+The builder consumes these trees and preserves their caller-supplied ranges.
+Direct typed `Filter`, `Match` and `Paths` payloads are unsupported; a
+`ProgramNative::Query` leaf can supply native filtering.
 Native owners, source coordinates and analysis limitations survive ordering
 and set operations, and every selector shares the request budget.
 
@@ -998,7 +1012,7 @@ extract exactly one value from a projection. Native node and semantic selections
 retain their identities; use an explicit projection before passing them to a
 scalar operation or comprehension.
 
-The development dependency pins Zirql `23b4e4e70a9225dfeea51642c130da2431b12d9d`.
+The development dependency pins Zirql `dd8aca20bf5313cf8a735753cc687996bb114003`.
 Zirql traverses mixed native/constructed containers, converts constructed nodes
 with its tagged-data codec, and writes JSON with the active request budget.
 Zincite supplies native source/semantic descriptors, shape admission and the
@@ -1206,9 +1220,10 @@ root, the saved program also runs as:
 zincite-query --program-file crates/zincite-query/tests/fixtures/native-fixed-points.zq crates/zincite-query/tests/fixtures/worklist-reachability.mzn
 ```
 
-`Program::from_values` uses `ProgramNative::Exists` and
-`ProgramNative::FixedPoint` with retained native expression bodies. Typed,
-text, ordinary and prepared function paths use the same native algorithms.
+`Program::from_values` uses `ExpressionStep::WhereExists` and
+`ExpressionStep::FixedPoint` with `NativeBody` storage. Typed and text programs
+use the same prepared execution and native algorithms. Native handles remain
+native even when their kinds also admit a scalar projection.
 
 ### Assignment edits
 

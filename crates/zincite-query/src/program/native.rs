@@ -5,74 +5,7 @@ use zirql::{DeclaredType as D, Location, ProjectionHost, RuntimeTypeHost};
 
 type Failure = zirql::EvaluationError<QueryError>;
 
-#[derive(Debug)]
-pub(super) struct OrderingStage {
-    pub(super) order: zirql::NativeOrder,
-    pub(super) selector: Option<zirql::ValueExpression<Expression>>,
-}
-impl OrderingStage {
-    pub(super) fn new(ordering: zirql::NativeOrdering<Expression>) -> Self {
-        Self {
-            order: ordering.order,
-            selector: ordering.selector.map(selector_value),
-        }
-    }
-}
-/// Function selectors consume the singleton; explicit native sources still read input.
-fn selector_value(selector: Expression) -> zirql::ValueExpression<Expression> {
-    let range = selector.range.clone();
-    Located::new(
-        zirql::ValueExpressionKind::NativeValue(Box::new(selector)),
-        range,
-    )
-}
-fn empty_selector() -> zirql::ValueExpression<Expression> {
-    Located::new(
-        zirql::ValueExpressionKind::Literal(zirql::ConstructedValue::Absent),
-        0..0,
-    )
-}
-#[derive(Debug)]
-pub(super) struct MappingStage {
-    pub(super) key: zirql::ValueExpression<Expression>,
-    pub(super) value: zirql::ValueExpression<Expression>,
-}
-impl MappingStage {
-    pub(super) fn new(mapping: zirql::NativeMap<Expression>) -> Self {
-        let range = mapping.value.range.clone();
-        // Prepared functions project scalar-capable native kinds by default.
-        // The map boundary retains native payloads without changing typed calls.
-        let value = Located::new(
-            ExpressionKind::Sequence {
-                input: Box::new(mapping.value),
-                steps: vec![Located::new(
-                    ExpressionStep::Stage(Stage::RetainPayload),
-                    range.clone(),
-                )],
-            },
-            range,
-        );
-        Self {
-            key: selector_value(mapping.key),
-            value: selector_value(value),
-        }
-    }
-}
-impl Drop for MappingStage {
-    fn drop(&mut self) {
-        zirql::dispose_native_value(std::mem::replace(&mut self.key, empty_selector()));
-        zirql::dispose_native_value(std::mem::replace(&mut self.value, empty_selector()));
-    }
-}
-impl Drop for OrderingStage {
-    fn drop(&mut self) {
-        if let Some(selector) = self.selector.take() {
-            zirql::dispose_native_value(selector);
-        }
-    }
-}
-
-enum Shape<'a> {
+pub(super) enum Shape<'a> {
     Stream {
         kind: pipeline::StreamKind,
         owner: Option<Rc<ModelFacts<'a>>>,
@@ -85,7 +18,7 @@ enum Shape<'a> {
     Capture,
 }
 impl<'a> Shape<'a> {
-    fn restore(
+    pub(super) fn restore(
         self,
         values: Vec<ReportValue<'a>>,
         context: &mut Context<'_, 'a>,
@@ -194,30 +127,7 @@ pub(super) fn set_kind(kind: &Kind, range: &Range<usize>) -> Result<Kind, zirql:
 }
 
 impl<'a> composition::CompositionHost<'_, '_> {
-    pub(super) fn order_kind(
-        &self,
-        ordering: &OrderingStage,
-        input: &Kind,
-        scope: &BTreeMap<String, Kind>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<Kind, zirql::QueryError> {
-        let subject = self.subject_kind(input, budget, range)?;
-        let key = if let Some(selector) = &ordering.selector {
-            functions::value_kind(selector, self, &subject, scope, budget)?
-        } else {
-            subject
-        };
-        if !supported_key(&key) {
-            return Err(zirql::QueryError::query(
-                range.clone(),
-                "native ordering needs an explicit supported scalar key",
-            ));
-        }
-        Ok(input.clone())
-    }
-
-    fn rows(
+    pub(super) fn rows(
         &self,
         value: ReportValue<'a>,
         context: &mut Context<'_, 'a>,
@@ -357,70 +267,6 @@ impl<'a> composition::CompositionHost<'_, '_> {
         }
     }
 
-    pub(super) fn order(
-        &self,
-        ordering: &OrderingStage,
-        value: ReportValue<'a>,
-        context: &mut Context<'_, 'a>,
-        bindings: &Bindings<ReportValue<'a>>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<ReportValue<'a>, Failure> {
-        let kind = self.kind(&value, budget, range)?;
-        self.subject_kind(&kind, budget, range)?;
-        let (shape, rows) = self.rows(value, context, budget, range)?;
-        let rows = zirql::order_native_by(
-            rows,
-            ordering.order,
-            budget,
-            Location::Query(range.clone()),
-            |row, budget| {
-                let input = self.copy_value(row, context, budget, range)?;
-                let value = if let Some(selector) = &ordering.selector {
-                    let zirql::ValueExpressionKind::NativeValue(selector) = &selector.value else {
-                        unreachable!()
-                    };
-                    zirql::evaluate_expression(selector, self, input, context, bindings, budget)?
-                } else {
-                    input
-                };
-                scalar_key(value, context, budget, range, self.0.nesting)
-            },
-        )?;
-        shape.restore(rows, context, budget, range)
-    }
-
-    pub(super) fn order_with_arguments(
-        &self,
-        ordering: &OrderingStage,
-        value: ReportValue<'a>,
-        arguments: &mut dyn zirql::NativeArguments<Context<'_, 'a>, Self>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<ReportValue<'a>, Failure> {
-        let (shape, rows) = self.rows(value, arguments.parts().0, budget, range)?;
-        let rows = zirql::order_native_by(
-            rows,
-            ordering.order,
-            budget,
-            Location::Query(range.clone()),
-            |row, budget| {
-                let input = self.copy_value(row, arguments.parts().0, budget, range)?;
-                let value = if let Some(selector) = &ordering.selector {
-                    ReportValue::Retained(
-                        arguments
-                            .evaluate_native(selector, input, budget)?
-                            .into_shared(),
-                    )
-                } else {
-                    input
-                };
-                scalar_key(value, arguments.parts().0, budget, range, self.0.nesting)
-            },
-        )?;
-        shape.restore(rows, arguments.parts().0, budget, range)
-    }
-
     pub(super) fn combine_set(
         &self,
         operator: zirql::NativeSetOperator,
@@ -510,7 +356,7 @@ impl<'a> composition::CompositionHost<'_, '_> {
     }
 }
 
-fn scalar_key<'a>(
+pub(super) fn scalar_key<'a>(
     value: ReportValue<'a>,
     context: &mut Context<'_, 'a>,
     budget: &mut Budget,
@@ -569,7 +415,7 @@ impl Hash for SetRow<'_> {
     }
 }
 
-fn row_identity(
+pub(super) fn row_identity(
     value: &ReportValue<'_>,
     budget: &mut Budget,
     range: &Range<usize>,
@@ -660,7 +506,7 @@ fn validate_row<'a>(
     Ok(())
 }
 
-fn supported_key(kind: &Kind) -> bool {
+pub(super) fn supported_key(kind: &Kind) -> bool {
     match kind {
         Kind::Count | Kind::Strings | Kind::Literals | Kind::Constructed => true,
         Kind::Scalar(zirql::ParameterType::Int | zirql::ParameterType::String) => true,
@@ -728,154 +574,6 @@ pub(super) fn map_sort_kind(input: &Kind, range: &Range<usize>) -> Result<Kind, 
     }
 }
 
-impl<'a> composition::CompositionHost<'_, '_> {
-    pub(super) fn map_kind(
-        &self,
-        mapping: &MappingStage,
-        input: &Kind,
-        scope: &BTreeMap<String, Kind>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<Kind, zirql::QueryError> {
-        let subject = self.subject_kind(input, budget, range)?;
-        let key = functions::value_kind(&mapping.key, self, &subject, scope, budget)?;
-        let string_key = match &key {
-            Kind::Strings
-            | Kind::Literals
-            | Kind::Scalar(zirql::ParameterType::String)
-            | Kind::Constructed => true,
-            Kind::Value(types) => types.iter().all(string_key_type),
-            _ => false,
-        };
-        if !string_key {
-            return Err(zirql::QueryError::query(
-                mapping.key.range.clone(),
-                "map_by key must produce exactly one string",
-            ));
-        }
-        let value = functions::value_kind(&mapping.value, self, &subject, scope, budget)?;
-        let Kind::Payload(value) = value else {
-            unreachable!("retained map selector")
-        };
-        Ok(Kind::Dictionary(Rc::new(vec![value.as_ref().clone()])))
-    }
-
-    pub(super) fn mapping(
-        &self,
-        mapping: &MappingStage,
-        value: ReportValue<'a>,
-        context: &mut Context<'_, 'a>,
-        bindings: &Bindings<ReportValue<'a>>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<ReportValue<'a>, Failure> {
-        let (_, rows) = self.rows(value, context, budget, range)?;
-        zirql::map_native_by(
-            rows,
-            context,
-            budget,
-            Location::Query(range.clone()),
-            |row, context, budget| {
-                let input = self.copy_value(row, context, budget, range)?;
-                let zirql::ValueExpressionKind::NativeValue(selector) = &mapping.key.value else {
-                    unreachable!()
-                };
-                let key =
-                    zirql::evaluate_expression(selector, self, input, context, bindings, budget)?;
-                string_keys(key, context, budget, range, self.0.nesting)
-            },
-            |row, context, budget| {
-                let zirql::ValueExpressionKind::NativeValue(selector) = &mapping.value.value else {
-                    unreachable!()
-                };
-                zirql::evaluate_expression(selector, self, row, context, bindings, budget)
-            },
-        )
-        .map(ReportValue::Record)
-    }
-
-    pub(super) fn map_with_arguments(
-        &self,
-        mapping: &MappingStage,
-        value: ReportValue<'a>,
-        arguments: &mut dyn zirql::NativeArguments<Context<'_, 'a>, Self>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<ReportValue<'a>, Failure> {
-        let (_, rows) = self.rows(value, arguments.parts().0, budget, range)?;
-        zirql::map_native_by(
-            rows,
-            arguments,
-            budget,
-            Location::Query(range.clone()),
-            |row, arguments, budget| {
-                let input = self.copy_value(row, arguments.parts().0, budget, range)?;
-                let key = ReportValue::Retained(
-                    arguments
-                        .evaluate_native(&mapping.key, input, budget)?
-                        .into_shared(),
-                );
-                string_keys(key, arguments.parts().0, budget, range, self.0.nesting)
-            },
-            |row, arguments, budget| {
-                Ok(ReportValue::Retained(
-                    arguments
-                        .evaluate_native(&mapping.value, row, budget)?
-                        .into_shared(),
-                ))
-            },
-        )
-        .map(ReportValue::Record)
-    }
-
-    pub(super) fn sort_map(
-        &self,
-        value: ReportValue<'a>,
-        context: &mut Context<'_, 'a>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<ReportValue<'a>, Failure> {
-        let value = functions::owned(value, budget, range).map_err(zirql::EvaluationError::Host)?;
-        match value {
-            ReportValue::Record(entries) => zirql::order_native_by(
-                entries,
-                zirql::NativeOrder::Sort,
-                budget,
-                Location::Query(range.clone()),
-                |(_, value), budget| {
-                    let value = self.copy_value(value, context, budget, range)?;
-                    scalar_key(value, context, budget, range, self.0.nesting)
-                },
-            )
-            .map(ReportValue::Record),
-            ReportValue::Query(SemanticStream::Inspection(result)) => {
-                let QueryResult::Tally(entries) = *result else {
-                    return Err(zirql::QueryError::query(
-                        range.clone(),
-                        "value sorting requires a dictionary",
-                    )
-                    .into());
-                };
-                let entries = zirql::order_native_by(
-                    entries,
-                    zirql::NativeOrder::Sort,
-                    budget,
-                    Location::Query(range.clone()),
-                    |(_, count), _| count_key(*count, range),
-                )?;
-                Ok(ReportValue::Query(SemanticStream::Inspection(Box::new(
-                    QueryResult::Tally(entries),
-                ))))
-            }
-            _ => Err(zirql::QueryError::query(
-                range.clone(),
-                "value sorting requires a dictionary",
-            )
-            .into()),
-        }
-    }
-}
-
 fn count_key(count: usize, range: &Range<usize>) -> Result<zirql::NativeOrderKey, Failure> {
     let count = i64::try_from(count).map_err(|_| {
         zirql::QueryError::query(range.clone(), "native count exceeds signed sort key range")
@@ -885,7 +583,7 @@ fn count_key(count: usize, range: &Range<usize>) -> Result<zirql::NativeOrderKey
     ))
 }
 
-fn string_keys(
+pub(super) fn string_keys(
     value: ReportValue<'_>,
     context: &mut Context<'_, '_>,
     budget: &mut Budget,
@@ -995,33 +693,6 @@ pub(super) fn bound_map<'a>(
     }
 }
 
-#[derive(Debug)]
-pub(super) struct BodyStage {
-    pub(super) expression: zirql::ValueExpression<Expression>,
-}
-impl BodyStage {
-    pub(super) fn new(expression: Expression) -> Self {
-        let range = expression.range.clone();
-        Self {
-            expression: selector_value(Located::new(
-                ExpressionKind::Sequence {
-                    input: Box::new(expression),
-                    steps: vec![Located::new(
-                        ExpressionStep::Stage(Stage::RetainPayload),
-                        range.clone(),
-                    )],
-                },
-                range,
-            )),
-        }
-    }
-}
-impl Drop for BodyStage {
-    fn drop(&mut self) {
-        zirql::dispose_native_value(std::mem::replace(&mut self.expression, empty_selector()));
-    }
-}
-
 pub(super) fn selection_error<'v>(value: &'v ReportValue<'_>) -> Option<&'v Arc<QueryError>> {
     match value {
         ReportValue::IncompleteSelection { error, .. } => Some(error),
@@ -1073,36 +744,7 @@ pub(super) fn incomplete<'a>(
 }
 
 impl<'a> composition::CompositionHost<'_, '_> {
-    pub(super) fn body_kind(
-        &self,
-        body: &BodyStage,
-        input: &Kind,
-        scope: &BTreeMap<String, Kind>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-        exists: bool,
-    ) -> Result<Kind, zirql::QueryError> {
-        let output = set_kind(input, range)?;
-        let relative = if exists {
-            self.subject_kind(input, budget, range)?
-        } else {
-            input.clone()
-        };
-        let Kind::Payload(result) =
-            functions::value_kind(&body.expression, self, &relative, scope, budget)?
-        else {
-            unreachable!("retained native body")
-        };
-        set_kind(&result, range)?;
-        if !exists && result.as_ref() != input {
-            return Err(zirql::QueryError::query(
-                range.clone(),
-                "fixpoint body must preserve the exact native kind",
-            ));
-        }
-        Ok(if exists { output } else { input.clone() })
-    }
-    fn admitted_copy(
+    pub(super) fn admitted_copy(
         &self,
         value: &ReportValue<'a>,
         context: &mut Context<'_, 'a>,
@@ -1116,7 +758,7 @@ impl<'a> composition::CompositionHost<'_, '_> {
         let (shape, rows) = self.rows(value, context, budget, range)?;
         shape.restore(rows, context, budget, range)
     }
-    fn same_selection(
+    pub(super) fn same_native_selection(
         &self,
         left: &ReportValue<'a>,
         right: &ReportValue<'a>,
@@ -1166,171 +808,9 @@ impl<'a> composition::CompositionHost<'_, '_> {
             },
         )
     }
-    pub(super) fn where_exists(
-        &self,
-        body: &BodyStage,
-        value: ReportValue<'a>,
-        context: &mut Context<'_, 'a>,
-        bindings: &Bindings<ReportValue<'a>>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<ReportValue<'a>, Failure> {
-        require_complete(&value, budget, range)?;
-        let (mut shape, rows) = self.rows(value, context, budget, range)?;
-        if let Shape::Stream { item, .. } = &mut shape {
-            *item = false;
-        }
-        let zirql::ValueExpressionKind::NativeValue(expression) = &body.expression.value else {
-            unreachable!()
-        };
-        let rows = zirql::filter_native_exists(
-            rows,
-            budget,
-            Location::Query(range.clone()),
-            |row, budget| {
-                let input = self.admitted_copy(row, context, budget, range)?;
-                let previous = std::mem::replace(&mut context.query.complete_observations, true);
-                let result =
-                    zirql::evaluate_expression(expression, self, input, context, bindings, budget);
-                context.query.complete_observations = previous;
-                let value = result?;
-                require_complete(&value, budget, range)?;
-                self.rows(value, context, budget, range)
-                    .map(|(_, rows)| rows)
-            },
-        )?;
-        shape.restore(rows, context, budget, range)
-    }
-    pub(super) fn exists_with_arguments(
-        &self,
-        body: &BodyStage,
-        value: ReportValue<'a>,
-        arguments: &mut dyn zirql::NativeArguments<Context<'_, 'a>, Self>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<ReportValue<'a>, Failure> {
-        require_complete(&value, budget, range)?;
-        let (mut shape, rows) = self.rows(value, arguments.parts().0, budget, range)?;
-        if let Shape::Stream { item, .. } = &mut shape {
-            *item = false;
-        }
-        let rows = zirql::filter_native_exists(
-            rows,
-            budget,
-            Location::Query(range.clone()),
-            |row, budget| {
-                let input = self.admitted_copy(row, arguments.parts().0, budget, range)?;
-                let previous =
-                    std::mem::replace(&mut arguments.parts().0.query.complete_observations, true);
-                let result = arguments.evaluate_native(&body.expression, input, budget);
-                arguments.parts().0.query.complete_observations = previous;
-                let value = ReportValue::Retained(result?.into_shared());
-                require_complete(&value, budget, range)?;
-                self.rows(value, arguments.parts().0, budget, range)
-                    .map(|(_, rows)| rows)
-            },
-        )?;
-        shape.restore(rows, arguments.parts().0, budget, range)
-    }
-    pub(super) fn fixed_point(
-        &self,
-        body: &BodyStage,
-        value: ReportValue<'a>,
-        context: &mut Context<'_, 'a>,
-        bindings: &Bindings<ReportValue<'a>>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<ReportValue<'a>, Failure> {
-        let value = self.admitted_copy(&value, context, budget, range)?;
-        let zirql::ValueExpressionKind::NativeValue(expression) = &body.expression.value else {
-            unreachable!()
-        };
-        zirql::evaluate_native_fixed_point(
-            value,
-            context,
-            budget,
-            Location::Query(range.clone()),
-            |current, context, budget| {
-                let input = self.admitted_copy(current, context, budget, range)?;
-                let previous = std::mem::replace(&mut context.query.complete_observations, true);
-                let result =
-                    zirql::evaluate_expression(expression, self, input, context, bindings, budget);
-                context.query.complete_observations = previous;
-                let result = result?;
-                Ok(result)
-            },
-            |value, context, budget| self.admitted_copy(value, context, budget, range),
-            |a, b, context, budget| self.same_selection(a, b, context, budget, range),
-        )
-    }
-    pub(super) fn fixed_point_with_arguments(
-        &self,
-        body: &BodyStage,
-        value: ReportValue<'a>,
-        mut arguments: &mut dyn zirql::NativeArguments<Context<'_, 'a>, Self>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<ReportValue<'a>, Failure> {
-        let value = self.admitted_copy(&value, arguments.parts().0, budget, range)?;
-        zirql::evaluate_native_fixed_point(
-            value,
-            &mut arguments,
-            budget,
-            Location::Query(range.clone()),
-            |current, arguments, budget| {
-                let input = self.admitted_copy(current, arguments.parts().0, budget, range)?;
-                let previous =
-                    std::mem::replace(&mut arguments.parts().0.query.complete_observations, true);
-                let result = arguments.evaluate_native(&body.expression, input, budget);
-                arguments.parts().0.query.complete_observations = previous;
-                let result = ReportValue::Retained(result?.into_shared());
-                Ok(result)
-            },
-            |value, arguments, budget| {
-                self.admitted_copy(value, arguments.parts().0, budget, range)
-            },
-            |a, b, arguments, budget| self.same_selection(a, b, arguments.parts().0, budget, range),
-        )
-    }
 }
 
-/// The shared pipeline owns Boolean composition and short circuiting.
-enum FilterEvent<'g, 'v, 'a> {
-    Leaf(&'g composition::Guard, &'v ReportValue<'a>),
-    Complete(zirql::Truth),
-}
-struct GuardFilter;
-impl<'a, 'g, F> zirql::Host<ReportValue<'a>, F, &'g composition::Guard> for GuardFilter
-where
-    F: for<'v> FnMut(
-        FilterEvent<'g, 'v, 'a>,
-        &mut Budget,
-        &Range<usize>,
-    ) -> Result<zirql::Truth, Failure>,
-{
-    type Error = QueryError;
-    type Key = ();
-    fn evaluate_leaf(
-        &self,
-        guard: &&'g composition::Guard,
-        subject: &ReportValue<'a>,
-        run: &mut F,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<zirql::Truth, Failure> {
-        run(FilterEvent::Leaf(guard, subject), budget, range)
-    }
-    fn filter_truth(
-        &self,
-        truth: zirql::Truth,
-        run: &mut F,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<bool, Failure> {
-        run(FilterEvent::Complete(truth), budget, range).map(|truth| truth == zirql::Truth::True)
-    }
-}
-fn finish_filter(
+pub(super) fn finish_filter(
     truth: zirql::Truth,
     context: &mut Context<'_, '_>,
     budget: &mut Budget,
@@ -1360,111 +840,115 @@ fn finish_filter(
     }
     Ok(truth)
 }
-fn filter_predicate(
-    predicate: &zirql::Predicate<composition::Guard>,
-) -> zirql::Predicate<&composition::Guard> {
-    let value = match &predicate.value {
-        zirql::PredicateKind::Leaf(guard) => zirql::PredicateKind::Leaf(guard),
-        zirql::PredicateKind::Not(child) => {
-            zirql::PredicateKind::Not(Box::new(filter_predicate(child)))
-        }
-        zirql::PredicateKind::Group(child) => {
-            zirql::PredicateKind::Group(Box::new(filter_predicate(child)))
-        }
-        zirql::PredicateKind::And(children) => {
-            zirql::PredicateKind::And(children.iter().map(filter_predicate).collect())
-        }
-        zirql::PredicateKind::Or(children) => {
-            zirql::PredicateKind::Or(children.iter().map(filter_predicate).collect())
-        }
-    };
-    Located::new(value, predicate.range.clone())
-}
-fn filter_rows<'a, 'g>(
-    predicate: &'g zirql::Predicate<composition::Guard>,
-    rows: Vec<ReportValue<'a>>,
-    budget: &mut Budget,
-    nesting: usize,
-    run: impl for<'v> FnMut(
-        FilterEvent<'g, 'v, 'a>,
-        &mut Budget,
-        &Range<usize>,
-    ) -> Result<zirql::Truth, Failure>,
-) -> Result<Vec<ReportValue<'a>>, Failure> {
-    let range = predicate.range.clone();
-    let pipeline: zirql::Pipeline<_, ()> = zirql::Pipeline::with_group_not_nesting(
-        vec![Located::new(
-            zirql::Stage::Filter(filter_predicate(predicate)),
-            range.clone(),
-        )],
-        range.clone(),
-        nesting,
-    )?;
-    let input = zirql::NativeInput::from_admitted(run, rows, budget, Location::Query(range))?;
-    let result = zirql::evaluate(&pipeline, &GuardFilter, input, budget)?;
-    let zirql::NativeValue::Stream(rows) = result.value else {
-        unreachable!("filter returns a stream")
-    };
-    Ok(rows)
-}
-impl<'a> composition::CompositionHost<'_, '_> {
-    pub(super) fn guard_filter(
-        &self,
-        predicate: &zirql::Predicate<composition::Guard>,
-        value: ReportValue<'a>,
-        context: &mut Context<'_, 'a>,
-        bindings: &Bindings<ReportValue<'a>>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<ReportValue<'a>, Failure> {
-        use zirql::MatchHost;
-        let (mut shape, rows) = self.rows(value, context, budget, range)?;
-        if let Shape::Stream { item, .. } = &mut shape {
-            *item = false;
-        }
-        let rows = filter_rows(
-            predicate,
-            rows,
-            budget,
-            self.0.nesting,
-            |event, budget, range| match event {
-                FilterEvent::Leaf(guard, row) => {
-                    self.evaluate_guard_leaf(guard, row, context, bindings, budget, range)
+
+pub(super) fn shape<'a>(value: &ReportValue<'a>) -> Shape<'a> {
+    let item = functions::is_item(value);
+    let owner = worklists::owner(value).cloned();
+    match functions::unretained(value) {
+        ReportValue::Sequence(sequence) => Shape::Sequence(Rc::clone(&sequence.element)),
+        ReportValue::Captures(captures) => Shape::Captures(Rc::clone(&captures.schema)),
+        ReportValue::Capture(_) => Shape::Capture,
+        ReportValue::Constructed(_) | ReportValue::SharedConstructed(_) => Shape::Array,
+        ReportValue::Query(stream) => {
+            let (kind, entities) = match stream {
+                SemanticStream::Entities(rows) => {
+                    (
+                        pipeline::StreamKind::Entities,
+                        Some(rows.iter().all(|entity| {
+                            matches!(entity, semantic::SemanticEntity::Declaration(_))
+                        })),
+                    )
                 }
-                FilterEvent::Complete(truth) => finish_filter(truth, context, budget, range),
-            },
-        )?;
-        shape.restore(rows, context, budget, range)
+                SemanticStream::Types(_) => (pipeline::StreamKind::Types, None),
+                SemanticStream::Instantiations(_) => (pipeline::StreamKind::Instantiations, None),
+                SemanticStream::Inspection(result) => (
+                    match result.as_ref() {
+                        QueryResult::Selection(_) => pipeline::StreamKind::Items,
+                        QueryResult::Nodes(_) => pipeline::StreamKind::Nodes,
+                        QueryResult::Strings(_) => pipeline::StreamKind::Strings,
+                        QueryResult::Literals(_) => pipeline::StreamKind::Literals,
+                        _ => unreachable!("selection shape"),
+                    },
+                    None,
+                ),
+            };
+            Shape::Stream {
+                kind,
+                owner,
+                entities,
+                item,
+            }
+        }
+        _ => unreachable!("admitted native selection"),
     }
-    pub(super) fn guard_filter_with_arguments(
-        &self,
-        predicate: &zirql::Predicate<composition::Guard>,
-        value: ReportValue<'a>,
-        arguments: &mut dyn zirql::NativeArguments<Context<'_, 'a>, Self>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<ReportValue<'a>, Failure> {
-        let (mut shape, rows) = self.rows(value, arguments.parts().0, budget, range)?;
-        if let Shape::Stream { item, .. } = &mut shape {
-            *item = false;
-        }
-        let previous = arguments.parts().0.guard_unknown.take();
-        let result = filter_rows(
-            predicate,
-            rows,
-            budget,
-            self.0.nesting,
-            |event, budget, range| match event {
-                FilterEvent::Leaf(guard, row) => {
-                    self.guard_with_arguments(guard, row, None, arguments, budget, range)
-                }
-                FilterEvent::Complete(truth) => {
-                    finish_filter(truth, arguments.parts().0, budget, range)
-                }
-            },
-        );
-        let responsible = std::mem::replace(&mut arguments.parts().0.guard_unknown, previous);
-        let rows = result.map_err(|error| composition::predicate_error(error, responsible))?;
-        shape.restore(rows, arguments.parts().0, budget, range)
+}
+pub(super) fn string_key_kind(key: &Kind) -> bool {
+    match key {
+        Kind::Strings
+        | Kind::Literals
+        | Kind::Scalar(zirql::ParameterType::String)
+        | Kind::Constructed => true,
+        Kind::Value(types) => types.iter().all(string_key_type),
+        _ => false,
+    }
+}
+pub(super) fn map_entries<'a>(
+    value: ReportValue<'a>,
+    _: &mut Context<'_, 'a>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<Vec<(String, ReportValue<'a>)>, Failure> {
+    match functions::owned(value, budget, range).map_err(zirql::EvaluationError::Host)? {
+        ReportValue::Record(entries) => Ok(entries),
+        ReportValue::Query(SemanticStream::Inspection(result)) => match *result {
+            QueryResult::Tally(entries) => Ok(entries
+                .into_iter()
+                .map(|(key, count)| {
+                    (
+                        key,
+                        ReportValue::Query(SemanticStream::Inspection(Box::new(
+                            QueryResult::Count(count),
+                        ))),
+                    )
+                })
+                .collect()),
+            _ => Err(zirql::QueryError::query(
+                range.clone(),
+                "value sorting requires a dictionary",
+            )
+            .into()),
+        },
+        _ => Err(
+            zirql::QueryError::query(range.clone(), "value sorting requires a dictionary").into(),
+        ),
+    }
+}
+pub(super) fn restore_map<'a>(
+    input: ReportValue<'a>,
+    entries: Vec<(String, ReportValue<'a>)>,
+    _: &mut Context<'_, 'a>,
+    budget: &mut Budget,
+    range: &Range<usize>,
+) -> Result<ReportValue<'a>, Failure> {
+    if matches!(functions::unretained(&input),ReportValue::Query(SemanticStream::Inspection(result)) if matches!(result.as_ref(),QueryResult::Tally(_)))
+    {
+        let entries = entries
+            .into_iter()
+            .map(
+                |(key, value)| match functions::owned(value, budget, range) {
+                    Ok(ReportValue::Query(SemanticStream::Inspection(value))) => match *value {
+                        QueryResult::Count(count) => Ok((key, count)),
+                        _ => unreachable!("tally value"),
+                    },
+                    Err(error) => Err(zirql::EvaluationError::Host(error)),
+                    _ => unreachable!("tally value"),
+                },
+            )
+            .collect::<Result<_, _>>()?;
+        Ok(ReportValue::Query(SemanticStream::Inspection(Box::new(
+            QueryResult::Tally(entries),
+        ))))
+    } else {
+        Ok(ReportValue::Record(entries))
     }
 }

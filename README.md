@@ -69,7 +69,9 @@ arguments such as `row => row.weight > 0` or the implicit `_` subject. See the
 for patterns, native subjects and data-edit limits.
 
 Zincite's guides cover query syntax, collection order, optional values and
-validated data edits. Zirql supplies the shared evaluator; its
+validated data edits. Zirql owns common native composition and its prepared
+execution; Zincite supplies MiniZinc operations, identity, source/model ownership
+and edit safety. Zirql's
 [values and comprehensions guide](https://zayenz.se/zirql/guides/values/)
 offers additional examples and background.
 

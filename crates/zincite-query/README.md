@@ -6,6 +6,20 @@ expressions are read and evaluated by Zirql. Both `for/in/if` and `|/where`
 comprehensions share tuple/list patterns and scoped predicates. Native model
 facts and source-preserving Data edits stay with Zincite.
 
+Text programs use Zirql's direct expression steps for filtering, matching,
+ordering, native dictionaries, existence, fixed points and paths.
+`Program::from_values` uses direct core ordering, mapping, existence and
+fixed-point steps alongside typed `ProgramNative::Query` leaves. Native
+filtering remains available through those Query leaves. Direct typed `Filter`,
+`Match` and `Paths` payloads are unsupported. `NativeBody` retains nested native
+results.
+Zincite's adapter supplies kinds, subjects, identity, scalar keys, result shapes
+and complete-observation policy.
+It retains statement/binding bookkeeping, model ownership and edit validation.
+See the [adapter boundary](https://zayenz.se/zincite/guides/reference/#native-composition-boundary)
+and [Zirql embedding guide](https://zayenz.se/zirql/guides/embedding-programs/#build-native-composition-steps)
+for the development API beyond registry Zirql 0.2.0.
+
 Use a current stable Rust toolchain. Add the library with:
 
 ```sh

@@ -240,9 +240,17 @@ fn value_suffix_kind(
     stage: &ExpressionStep<Stage, Emitter, zirql::NativeSetOperator>,
     queries: &[ProgramQuery],
 ) -> Option<zirql::ValueSuffixKind> {
-    if matches!(stage, ExpressionStep::Stage(Stage::Ordering(order)) if order.order == zirql::NativeOrder::Sort && order.selector.is_none())
+    if matches!(stage, ExpressionStep::Ordering(order) if order.order == zirql::NativeOrder::Sort && order.selector.is_none())
     {
         return Some(zirql::ValueSuffixKind::Sort);
+    }
+    if let ExpressionStep::Collection(operation) = stage {
+        return Some(match operation {
+            zirql::Stage::Count => zirql::ValueSuffixKind::Count,
+            zirql::Stage::Unique => zirql::ValueSuffixKind::Unique,
+            zirql::Stage::Tally => zirql::ValueSuffixKind::Tally,
+            _ => return None,
+        });
     }
     let ExpressionStep::Stage(Stage::Query(index, _)) = stage else {
         return None;
@@ -405,11 +413,6 @@ impl<'r, 'a> Session<'r, 'a> {
                 }
             }
             if let zirql::Statement::Bind { name, .. } = &statement.value {
-                let kind = if let Kind::Payload(kind) = kind {
-                    (*kind).clone()
-                } else {
-                    kind
-                };
                 scope.insert(name.value.clone(), kind);
             }
         }
@@ -1397,11 +1400,10 @@ pub(super) fn parsed_native_kind(
                 } else if matches!(&step.value, ExpressionStep::Projection(_)) {
                     kind = Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished]));
                 }
-                if let ExpressionStep::Stage(stage) = &step.value {
-                    kind = match stage {
-                        Stage::Match(matching) => Kind::Captures(Rc::new(zirql::NativeCapture {
+                kind = match &step.value {
+                    ExpressionStep::Match(matching) => {
+                        Kind::Captures(Rc::new(zirql::NativeCapture {
                             fields: matching
-                                .get()
                                 .clauses
                                 .iter()
                                 .filter_map(|clause| match &clause.value {
@@ -1412,27 +1414,60 @@ pub(super) fn parsed_native_kind(
                                     _ => None,
                                 })
                                 .collect(),
-                        })),
-                        Stage::Paths(_) => Kind::Captures(Rc::new(zirql::NativeCapture {
-                            fields: vec![
-                                ("source".into(), Kind::Declaration),
-                                ("sink".into(), Kind::Declaration),
-                                ("steps".into(), Kind::Declarations),
-                            ],
-                        })),
-                        Stage::WhereExists(_) => {
-                            native::set_kind(&kind, &step.range).unwrap_or(Kind::Constructed)
-                        }
-                        Stage::FixedPoint(_)
-                        | Stage::Ordering(_)
-                        | Stage::MapSorting
-                        | Stage::Filter(_) => kind,
-                        Stage::Mapping(_) => Kind::Dictionary(Rc::new(vec![Kind::Constructed])),
-                        Stage::Query(index, _) => validate_stages(&queries[*index].query, kind)
-                            .unwrap_or(Kind::Constructed),
-                        _ => Kind::Constructed,
-                    };
-                }
+                        }))
+                    }
+                    ExpressionStep::Paths(_) => Kind::Captures(Rc::new(zirql::NativeCapture {
+                        fields: vec![
+                            ("source".into(), Kind::Declaration),
+                            ("sink".into(), Kind::Declaration),
+                            ("steps".into(), Kind::Declarations),
+                        ],
+                    })),
+                    ExpressionStep::WhereExists(_) => {
+                        native::set_kind(&kind, &step.range).unwrap_or(Kind::Constructed)
+                    }
+                    ExpressionStep::Mapping(_) => {
+                        Kind::Dictionary(Rc::new(vec![Kind::Constructed]))
+                    }
+                    ExpressionStep::Collection(operation) => {
+                        let stage = match operation {
+                            zirql::Stage::Count => Some(language::StageKind::Count),
+                            zirql::Stage::Unique => Some(language::StageKind::Unique),
+                            zirql::Stage::Tally => Some(language::StageKind::Tally),
+                            zirql::Stage::Head(n) => Some(language::StageKind::Head(*n)),
+                            zirql::Stage::Tail(n) => Some(language::StageKind::Tail(*n)),
+                            zirql::Stage::Reverse => Some(language::StageKind::Reverse),
+                            zirql::Stage::Check { expected, message } => {
+                                Some(language::StageKind::Check {
+                                    expected: *expected,
+                                    message: message.clone(),
+                                })
+                            }
+                            _ => None,
+                        };
+                        stage
+                            .and_then(|stage| {
+                                validate_stages(
+                                    &Query {
+                                        stages: vec![language::Stage {
+                                            kind: stage,
+                                            range: step.range.clone(),
+                                        }],
+                                        range: step.range.clone(),
+                                        nesting_limit: 64,
+                                    },
+                                    kind.clone(),
+                                )
+                                .ok()
+                            })
+                            .unwrap_or(kind)
+                    }
+                    ExpressionStep::Stage(Stage::Query(index, _)) => {
+                        validate_stages(&queries[*index].query, kind).unwrap_or(Kind::Constructed)
+                    }
+                    ExpressionStep::Stage(_) => Kind::Constructed,
+                    _ => kind,
+                };
             }
             kind
         }

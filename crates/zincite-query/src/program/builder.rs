@@ -10,75 +10,10 @@ pub type ProgramFunction = zirql::UnresolvedPatternFunctionDeclaration<
     zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>,
 >;
 
-/// Typed native stages use the same selection and collection execution as text.
+/// A native MiniZinc query leaf. Common composition uses Zirql expression steps.
 #[derive(Debug)]
 pub enum ProgramNative {
     Query(Query),
-    Ordering(zirql::NativeOrdering<zirql::Expression<Self, zirql::NativeSetOperator, ()>>),
-    /// Construct an insertion-ordered dictionary from singleton-relative selectors.
-    Mapping(zirql::NativeMap<zirql::Expression<Self, zirql::NativeSetOperator, ()>>),
-    /// Stably sort dictionary values with the native typed scalar key contract.
-    MapSorting,
-    /// Keep original subjects whose pure native relation is nonempty.
-    Exists(Box<zirql::Expression<Self, zirql::NativeSetOperator, ()>>),
-    /// Replace the native selection until its ordered identities are unchanged.
-    FixedPoint(Box<zirql::Expression<Self, zirql::NativeSetOperator, ()>>),
-}
-
-impl ProgramNative {
-    fn take_selectors(
-        &mut self,
-        pending: &mut Vec<zirql::Expression<Self, zirql::NativeSetOperator, ()>>,
-    ) {
-        match self {
-            Self::Ordering(ordering) => pending.extend(ordering.selector.take()),
-            Self::Mapping(mapping) => {
-                pending.push(std::mem::replace(
-                    &mut mapping.key,
-                    Located::new(ExpressionKind::Input, 0..0),
-                ));
-                pending.push(std::mem::replace(
-                    &mut mapping.value,
-                    Located::new(ExpressionKind::Input, 0..0),
-                ));
-            }
-            Self::Exists(body) | Self::FixedPoint(body) => pending.push(*std::mem::replace(
-                body,
-                Box::new(Located::new(ExpressionKind::Input, 0..0)),
-            )),
-            Self::Query(_) | Self::MapSorting => {}
-        }
-    }
-}
-
-impl Drop for ProgramNative {
-    fn drop(&mut self) {
-        let mut pending = Vec::new();
-        self.take_selectors(&mut pending);
-        while let Some(expression) = pending.pop() {
-            match expression.value {
-                ExpressionKind::Input | ExpressionKind::Binding(_) => {}
-                ExpressionKind::Group(value) | ExpressionKind::Field { value, .. } => {
-                    pending.push(*value)
-                }
-                ExpressionKind::Record(fields) => {
-                    pending.extend(fields.into_iter().map(|(_, value)| value))
-                }
-                ExpressionKind::Set { left, right, .. } => {
-                    pending.push(*left);
-                    pending.push(*right);
-                }
-                ExpressionKind::Sequence { input, steps } => {
-                    pending.push(*input);
-                    for mut step in steps {
-                        if let ExpressionStep::Stage(stage) = &mut step.value {
-                            stage.take_selectors(&mut pending);
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 struct Inputs {
@@ -118,14 +53,15 @@ impl Program {
     ///
     /// All input trees transfer to this call, including on failure. Preparation
     /// against the current input/model happens during ordinary evaluation.
-    /// Core value/projection syntax inside a native operand must have one owner:
+    /// Shared syntax inside a native operand must have one owner:
     /// lowering consumes its opaque native payloads. Sharing runtime values does
     /// not impose this syntax-ownership requirement.
     ///
     /// # Errors
     /// Unsupported constructs, duplicate names and exhausted construction bounds
-    /// retain caller-supplied ranges. Shared syntax requiring native-payload mapping
-    /// is refused before lowering. Evaluation also checks scope, purity,
+    /// retain caller-supplied ranges. Shared syntax with multiple owners, direct
+    /// filter, match and path payloads and emission are refused before lowering.
+    /// Evaluation also checks scope, purity,
     /// pattern compatibility and native types before executing statements.
     pub fn from_values(
         functions: Vec<ProgramFunction>,
@@ -184,7 +120,7 @@ impl Program {
                 arguments: Rc::new(Vec::new()),
                 copy_units: range.len() + 1,
             });
-            value_stage(Stage::Query(index, Rc::new(Vec::new())), range)
+            Stage::Query(index, Rc::new(Vec::new()))
         };
         let mut functions = std::mem::take(&mut inputs.functions)
             .into_iter()
@@ -254,14 +190,12 @@ impl Program {
                         ExpressionStep::Stage(Stage::PatternBinding(_, value)) => value,
                         _ => continue,
                     };
-                    {
-                        functions::normalize_value(
-                            value,
-                            &BTreeMap::new(),
-                            &queries,
-                            &Default::default(),
-                        );
-                    }
+                    functions::normalize_value(
+                        value,
+                        &BTreeMap::new(),
+                        &queries,
+                        &Default::default(),
+                    );
                 }
             }
         }
@@ -291,9 +225,11 @@ impl Program {
     }
 }
 
+type TypedExpression = zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>;
+
 fn map_native(
-    query: zirql::Expression<ProgramNative, zirql::NativeSetOperator, ()>,
-    lower: &mut impl FnMut(Query, Range<usize>) -> Expression,
+    query: TypedExpression,
+    lower: &mut impl FnMut(Query, Range<usize>) -> Stage,
 ) -> Expression {
     let range = query.range;
     Located::new(
@@ -322,143 +258,113 @@ fn map_native(
                 left: Box::new(map_native(*left, lower)),
                 right: Box::new(map_native(*right, lower)),
             },
-            ExpressionKind::Sequence { input, steps } => {
-                let mut input = map_native(*input, lower);
-                for step in steps {
-                    match step.value {
-                        ExpressionStep::Value(value) => {
-                            let value = Arc::try_unwrap(value).expect("builder-owned value");
-                            let value = zirql::map_value_payloads(value, &mut |query| {
-                                map_native(query, lower)
-                            });
-                            input = Located::new(
-                                ExpressionKind::Sequence {
-                                    input: Box::new(input),
-                                    steps: vec![Located::new(
-                                        ExpressionStep::Value(value.into()),
-                                        step.range.clone(),
-                                    )],
-                                },
-                                step.range,
-                            );
-                        }
-                        ExpressionStep::Projection(projection) => {
-                            let projection =
-                                Arc::try_unwrap(projection).expect("builder-owned projection");
-                            let fields = projection
-                                .fields
-                                .into_iter()
-                                .map(|(label, value)| {
-                                    (
-                                        label,
-                                        zirql::map_value_payloads(value, &mut |query| {
-                                            map_native(query, lower)
-                                        }),
-                                    )
-                                })
-                                .collect();
-                            input = Located::new(
-                                ExpressionKind::Sequence {
-                                    input: Box::new(input),
-                                    steps: vec![Located::new(
-                                        ExpressionStep::Projection(
-                                            zirql::Projection {
-                                                subject: projection.subject,
-                                                fields,
-                                            }
-                                            .into(),
-                                        ),
-                                        step.range.clone(),
-                                    )],
-                                },
-                                step.range,
-                            );
-                        }
-                        ExpressionStep::Stage(mut stage) => {
-                            let mut leaf = match &mut stage {
-                                ProgramNative::Query(query) => lower(
-                                    std::mem::replace(
-                                        query,
-                                        Query {
-                                            stages: Vec::new(),
-                                            range: 0..0,
-                                            nesting_limit: 1,
-                                        },
-                                    ),
-                                    step.range.clone(),
-                                ),
-                                ProgramNative::Mapping(mapping) => value_stage(
-                                    Stage::Mapping(native::MappingStage::new(zirql::NativeMap {
-                                        key: map_native(
-                                            std::mem::replace(
-                                                &mut mapping.key,
-                                                Located::new(ExpressionKind::Input, 0..0),
-                                            ),
-                                            lower,
-                                        ),
-                                        value: map_native(
-                                            std::mem::replace(
-                                                &mut mapping.value,
-                                                Located::new(ExpressionKind::Input, 0..0),
-                                            ),
-                                            lower,
-                                        ),
-                                    })),
-                                    step.range.clone(),
-                                ),
-                                ProgramNative::Exists(body) | ProgramNative::FixedPoint(body) => {
-                                    let body = map_native(
-                                        *std::mem::replace(
-                                            body,
-                                            Box::new(Located::new(ExpressionKind::Input, 0..0)),
-                                        ),
-                                        lower,
-                                    );
-                                    let body = native::BodyStage::new(body);
-                                    let stage = if matches!(stage, ProgramNative::Exists(_)) {
-                                        Stage::WhereExists(body)
-                                    } else {
-                                        Stage::FixedPoint(body)
-                                    };
-                                    value_stage(stage, step.range.clone())
-                                }
-                                ProgramNative::MapSorting => {
-                                    value_stage(Stage::MapSorting, step.range.clone())
-                                }
-                                ProgramNative::Ordering(ordering) => value_stage(
-                                    Stage::Ordering(native::OrderingStage::new(
-                                        zirql::NativeOrdering {
-                                            order: ordering.order,
-                                            selector: ordering
-                                                .selector
-                                                .take()
-                                                .map(|selector| map_native(selector, lower)),
-                                        },
-                                    )),
-                                    step.range.clone(),
-                                ),
-                            };
-                            let ExpressionKind::Sequence { steps, .. } = &mut leaf.value else {
-                                unreachable!()
-                            };
-                            input = Located::new(
-                                ExpressionKind::Sequence {
-                                    input: Box::new(input),
-                                    steps: std::mem::take(steps),
-                                },
-                                step.range,
-                            );
-                        }
-                        ExpressionStep::Emit { .. } => {
-                            unreachable!("typed emission rejected before lowering")
-                        }
-                    }
-                }
-                return input;
-            }
+            ExpressionKind::Sequence { input, steps } => ExpressionKind::Sequence {
+                input: Box::new(map_native(*input, lower)),
+                steps: steps
+                    .into_iter()
+                    .map(|step| {
+                        let range = step.range;
+                        Located::new(map_step(step.value, lower, &range), range)
+                    })
+                    .collect(),
+            },
         },
         range,
     )
+}
+
+fn map_body(
+    body: zirql::NativeBody<TypedExpression>,
+    lower: &mut impl FnMut(Query, Range<usize>) -> Stage,
+) -> zirql::NativeBody<Expression> {
+    let value = body.into_value();
+    let zirql::ValueExpressionKind::NativeValue(query) = value.value else {
+        unreachable!("native body")
+    };
+    zirql::NativeBody::new(map_native(*query, lower), value.range)
+}
+
+fn map_step(
+    step: zirql::ExpressionStep<ProgramNative, (), zirql::NativeSetOperator>,
+    lower: &mut impl FnMut(Query, Range<usize>) -> Stage,
+    range: &Range<usize>,
+) -> ExpressionStep<Stage, Emitter, zirql::NativeSetOperator> {
+    let mut map_value =
+        |value| zirql::map_value_payloads(value, &mut |query| map_native(query, lower));
+    match step {
+        ExpressionStep::Value(value) => ExpressionStep::Value(
+            map_value(Arc::try_unwrap(value).expect("builder-owned value")).into(),
+        ),
+        ExpressionStep::Head(value) => ExpressionStep::Head(
+            map_value(Arc::try_unwrap(value).expect("builder-owned bound")).into(),
+        ),
+        ExpressionStep::Tail(value) => ExpressionStep::Tail(
+            map_value(Arc::try_unwrap(value).expect("builder-owned bound")).into(),
+        ),
+        ExpressionStep::Check { operand, message } => ExpressionStep::Check {
+            operand: operand.map(|value| {
+                map_value(Arc::try_unwrap(value).expect("builder-owned check operand")).into()
+            }),
+            message: message.map(|value| {
+                map_value(Arc::try_unwrap(value).expect("builder-owned check message")).into()
+            }),
+        },
+        ExpressionStep::Projection(projection) => {
+            let projection = Arc::try_unwrap(projection).expect("builder-owned projection");
+            ExpressionStep::Projection(
+                zirql::Projection {
+                    subject: projection.subject,
+                    fields: projection
+                        .fields
+                        .into_iter()
+                        .map(|(label, value)| (label, map_value(value)))
+                        .collect(),
+                }
+                .into(),
+            )
+        }
+        ExpressionStep::Ordering(ordering) => {
+            let ordering = Arc::try_unwrap(ordering).expect("builder-owned ordering");
+            ExpressionStep::Ordering(
+                zirql::NativeOrdering {
+                    order: ordering.order,
+                    selector: ordering.selector.map(|body| map_body(body, lower)),
+                }
+                .into(),
+            )
+        }
+        ExpressionStep::Mapping(mapping) => {
+            let mapping = Arc::try_unwrap(mapping).expect("builder-owned mapping");
+            ExpressionStep::Mapping(
+                zirql::NativeMap {
+                    key: map_body(mapping.key, lower),
+                    value: map_body(mapping.value, lower),
+                }
+                .into(),
+            )
+        }
+        ExpressionStep::WhereExists(body) => ExpressionStep::WhereExists(
+            map_body(
+                Arc::try_unwrap(body).expect("builder-owned relation"),
+                lower,
+            )
+            .into(),
+        ),
+        ExpressionStep::FixedPoint(body) => ExpressionStep::FixedPoint(
+            map_body(Arc::try_unwrap(body).expect("builder-owned body"), lower).into(),
+        ),
+        ExpressionStep::MapSorting => ExpressionStep::MapSorting,
+        ExpressionStep::Collection(operation) => ExpressionStep::Collection(operation),
+        ExpressionStep::Stage(ProgramNative::Query(query)) => {
+            ExpressionStep::Stage(lower(query, range.clone()))
+        }
+        ExpressionStep::Filter(_)
+        | ExpressionStep::Match(_)
+        | ExpressionStep::Paths(_)
+        | ExpressionStep::Emit { .. } => {
+            unreachable!("unsupported typed payload rejected before lowering")
+        }
+    }
 }
 
 fn check_native(
@@ -503,88 +409,96 @@ fn check_native(
                     budget
                         .charge_results(1, zirql::Location::Query(step.range.clone()))
                         .map_err(pipeline::core_error)?;
-                    match &step.value {
-                        ExpressionStep::Value(value) => {
-                            if Arc::strong_count(value) != 1 {
-                                return Err(QueryError::query(
-                                    step.range.clone(),
-                                    "typed native value syntax must have one owner before lowering",
-                                ));
-                            }
-                            for query in functions::check_value(
-                                value,
-                                budget,
-                                nesting.saturating_sub(depth + 1),
-                            )? {
-                                pending.push((query, depth + 1));
-                            }
+                    let owners = match &step.value {
+                        ExpressionStep::Value(value)
+                        | ExpressionStep::Head(value)
+                        | ExpressionStep::Tail(value) => Arc::strong_count(value),
+                        ExpressionStep::Check { operand, message } => operand
+                            .iter()
+                            .chain(message)
+                            .map(Arc::strong_count)
+                            .max()
+                            .unwrap_or(1),
+                        ExpressionStep::Projection(value) => Arc::strong_count(value),
+                        ExpressionStep::Ordering(value) => Arc::strong_count(value),
+                        ExpressionStep::Mapping(value) => Arc::strong_count(value),
+                        ExpressionStep::WhereExists(value) | ExpressionStep::FixedPoint(value) => {
+                            Arc::strong_count(value)
                         }
-                        ExpressionStep::Projection(projection) => {
-                            if Arc::strong_count(projection) != 1 {
-                                return Err(QueryError::query(
-                                    step.range.clone(),
-                                    "typed native projection syntax must have one owner before lowering",
-                                ));
-                            }
-                            for (_, value) in &projection.fields {
-                                for query in functions::check_value(
-                                    value,
-                                    budget,
-                                    nesting.saturating_sub(depth + 1),
-                                )? {
-                                    pending.push((query, depth + 1));
-                                }
-                            }
+                        ExpressionStep::Filter(_)
+                        | ExpressionStep::Match(_)
+                        | ExpressionStep::Paths(_) => {
+                            return Err(QueryError::query(
+                                step.range.clone(),
+                                "typed native filter, match and path payloads are unsupported",
+                            ));
                         }
-                        ExpressionStep::Stage(ProgramNative::Query(query))
-                            if !query.is_editing()
-                                && !query.stages.iter().any(|stage| {
-                                    matches!(
-                                        stage.kind,
-                                        language::StageKind::Emit
-                                            | language::StageKind::Json
-                                            | language::StageKind::EmitDocument
-                                    )
-                                }) =>
-                        {
-                            budget
-                                .charge(
-                                    query.range.len() + query.stages.len(),
-                                    zirql::Location::Query(step.range.clone()),
-                                )
-                                .map_err(pipeline::core_error)?;
-                            budget
-                                .charge_results(
-                                    query.stages.len(),
-                                    zirql::Location::Query(step.range.clone()),
-                                )
-                                .map_err(pipeline::core_error)?;
-                        }
-                        ExpressionStep::Stage(ProgramNative::Mapping(mapping)) => {
-                            pending.push((&mapping.key, depth + 1));
-                            pending.push((&mapping.value, depth + 1));
-                        }
-                        ExpressionStep::Stage(
-                            ProgramNative::Exists(body) | ProgramNative::FixedPoint(body),
-                        ) => pending.push((body, depth + 1)),
-                        ExpressionStep::Stage(ProgramNative::MapSorting) => {}
-                        ExpressionStep::Stage(ProgramNative::Ordering(ordering)) => {
-                            if let Some(selector) = &ordering.selector {
-                                pending.push((selector, depth + 1));
-                            }
-                        }
-                        ExpressionStep::Stage(_) | ExpressionStep::Emit { .. } => {
+                        ExpressionStep::Emit { .. } => {
                             return Err(QueryError::query(
                                 step.range.clone(),
                                 "typed report values must be pure",
                             ));
                         }
+                        _ => 1,
+                    };
+                    if owners != 1 {
+                        return Err(QueryError::query(
+                            step.range.clone(),
+                            "typed native syntax must have one owner before lowering",
+                        ));
                     }
+                    let mut checked = Ok(());
+                    step.value.for_each_value(|value| {
+                        if checked.is_ok() {
+                            checked = functions::check_value(
+                                value,
+                                budget,
+                                nesting.saturating_sub(depth + 1),
+                            )
+                            .map(|queries| {
+                                pending.extend(queries.into_iter().map(|query| (query, depth + 1)))
+                            });
+                        }
+                    });
+                    checked?;
+                    let mut checked = Ok(());
+                    step.value.for_each_payload(|ProgramNative::Query(query)| {
+                        if checked.is_err() {
+                            return;
+                        }
+                        checked = check_query(query, budget, &step.range);
+                    });
+                    checked?;
                 }
             }
         }
     }
     Ok(())
+}
+
+fn check_query(query: &Query, budget: &mut Budget, range: &Range<usize>) -> Result<(), QueryError> {
+    if query.is_editing()
+        || query.stages.iter().any(|stage| {
+            matches!(
+                stage.kind,
+                language::StageKind::Emit
+                    | language::StageKind::Json
+                    | language::StageKind::EmitDocument
+            )
+        })
+    {
+        return Err(QueryError::query(
+            range.clone(),
+            "typed report values must be pure",
+        ));
+    }
+    let location = zirql::Location::Query(range.clone());
+    budget
+        .charge(query.range.len() + query.stages.len(), location.clone())
+        .map_err(pipeline::core_error)?;
+    budget
+        .charge_results(query.stages.len(), location)
+        .map_err(pipeline::core_error)
 }
 
 fn dispose_signature(signature: zirql::SignatureType) {

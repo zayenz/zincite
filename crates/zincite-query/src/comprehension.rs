@@ -90,7 +90,6 @@ impl zirql::ValueReaderHost for DataReader {
     type Stage = ();
     type SetOperator = ();
     type Emitter = ();
-    type Predicate = ();
     fn is_binding(&self, _: &str) -> bool {
         false
     }
@@ -117,7 +116,6 @@ impl zirql::ValueReaderHost for DataReader {
             "native predicates are unavailable here",
         ))
     }
-    fn filter(&mut self, _: zirql::Predicate<()>, _: Range<usize>) {}
 
     fn set_operator(&self, _: &str) -> Option<()> {
         None

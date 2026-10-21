@@ -4429,6 +4429,24 @@ fn report_ordering_keeps_rows_ties_optional_results_and_selector_ranges() {
     assert!(
         matches!(result.emissions()[0].value(),ReportValue::Constructed(value) if value==&expected)
     );
+    let extrema = Program::parse(
+        "fn xs()->sequence<int> { [3,1,2] } report xs() | min; report xs() | max;",
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+    let [minimum, maximum] = extrema.emissions() else {
+        panic!("minimum and maximum reports")
+    };
+    for (emission, selected) in [(minimum, 1), (maximum, 3)] {
+        let value = match emission.value() {
+            ReportValue::Constructed(value) => value,
+            ReportValue::SharedConstructed(value) => value.as_ref(),
+            value => panic!("constructed native extremum: {value:?}"),
+        };
+        assert_eq!(value.data(), &V::Array(vec![V::Integer(selected)]));
+    }
     let dictionary_sorts = r#"
         let key="pear";
         let dictionary={key:2,"ash":1,"elm":2};
@@ -5005,12 +5023,13 @@ fn owned_typed_admission_bounds_literals_and_metadata_before_use() {
                 zirql::ExpressionKind::Sequence {
                     input: Box::new(zirql::Located::new(zirql::ExpressionKind::Input, 10..20)),
                     steps: vec![zirql::Located::new(
-                        zirql::ExpressionStep::Stage(zincite_query::ProgramNative::Ordering(
+                        zirql::ExpressionStep::Ordering(
                             zirql::NativeOrdering {
                                 order: zirql::NativeOrder::Sort,
-                                selector: Some(selector),
-                            },
-                        )),
+                                selector: Some(zirql::NativeBody::new(selector, 10..20)),
+                            }
+                            .into(),
+                        ),
                         10..20,
                     )],
                 },
@@ -6198,12 +6217,13 @@ fn native_ordering_and_operand_order_sets_keep_values_and_owners() {
     }
     let impure = l(zirql::ExpressionKind::Sequence {
         input: Box::new(native_query(r#"items | filter(name("missing"))"#)),
-        steps: vec![l(zirql::ExpressionStep::Stage(ProgramNative::Ordering(
+        steps: vec![l(zirql::ExpressionStep::Ordering(
             zirql::NativeOrdering {
                 order: zirql::NativeOrder::Sort,
-                selector: Some(native_query("names | emit")),
-            },
-        )))],
+                selector: Some(zirql::NativeBody::new(native_query("names | emit"), 10..20)),
+            }
+            .into(),
+        ))],
     });
     assert!(
         Program::from_values(
@@ -6302,12 +6322,16 @@ fn native_ordering_and_operand_order_sets_keep_values_and_owners() {
             input: Box::new(native_query(
                 r#"items | filter(name("A") or name("B") or name("C")) | reverse"#,
             )),
-            steps: vec![l(zirql::ExpressionStep::Stage(ProgramNative::Ordering(
+            steps: vec![l(zirql::ExpressionStep::Ordering(
                 zirql::NativeOrdering {
                     order,
-                    selector: Some(native_query("expressions | tail(1) | values")),
-                },
-            )))],
+                    selector: Some(zirql::NativeBody::new(
+                        native_query("expressions | tail(1) | values"),
+                        10..20,
+                    )),
+                }
+                .into(),
+            ))],
         });
         let program = Program::from_values(
             vec![],
@@ -6385,17 +6409,21 @@ fn native_ordering_and_operand_order_sets_keep_values_and_owners() {
             l(zirql::ExpressionStep::Stage(ProgramNative::Query(
                 Query::parse(r#"items | filter(name("missing"))"#, Limits::default()).unwrap(),
             ))),
-            l(zirql::ExpressionStep::Stage(ProgramNative::Ordering(
+            l(zirql::ExpressionStep::Ordering(
                 zirql::NativeOrdering {
                     order: zirql::NativeOrder::Min,
-                    selector: Some(l(zirql::ExpressionKind::Sequence {
-                        input: Box::new(l(zirql::ExpressionKind::Input)),
-                        steps: vec![l(zirql::ExpressionStep::Stage(ProgramNative::Query(
-                            Query::parse("names", Limits::default()).unwrap(),
-                        )))],
-                    })),
-                },
-            ))),
+                    selector: Some(zirql::NativeBody::new(
+                        l(zirql::ExpressionKind::Sequence {
+                            input: Box::new(l(zirql::ExpressionKind::Input)),
+                            steps: vec![l(zirql::ExpressionStep::Stage(ProgramNative::Query(
+                                Query::parse("names", Limits::default()).unwrap(),
+                            )))],
+                        }),
+                        10..20,
+                    )),
+                }
+                .into(),
+            )),
         ],
     });
     let program = Program::from_values(
@@ -6647,13 +6675,14 @@ fn native_dictionaries_keep_payloads_order_and_preflight_contracts() {
                 r#"declarations | filter(name("A") or name("B") or name("C"))"#,
             )),
             steps: vec![
-                l(zirql::ExpressionStep::Stage(ProgramNative::Mapping(
+                l(zirql::ExpressionStep::Mapping(
                     zirql::NativeMap {
-                        key: native("names"),
-                        value: native(value),
-                    },
-                ))),
-                l(zirql::ExpressionStep::Stage(ProgramNative::MapSorting)),
+                        key: zirql::NativeBody::new(native("names"), 10..20),
+                        value: zirql::NativeBody::new(native(value), 10..20),
+                    }
+                    .into(),
+                )),
+                l(zirql::ExpressionStep::MapSorting),
             ],
         })
     }
@@ -6810,12 +6839,12 @@ fn native_existence_and_fixed_points_keep_subjects_and_replacement_order() {
     let expression = l(zirql::ExpressionKind::Sequence {
         input: Box::new(native("declarations | filter(name(\"A\"))")),
         steps: vec![
-            l(zirql::ExpressionStep::Stage(ProgramNative::FixedPoint(
-                Box::new(body),
-            ))),
-            l(zirql::ExpressionStep::Stage(ProgramNative::Exists(
-                Box::new(native("referenced_declarations")),
-            ))),
+            l(zirql::ExpressionStep::FixedPoint(
+                zirql::NativeBody::new(body, 10..20).into(),
+            )),
+            l(zirql::ExpressionStep::WhereExists(
+                zirql::NativeBody::new(native("referenced_declarations"), 10..20).into(),
+            )),
         ],
     });
     let program = Program::from_values(
