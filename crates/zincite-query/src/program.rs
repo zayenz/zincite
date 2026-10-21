@@ -92,6 +92,7 @@ enum Kind {
     Tally,
     Record,
     Dictionary(Rc<Vec<Kind>>),
+    GeneralDictionary(Rc<(Kind, Kind)>),
     Entities,
     Declarations,
     Types,
@@ -128,10 +129,22 @@ pub enum ReportValue<'a> {
     },
     Query(SemanticStream<'a>),
     Record(Vec<(String, ReportValue<'a>)>),
+    Dictionary(NativeDictionary<'a>),
     Capture(zirql::NativeCapture<ReportValue<'a>>),
     Captures(CaptureMatches<'a>),
     Constructed(zirql::ConstructedValue),
     SharedConstructed(Arc<zirql::ConstructedValue>),
+}
+/// An ordered dictionary retaining actual report keys and empty contracts.
+#[derive(Debug, Clone)]
+pub struct NativeDictionary<'a> {
+    entries: Rc<Vec<(ReportValue<'a>, ReportValue<'a>)>>,
+    schema: Rc<(Kind, Kind)>,
+}
+impl<'a> NativeDictionary<'a> {
+    pub fn entries(&self) -> &[(ReportValue<'a>, ReportValue<'a>)] {
+        &self.entries
+    }
 }
 impl<'a> ReportValue<'a> {
     pub fn fields(&self) -> Option<&[(String, ReportValue<'a>)]> {
@@ -147,6 +160,7 @@ impl<'a> ReportValue<'a> {
             | Self::Tuple(_)
             | Self::Sequence(_)
             | Self::Query(_)
+            | Self::Dictionary(_)
             | Self::Constructed(_)
             | Self::SharedConstructed(_)
             | Self::Captures(_) => None,
@@ -163,6 +177,7 @@ impl<'a> ReportValue<'a> {
             | Self::Computational(_)
             | Self::Tuple(_)
             | Self::Sequence(_)
+            | Self::Dictionary(_)
             | Self::Record(_)
             | Self::Constructed(_)
             | Self::SharedConstructed(_)
@@ -1689,7 +1704,9 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
         let value = if self.project_reports {
             let host = composition::CompositionHost(self);
             let kind = host.kind(&value, budget, range)?;
-            if host.scalar_types(&kind, budget, range)?.is_some() {
+            if host.dictionary_view(&value).is_none()
+                && host.scalar_types(&kind, budget, range)?.is_some()
+            {
                 ReportValue::Constructed(host.project_value(value, context, budget, range)?)
             } else {
                 value
@@ -2146,6 +2163,7 @@ impl<'a> NativeHost<'_> {
                 | ReportValue::Tuple(_)
                 | ReportValue::Sequence(_)
                 | ReportValue::Record(_)
+                | ReportValue::Dictionary(_)
                 | ReportValue::Capture(_)
                 | ReportValue::Captures(_) => {
                     return Err(zirql::EvaluationError::Host(QueryError::query(
@@ -2273,6 +2291,15 @@ fn copy_value<'a>(
                 value, budget, range,
             )?)));
         }
+        ReportValue::Dictionary(value) => {
+            budget
+                .charge(1, zirql::Location::Query(range.clone()))
+                .map_err(pipeline::core_error)?;
+            budget
+                .charge_results(1, zirql::Location::Query(range.clone()))
+                .map_err(pipeline::core_error)?;
+            return Ok(ReportValue::Dictionary(value.clone()));
+        }
         ReportValue::Record(fields) => {
             budget
                 .charge(fields.len() + 1, zirql::Location::Query(range.clone()))
@@ -2360,6 +2387,7 @@ fn copy_admitted<'a>(value: &ReportValue<'a>) -> ReportValue<'a> {
         return value;
     }
     ReportValue::Query(match value {
+        ReportValue::Dictionary(value) => return ReportValue::Dictionary(value.clone()),
         ReportValue::SourceCopies(value) => return ReportValue::SourceCopies(Rc::clone(value)),
         ReportValue::Retained(value) => return ReportValue::Retained(Arc::clone(value)),
         ReportValue::Item(value) => return ReportValue::Item(Box::new(copy_admitted(value))),
@@ -2432,7 +2460,8 @@ fn value_units(value: &ReportValue<'_>) -> usize {
         ReportValue::SourceCopies(_)
         | ReportValue::Computational(_)
         | ReportValue::Tuple(_)
-        | ReportValue::Sequence(_) => 1,
+        | ReportValue::Sequence(_)
+        | ReportValue::Dictionary(_) => 1,
         ReportValue::Retained(value) => value_units(value),
         ReportValue::Item(value)
         | ReportValue::EntitySequence { value, .. }
@@ -2672,7 +2701,7 @@ impl<'a> zirql::RenderHost for ReportRenderer<'_, 'a> {
     fn view<'v>(
         &mut self,
         value: &'v ReportValue<'a>,
-        _context: zirql::RenderContext,
+        context: zirql::RenderContext,
         budget: &mut Budget,
         _location: &zirql::Location,
     ) -> Result<zirql::RenderView<'v, ReportValue<'a>>, QueryError> {
@@ -2697,15 +2726,49 @@ impl<'a> zirql::RenderHost for ReportRenderer<'_, 'a> {
             ReportValue::Tuple(value) => View::Sequence(value.values()),
             ReportValue::Sequence(value) => View::Sequence(value.values()),
             ReportValue::Record(fields) => View::Record(fields),
+            ReportValue::Dictionary(value) => View::Dictionary(value.entries()),
             ReportValue::Capture(capture) => View::Capture(capture),
             ReportValue::Captures(captures) => View::Captures(&captures.rows),
             ReportValue::Constructed(value) => {
                 comprehension::validate_report_shape(value, budget, self.range)?;
-                View::Constructed(value, zirql::JsonRepresentation::Tagged)
+                View::Constructed(
+                    value,
+                    if context == zirql::RenderContext::DictionaryKey
+                        && matches!(value.data(), zirql::ConstructedValue::String(_))
+                    {
+                        zirql::JsonRepresentation::Ordinary
+                    } else {
+                        zirql::JsonRepresentation::Tagged
+                    },
+                )
             }
             ReportValue::SharedConstructed(value) => {
                 comprehension::validate_report_shape(value, budget, self.range)?;
-                View::Constructed(value, zirql::JsonRepresentation::Tagged)
+                View::Constructed(
+                    value,
+                    if context == zirql::RenderContext::DictionaryKey
+                        && matches!(value.data(), zirql::ConstructedValue::String(_))
+                    {
+                        zirql::JsonRepresentation::Ordinary
+                    } else {
+                        zirql::JsonRepresentation::Tagged
+                    },
+                )
+            }
+            ReportValue::Query(SemanticStream::Inspection(value))
+                if context == zirql::RenderContext::DictionaryKey
+                    && matches!(value.as_ref(), QueryResult::Strings(values) if values.len() == 1) =>
+            {
+                let QueryResult::Strings(values) = value.as_ref() else {
+                    unreachable!()
+                };
+                budget
+                    .charge(values[0].len(), zirql::Location::Query(self.range.clone()))
+                    .map_err(pipeline::core_error)?;
+                budget
+                    .charge_results(1, zirql::Location::Query(self.range.clone()))
+                    .map_err(pipeline::core_error)?;
+                View::Projected(Value::String(values[0].clone()))
             }
             ReportValue::Query(stream) => {
                 let mut work = Work { budget };
@@ -2742,7 +2805,10 @@ fn charge_render<'a>(
 fn render_bytes<'a>(value: &ReportValue<'a>, semantic: Option<&SemanticResult<'a>>) -> usize {
     match value {
         ReportValue::SourceCopies(_) => 0,
-        ReportValue::Computational(_) | ReportValue::Tuple(_) | ReportValue::Sequence(_) => {
+        ReportValue::Computational(_)
+        | ReportValue::Tuple(_)
+        | ReportValue::Sequence(_)
+        | ReportValue::Dictionary(_) => {
             unreachable!("native containers use JSON")
         }
         ReportValue::Retained(value) => render_bytes(value, semantic),

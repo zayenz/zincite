@@ -310,11 +310,11 @@ fn constructed_call(
         query: &Expression,
         queries: &[ProgramQuery],
         functions: &std::collections::BTreeSet<String>,
-    ) -> Option<bool> {
+    ) -> Option<()> {
         match &query.value {
             ExpressionKind::Group(value) => inspect(value, queries, functions),
             ExpressionKind::Sequence { input, steps } => {
-                let (mut terminal, steps) = if let Some(Located {
+                let steps = if let Some(Located {
                     value: ExpressionStep::Value(value),
                     ..
                 }) = steps.first()
@@ -323,17 +323,15 @@ fn constructed_call(
                     {
                         return None;
                     }
-                    (false, &steps[1..])
+                    &steps[1..]
                 } else {
-                    (inspect(input, queries, functions)?, steps.as_slice())
+                    inspect(input, queries, functions)?;
+                    steps.as_slice()
                 };
                 for step in steps {
-                    if terminal {
-                        return None;
-                    }
-                    terminal = value_suffix_kind(&step.value, queries)?.is_terminal();
+                    value_suffix_kind(&step.value, queries)?;
                 }
-                Some(terminal)
+                Some(())
             }
             _ => None,
         }
@@ -440,7 +438,7 @@ fn take_constructed_suffix(
                         _ => kind.without_arguments().expect("argument-free suffix"),
                     };
                     value = zirql::lower_value_suffix(value, Located::new(suffix, step.range))
-                        .expect("the checked suffix chain ends at tally");
+                        .expect("the suffix kind was checked");
                 }
                 Some(value)
             }
@@ -561,6 +559,57 @@ pub(super) fn owned<'a>(
     }
 }
 impl<'c, 'a> zirql::FunctionHost<Context<'c, 'a>> for composition::CompositionHost<'_, '_> {
+    fn ordinary_value(
+        &self,
+        value: &Self::Value,
+        context: &mut Context<'c, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<Option<zirql::ConstructedValue>, zirql::EvaluationError<QueryError>> {
+        match unretained(value) {
+            ReportValue::Query(stream @ SemanticStream::Inspection(value)) => {
+                match value.as_ref() {
+                    QueryResult::Strings(values) if values.len() == 1 => {
+                        budget.charge(values[0].len(), zirql::Location::Query(range.clone()))?;
+                        budget.charge_results(1, zirql::Location::Query(range.clone()))?;
+                        Ok(Some(zirql::ConstructedValue::String(values[0].clone())))
+                    }
+                    QueryResult::Literals(values) if values.values.len() == 1 => {
+                        let facts = context
+                            .report_facts(budget, range)
+                            .map_err(zirql::EvaluationError::Host)?;
+                        if !std::ptr::eq(values.input, context.input) {
+                            return Err(zirql::QueryError::query(
+                                range.clone(),
+                                "foreign literal source",
+                            )
+                            .into());
+                        }
+                        let projected = comprehension::project(
+                            stream,
+                            facts.as_deref(),
+                            budget,
+                            range,
+                            self.0.nesting,
+                        )
+                        .map_err(zirql::EvaluationError::Host)?;
+                        let zirql::ConstructedValue::Array(mut values) = projected.into_data()
+                        else {
+                            unreachable!("projected literal sequence")
+                        };
+                        Ok(values.pop())
+                    }
+                    QueryResult::Count(count) => Ok(Some(zirql::count_value(
+                        *count,
+                        budget,
+                        zirql::Location::Query(range.clone()),
+                    )?)),
+                    _ => Ok(None),
+                }
+            }
+            _ => Ok(None),
+        }
+    }
     fn native_function(
         &self,
         name: &str,
@@ -809,6 +858,59 @@ impl<'c, 'a> zirql::FunctionHost<Context<'c, 'a>> for composition::CompositionHo
             )
     }
 }
+fn admit_dictionary_schema(
+    host: &composition::CompositionHost<'_, '_>,
+    schema: &(Kind, Kind),
+    expected: (&D<Kind>, &D<Kind>),
+    budget: &mut Budget,
+    location: &zirql::Location,
+) -> Result<(), zirql::QueryError> {
+    use zirql::FunctionHost;
+    budget.within_evaluation(1, location.clone(), |budget| {
+        let range = match location {
+            zirql::Location::Query(range) | zirql::Location::Source(range) => range,
+        };
+        for (kind, expected, is_key) in [
+            (&schema.0, expected.0, true),
+            (&schema.1, expected.1, false),
+        ] {
+            let mut underlying = expected;
+            while let D::Optional(inner) = underlying {
+                budget.charge(1, location.clone())?;
+                underlying = inner;
+            }
+            if let (Kind::GeneralDictionary(schema), D::Dictionary(key, value)) = (kind, underlying)
+            {
+                admit_dictionary_schema(host, schema, (key, value), budget, location)?;
+                continue;
+            }
+            let facts = if is_key && *kind == Kind::Strings {
+                budget.charge_results(1, location.clone())?;
+                Some(vec![zirql::ValueType::String])
+            } else {
+                host.scalar_types(kind, budget, range)?
+            };
+            if let Some(facts) = facts {
+                for fact in facts {
+                    zirql::admit_type_facts(
+                        &fact,
+                        expected,
+                        zirql::TypeFactPolicy::Deferred,
+                        budget,
+                        location,
+                    )?;
+                }
+            } else if *kind != host.declaration_kind(underlying, budget, range)? {
+                return Err(zirql::QueryError::query(
+                    range.clone(),
+                    "dictionary schema does not satisfy its declaration",
+                ));
+            }
+        }
+        Ok(())
+    })
+}
+
 impl<'a> zirql::RuntimeTypeHost<Context<'_, 'a>> for composition::CompositionHost<'_, '_> {
     type Kind = Kind;
     fn constructed_value<'v>(
@@ -839,7 +941,99 @@ impl<'a> zirql::RuntimeTypeHost<Context<'_, 'a>> for composition::CompositionHos
             zirql::Location::Query(range) | zirql::Location::Source(range) => range,
         };
         budget.charge(1, location.clone())?;
+        if let ReportValue::Dictionary(dictionary) = unretained(value) {
+            let mut expected = expected;
+            while let D::Optional(inner) = expected {
+                budget.charge(1, location.clone())?;
+                expected = inner;
+            }
+            match expected {
+                D::Dictionary(key, value) => {
+                    admit_dictionary_schema(
+                        self,
+                        &dictionary.schema,
+                        (key, value),
+                        budget,
+                        &location,
+                    )?;
+                }
+                D::Native(Kind::GeneralDictionary(schema)) if schema == &dictionary.schema => {}
+                _ => {
+                    return Err(zirql::QueryError::query(
+                        range.clone(),
+                        "dictionary schema does not satisfy its declaration",
+                    )
+                    .into());
+                }
+            }
+            for (key, item) in dictionary.entries() {
+                for (value, declaration) in [
+                    (
+                        key,
+                        match expected {
+                            D::Dictionary(key, _) => Some(key.as_ref()),
+                            _ => None,
+                        },
+                    ),
+                    (
+                        item,
+                        match expected {
+                            D::Dictionary(_, value) => Some(value.as_ref()),
+                            _ => None,
+                        },
+                    ),
+                ] {
+                    if let Some(declaration) = declaration {
+                        if let Some(ordinary) = zirql::FunctionHost::ordinary_value(
+                            self, value, context, budget, range,
+                        )? {
+                            zirql::admit_constructed(
+                                &ordinary,
+                                declaration,
+                                budget,
+                                location.clone(),
+                            )?;
+                            continue;
+                        }
+                        zirql::admit_value(
+                            value,
+                            declaration,
+                            self,
+                            context,
+                            budget,
+                            location.clone(),
+                        )?;
+                    } else if let Some(value) = self.constructed_value(value) {
+                        zirql::admit_constructed(value, &D::<()>::Value, budget, location.clone())?;
+                    } else if zirql::FunctionHost::ordinary_value(
+                        self, value, context, budget, range,
+                    )?
+                    .is_none()
+                    {
+                        let kind = self.kind(value, budget, range)?;
+                        self.admit_native(
+                            value,
+                            &D::Native(kind),
+                            context,
+                            budget,
+                            location.clone(),
+                        )?;
+                    }
+                }
+            }
+            return Ok(());
+        }
         match expected {
+            D::Native(Kind::Sequence(element)) => {
+                let element = zirql::copy_declaration(element, budget, &location)?;
+                return self.admit_native(
+                    value,
+                    &D::Sequence(Box::new(element)),
+                    context,
+                    budget,
+                    location,
+                );
+            }
             D::Native(Kind::Nodes) => {
                 return self.admit_native(
                     value,

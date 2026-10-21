@@ -276,8 +276,9 @@ let ordered = rows | sort | unique;
 Run `zincite query -f names.zq data.dzn`, or pass the same source with
 `--program`. The comprehension uses MiniZinc's generator pipe inside brackets.
 The outer pipes continue the completed array through Zirql's shared collection
-operations. `sort` uses structural value order; `unique` keeps the first equal
-value. For string frequencies, replace the last binding with
+operations. `sort` uses structural value order; `unique` keeps the first structurally
+equal value, including mixed scalars and record rows. For string frequencies, replace
+the last binding with
 `let ordered = rows | tally;`. Its result is a dictionary with string keys in first-seen order
 and integer counts.
 
@@ -1302,7 +1303,7 @@ retain their existing closed subset.
 
 ## Render a mixed native report
 
-The development Git dependency at Zirql `05c25a3d5f34ad431f573c55ddb0b7105a58b395`
+The development Git dependency at Zirql `49c30dac58ed2614fb9d6ba97dafe1432fa7a9cc`
 uses the shared tagged-data codec inside native reports. Against `model.mzn`
 above, run:
 
@@ -1378,3 +1379,20 @@ shared evaluator in reports and pure functions. They require this development
 checkout's pinned Zirql revision and are unavailable in Data/edit expressions,
 including unused bindings and unselected branches. Native ownership, model facts
 and edit safety remain Zincite responsibilities.
+
+## Retained tally keys
+
+Unique and tally follow Zirql's shared [structural identity contract](https://zayenz.se/zirql/guides/library-pipelines/#unique).
+A native node key retains its source and range; equal declaration names do not
+merge different native subjects. Project `names` before tally when counting
+spellings. Literal value streams compare their actual data.
+
+```zirql
+let hist = items | tally;
+let saved = hist;
+report saved | reverse | head(1) | check(1) | sort_by(value);
+```
+
+The result keeps the actual source selection as its key through saved bindings
+and lookup. Non-string keys render as dictionary entry pairs. String tallies
+retain ordinary dictionary output. The Data edit subset remains closed.

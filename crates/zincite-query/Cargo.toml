@@ -11,7 +11,7 @@ readme = "README.md"
 include = ["/src/**", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/tests/fixtures/**", "/examples/**"]
 
 [dependencies]
-zirql = { git = "https://github.com/zayenz/zirql", rev = "05c25a3d5f34ad431f573c55ddb0b7105a58b395" }
+zirql = { git = "https://github.com/zayenz/zirql", rev = "49c30dac58ed2614fb9d6ba97dafe1432fa7a9cc" }
 zincite-lint = { version = "0.2.0", path = "../zincite-lint" }
 zincite-syntax = { version = "0.2.0", path = "../zincite-syntax" }
 serde_json = { version = "1", features = ["preserve_order"] }

@@ -2054,19 +2054,10 @@ fn programs_retain_native_reports_and_one_fact_owner() {
         panic!("native count");
     };
     assert!(matches!(count.as_ref(), QueryResult::Count(2)));
-    let ReportValue::Query(SemanticStream::Inspection(histogram)) = &fields[1].1 else {
-        panic!("native histogram");
+    let ReportValue::Dictionary(histogram) = &fields[1].1 else {
+        panic!("native histogram")
     };
-    let QueryResult::Tally(histogram) = histogram.as_ref() else {
-        panic!("native histogram");
-    };
-    assert_eq!(
-        histogram
-            .iter()
-            .find(|(key, _)| key == "x")
-            .map(|(_, count)| count),
-        Some(&1)
-    );
+    assert_eq!(histogram.entries().len(), 2);
     let Some(SemanticStream::Entities(selected)) = fields[2].1.stream() else {
         panic!("native declarations");
     };
@@ -5655,7 +5646,7 @@ fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
         [&V::String("a".into()), &V::String("b".into())]
     );
     assert!(
-        matches!(result.emissions()[1].value(), ReportValue::Constructed(value) if value.data()==&V::Record(vec![("a".into(),V::Integer(1)),("b".into(),V::Integer(1))]))
+        matches!(result.emissions()[1].value(), ReportValue::Constructed(value) if matches!(value.data(), V::Dictionary(entries) if entries.len() == 2))
     );
     for prefix in ["", "fn unused(n:int)->int { n } "] {
         let request = format!(
@@ -5745,7 +5736,6 @@ fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
     }
     for (request, stage) in [
         ("1 | tally", "tally"),
-        (r#"["a"] | tally | sort"#, "sort"),
         ("[2:3,5:1] | sort", "sort"),
         ("[1] | names", "names"),
     ] {
@@ -7890,4 +7880,69 @@ fn collection_selection_matches_typed_values_and_keeps_dictionary_values() {
             "{source}"
         );
     }
+}
+
+#[test]
+fn structural_unique_and_native_tally_retain_source_keys_and_dictionary_continuation() {
+    use zincite_query::{Program, ProgramLimits, ReportValue, SemanticStream};
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"x=1; x=2;".to_vec(), FileMode::Data).unwrap();
+    let mut result = Program::parse(r#"let keys=items; let hist=keys | tally; let saved=hist; report saved | reverse | head(1) | check(1) | sort_by(value); report [1,1,"one",(x:2),(x:2)] | unique; report lookup(hist,keys | head(1));"#, limits).unwrap().evaluate(&input, limits).unwrap();
+    let ReportValue::Dictionary(dictionary) = result.emissions()[0].value() else {
+        panic!("native dictionary")
+    };
+    let Some(SemanticStream::Inspection(value)) = dictionary.entries()[0].0.stream() else {
+        panic!("source key")
+    };
+    let QueryResult::Selection(selection) = value.as_ref() else {
+        panic!("native selection")
+    };
+    assert!(std::ptr::eq(selection.input(), &input));
+    assert_eq!(selection.items()[0].range.start, 5);
+    let output = String::from_utf8(result.render().unwrap()).unwrap();
+    assert!(output.contains("\"kind\":\"dictionary\""), "{output}");
+}
+
+#[test]
+fn empty_native_tally_checks_schema_and_mixed_dictionary_keys_keep_tags() {
+    use zincite_query::{Program, ProgramLimits};
+    let limits = ProgramLimits::default();
+    let input = Input::parse(b"x=1;".to_vec(), FileMode::Data).unwrap();
+    let valid = "fn counts(roots:sequence<Node>)->dict<string,int> { roots | names | tally } let empty=counts(items | head(0)); report empty; let saved=counts(items); report lookup(saved,\"x\");";
+    let mut result = Program::parse(valid, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let rendered: Vec<serde_json::Value> = std::str::from_utf8(&result.render().unwrap())
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(rendered[0]["result"], serde_json::json!({}));
+    assert_eq!(rendered[1]["result"]["value"], 1);
+    let invalid =
+        "fn size(d:dict<int,int>)->int { 0 } report size(items | head(0) | names | tally);";
+    assert!(
+        Program::parse(invalid, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .is_err()
+    );
+
+    let mut result = Program::parse(
+        "report {(set<int>(),[1]):1}; report {(set<int>(),[1]):items | head(1)};",
+        limits,
+    )
+    .unwrap()
+    .evaluate(&input, limits)
+    .unwrap();
+    let rendered: Vec<serde_json::Value> = std::str::from_utf8(&result.render().unwrap())
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let ordinary_key = &rendered[0]["result"]["entries"][0]["key"];
+    let native_key = &rendered[1]["result"]["entries"][0]["key"];
+    assert_eq!(ordinary_key["kind"], "tuple");
+    assert_eq!(native_key, ordinary_key);
 }

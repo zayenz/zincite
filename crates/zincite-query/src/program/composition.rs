@@ -1398,6 +1398,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                     .collect::<Result<_, _>>()?,
             )),
             ReportValue::Sequence(value) => Kind::Sequence(Rc::clone(&value.element)),
+            ReportValue::Dictionary(value) => Kind::GeneralDictionary(Rc::clone(&value.schema)),
             ReportValue::Retained(value) => return self.kind(value, budget, range),
             ReportValue::IncompleteSelection { value, .. } => {
                 return self.kind(value, budget, range);
@@ -1498,6 +1499,17 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                 budget,
                 zirql::Location::Query(range.clone()),
             )?),
+            Kind::GeneralDictionary(schema) => Some(vec![T::Dictionary {
+                keys: if schema.0 == Kind::Strings {
+                    vec![T::String]
+                } else {
+                    self.scalar_types(&schema.0, budget, range)?
+                        .unwrap_or_else(|| vec![T::Unestablished])
+                },
+                values: self
+                    .scalar_types(&schema.1, budget, range)?
+                    .unwrap_or_else(|| vec![T::Unestablished]),
+            }]),
             Kind::Scalar(ty) => Some(vec![(*ty).into()]),
             Kind::Constructed => Some(vec![T::Unestablished]),
             Kind::Count => Some(vec![T::Integer]),
@@ -1706,6 +1718,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             )?)));
         }
         match input {
+            Kind::GeneralDictionary(schema) => Ok(schema.1.clone()),
             Kind::Dictionary(values) => {
                 if let Some(first) = values.first()
                     && values.iter().all(|value| value == first)
@@ -1994,10 +2007,17 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         _: &mut Budget,
         range: &Range<usize>,
     ) -> Result<Kind, zirql::QueryError> {
-        native::map_sort_kind(input, range)
+        if matches!(input, Kind::GeneralDictionary(_)) {
+            Ok(input.clone())
+        } else {
+            native::map_sort_kind(input, range)
+        }
     }
     fn is_map_kind(&self, kind: &Kind) -> bool {
-        matches!(kind, Kind::Dictionary(_) | Kind::Record | Kind::Tally)
+        matches!(
+            kind,
+            Kind::Dictionary(_) | Kind::GeneralDictionary(_) | Kind::Record | Kind::Tally
+        )
     }
     fn map_entries(
         &self,
@@ -2091,9 +2111,33 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         &self,
         operation: &zirql::Stage<()>,
         input: &Kind,
-        _: &mut Budget,
+        budget: &mut Budget,
         range: &Range<usize>,
     ) -> Result<Kind, zirql::QueryError> {
+        if let Kind::GeneralDictionary(_) = input {
+            return match operation {
+                zirql::Stage::Count => Ok(Kind::Count),
+                zirql::Stage::Head(_)
+                | zirql::Stage::Tail(_)
+                | zirql::Stage::Reverse
+                | zirql::Stage::Check { .. } => Ok(input.clone()),
+                _ => Err(zirql::QueryError::query(
+                    range.clone(),
+                    "unique/tally need a positional selection",
+                )),
+            };
+        }
+        if matches!(operation, zirql::Stage::Unique | zirql::Stage::Tally) {
+            let key = self.subject_kind(input, budget, range)?;
+            return if matches!(operation, zirql::Stage::Unique) {
+                Ok(input.clone())
+            } else {
+                Ok(Kind::GeneralDictionary(Rc::new((
+                    key,
+                    Kind::Value(Rc::new(vec![zirql::ValueType::Integer])),
+                ))))
+            };
+        }
         let stage = language::Stage {
             kind: match operation {
                 zirql::Stage::Head(n) => language::StageKind::Head(*n),
@@ -2125,44 +2169,100 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         )
         .map_err(query_error)
     }
-    fn collection_identity(
+    fn collection_unique_tally(
         &self,
-        item: &Self::Value,
-        _: &mut Context<'_, 'a>,
-        budget: &mut Budget,
-        range: &Range<usize>,
-    ) -> Result<zirql::NativeCollectionKey, zirql::EvaluationError<QueryError>> {
-        use pipeline::Identity as I;
-        let identity = match native::row_identity(item, budget, range)? {
-            I::String(text) => return Ok(zirql::NativeCollectionKey::Text(text)),
-            I::Node(pointer) => [0, pointer as usize as u64, 0, 0],
-            I::Declaration(id) => [1, id as u64, 0, 0],
-            I::Reference(id) => [2, id as u64, 0, 0],
-            I::Subject(file, start, end) => [3, file as u64, start as u64, end as u64],
-        };
-        Ok(zirql::NativeCollectionKey::Native(zirql::NativeIdentity(
-            identity,
-        )))
-    }
-    fn collection_tally_key(
-        &self,
-        item: Self::Value,
+        operation: &zirql::Stage<()>,
+        input: Self::Value,
         context: &mut Context<'_, 'a>,
         budget: &mut Budget,
         range: &Range<usize>,
-    ) -> Result<String, zirql::EvaluationError<QueryError>> {
-        let Some(mut keys) = native::string_keys(item, context, budget, range, self.0.nesting)?
-        else {
-            return Err(zirql::QueryError::query(range.clone(), "tally requires strings").into());
+    ) -> Result<Self::Value, zirql::EvaluationError<QueryError>> {
+        zirql::evaluate_native_unique_tally(operation, input, self, context, budget, range)
+    }
+    fn dictionary_view<'v>(
+        &self,
+        value: &'v Self::Value,
+    ) -> Option<&'v [(Self::Value, Self::Value)]> {
+        match functions::unretained(value) {
+            ReportValue::Dictionary(value) => Some(value.entries()),
+            _ => None,
+        }
+    }
+    fn construct_dictionary(
+        &self,
+        entries: Vec<(Self::Value, Self::Value)>,
+        _: &mut Context<'_, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<Self::Value, zirql::EvaluationError<QueryError>> {
+        let mut schema = None;
+        for (key, value) in &entries {
+            let entry = (
+                self.kind(key, budget, range)?,
+                self.kind(value, budget, range)?,
+            );
+            match &mut schema {
+                None => schema = Some(entry),
+                Some((key, value)) => {
+                    if *key != entry.0 {
+                        *key = Kind::Constructed;
+                    }
+                    if *value != entry.1 {
+                        *value = Kind::Constructed;
+                    }
+                }
+            }
+        }
+        let (key, value) = schema.unwrap_or((Kind::Constructed, Kind::Constructed));
+        Ok(ReportValue::Dictionary(NativeDictionary {
+            entries: Rc::new(entries),
+            schema: Rc::new((key, value)),
+        }))
+    }
+    fn restore_dictionary(
+        &self,
+        input: Self::Value,
+        entries: Vec<(Self::Value, Self::Value)>,
+        context: &mut Context<'_, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
+    ) -> Result<Self::Value, zirql::EvaluationError<QueryError>> {
+        let tally = !matches!(functions::unretained(&input), ReportValue::Dictionary(_));
+        let entries = if tally {
+            entries
+                .into_iter()
+                .map(|(key, value)| {
+                    let value = if let Some(zirql::ConstructedValue::Integer(count)) = self
+                        .pattern_constructed(&value)
+                        .map(zirql::ConstructedValue::data)
+                    {
+                        let count = usize::try_from(*count).map_err(|_| {
+                            zirql::QueryError::query(range.clone(), "tally count overflow")
+                        })?;
+                        ReportValue::Query(SemanticStream::Inspection(Box::new(
+                            QueryResult::Count(count),
+                        )))
+                    } else {
+                        value
+                    };
+                    Ok((key, value))
+                })
+                .collect::<Result<Vec<_>, zirql::QueryError>>()?
+        } else {
+            entries
         };
-        if keys.len() != 1 {
-            return Err(zirql::QueryError::query(
-                range.clone(),
-                "tally requires singleton strings",
-            )
-            .into());
+        let schema = match functions::unretained(&input) {
+            ReportValue::Dictionary(value) => Rc::clone(&value.schema),
+            _ => Rc::new((
+                self.subject_kind(&self.kind(&input, budget, range)?, budget, range)?,
+                Kind::Count,
+            )),
         };
-        Ok(keys.pop().unwrap())
+        let _ = context;
+        Ok(ReportValue::Dictionary(NativeDictionary {
+            entries: Rc::new(entries),
+            schema,
+        }))
     }
     fn restore_collection(
         &self,

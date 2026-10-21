@@ -101,7 +101,7 @@ Zirql distinguishes constructed ordering calls such as
 `items | sort_by(names)`. A comma at the call's own argument level selects the
 constructed form; nested calls, strings, quoted identifiers and comments retain
 their existing meaning. Saved values and constructed function results use the
-same suffix grammar, including terminal `tally`. Forward function calls keep
+same suffix grammar, including dictionary continuations after `tally`. Forward function calls keep
 their declared native or constructed result kind after all declarations are read.
 
 Binding names use the common reader's identifier spelling and Zincite's
@@ -116,7 +116,7 @@ Zincite responsibilities.
 ## Transform report rows
 
 The development checkout pins Zirql
-[`05c25a3d5f34ad431f573c55ddb0b7105a58b395`](https://github.com/zayenz/zirql/commit/05c25a3d5f34ad431f573c55ddb0b7105a58b395).
+[`49c30dac58ed2614fb9d6ba97dafe1432fa7a9cc`](https://github.com/zayenz/zirql/commit/49c30dac58ed2614fb9d6ba97dafe1432fa7a9cc).
 The following report forms require that checkout; the published Zirql 0.2.0
 integration predates them.
 
@@ -479,10 +479,10 @@ integer, including zero for an empty array. A filter can precede another stage,
 for example `rows | filter(starts_with("a")) | count`.
 
 `sort` uses stable ascending constructed ordering, including structural collection
-keys. `unique` retains the first equal scalar, preserving input order.
+keys. `unique` retains the first structurally equal value, preserving input order.
 `tally` accepts constructed values and returns a dictionary of integer counts
-with the original values as keys in first-seen order. The tally suffix remains
-terminal; use a saved result or an explicit function for further operations.
+with the original values as keys in first-seen order. The result supports
+dictionary operations, including bounds, reversal, check and value sorting.
 String tallies preserve
 ordinary string-key dictionary output; set keys retain their unordered identity.
 Empty input returns an empty dictionary. Keyed arrays, records and native handles
@@ -1051,3 +1051,10 @@ subset permits only the existing unary positive, negative and Boolean-not
 operators; conversions are report-only even in unused bindings, skipped branches
 and empty comprehensions. They do not change source literal parsing or model-backed
 construction rules.
+
+Native unique and tally share the [same operation contract](https://zayenz.se/zirql/guides/library-pipelines/#unique).
+Native leaves retain source owners and coordinates; literal wrappers expose
+ordinary data for structural comparison. Retained dictionaries keep actual
+keys through copying, saved bindings and lookup. Their renderer projects native
+leaves only at the output boundary. These report operations do not widen Data
+expression or edit permissions.

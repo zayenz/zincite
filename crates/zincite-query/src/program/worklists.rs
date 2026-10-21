@@ -140,7 +140,10 @@ impl<'a> composition::CompositionHost<'_, '_> {
             Location::Query(range.clone()),
         )?;
         match (expected, functions::unretained(value)) {
-            (Kind::Declaration, ReportValue::Query(SemanticStream::Entities(rows))) => {
+            (
+                Kind::Declaration | Kind::Declarations,
+                ReportValue::Query(SemanticStream::Entities(rows)),
+            ) if rows.len() == 1 => {
                 let semantic::SemanticEntity::Declaration(id) = rows[0] else {
                     unreachable!("admitted declaration")
                 };
@@ -152,7 +155,10 @@ impl<'a> composition::CompositionHost<'_, '_> {
                     0,
                 ]))
             }
-            (Kind::Node, ReportValue::Query(SemanticStream::Inspection(result))) => {
+            (Kind::Node | Kind::Nodes, ReportValue::Query(SemanticStream::Inspection(result)))
+                if matches!(result.as_ref(), QueryResult::Nodes(selection) if selection.nodes.len() == 1)
+                    || matches!(result.as_ref(), QueryResult::Selection(selection) if selection.items.len() == 1) =>
+            {
                 let (input, node) = match result.as_ref() {
                     QueryResult::Nodes(selection) => (selection.input, selection.nodes[0].node),
                     QueryResult::Selection(selection) => (selection.input, selection.items[0].node),
