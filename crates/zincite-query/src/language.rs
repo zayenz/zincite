@@ -94,23 +94,52 @@ pub(crate) enum ArgumentKind {
     SourceKind,
 }
 impl ArgumentKind {
-    pub(crate) fn admits(self, ty: &zirql::ValueType) -> bool {
-        use zirql::ValueType as T;
-        match self {
+    pub(crate) fn admit(
+        self,
+        ty: &zirql::ValueType,
+        policy: zirql::TypeFactPolicy,
+        budget: &mut zirql::Budget,
+        range: &Range<usize>,
+    ) -> Result<(), zirql::QueryError> {
+        use zirql::{ScalarType as S, ValueType as T};
+        let expected = match self {
             Self::Head
             | Self::Tail
             | Self::CheckCount
             | Self::RangeStart
             | Self::RangeEnd
-            | Self::TransitiveReferences => matches!(ty, T::Integer),
-            Self::CheckOperand => matches!(ty, T::Integer | T::String),
+            | Self::TransitiveReferences => S::Integer,
+            Self::CheckOperand => match ty {
+                T::String
+                | T::Declared {
+                    declaration: zirql::DeclaredType::String,
+                    ..
+                } => S::String,
+                _ => S::Integer,
+            },
             Self::CheckMessage
             | Self::Kind
             | Self::Name
             | Self::Type
             | Self::Instantiation
-            | Self::SourceKind => matches!(ty, T::String),
-        }
+            | Self::SourceKind => S::String,
+        };
+        zirql::admit_scalar_type(
+            ty,
+            expected,
+            policy,
+            budget,
+            &zirql::Location::Query(range.clone()),
+        )
+        .map_err(|mut error| {
+            if error.category == zirql::QueryErrorCategory::Other {
+                error.message = format!(
+                    "primitive argument has an incompatible scalar type: {}",
+                    error.message
+                );
+            }
+            error
+        })
     }
     pub(crate) fn predicate(
         self,

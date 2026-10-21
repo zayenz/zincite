@@ -222,12 +222,11 @@ fn copy_count(
     range: &Range<usize>,
 ) -> Result<usize, zirql::QueryError> {
     match value.data() {
-        zirql::ConstructedValue::Integer(n) => usize::try_from(*n).map_err(|_| {
-            zirql::QueryError::query(
-                range.clone(),
-                "additional copies must be a nonnegative integer",
-            )
-        }),
+        zirql::ConstructedValue::Integer(n) => zirql::nonnegative_integer_to_usize(
+            *n,
+            zirql::Location::Query(range.clone()),
+            "additional copies must be a nonnegative integer",
+        ),
         _ => Err(zirql::QueryError::query(
             range.clone(),
             "additional copies must be a nonnegative integer",

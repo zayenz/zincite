@@ -200,13 +200,22 @@ by the objective expression. Each node retains its precise source range.
 ## Development report transformations
 
 The development query adapter pins Zirql Git revision
-`967eb05c80fd122fb5a91cd9056cce124f844150`. It supports positional `map` and
+`40640084c88e56aa58538efbb254a78b6a021bbe`. It supports positional `map` and
 `flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
 with `with`, and full `align` by a unique field. The
 [report transformation example](query-comprehension-contract.md#transform-report-rows)
 shows their syntax and required checkout. Text programs and
 `Program::from_values` use the same evaluator and retain native selections
 inside report records. Data edits keep their closed expression subset.
+
+Declaration metadata in this development adapter uses Zirql's budgeted copy
+operation, preserving record order and empty element contracts before wrapping
+it in Zincite's `Rc` storage. Common scalar arguments use shared type-fact
+admission; preparation may defer unknown facts, while evaluated values must
+satisfy their scalar contract. Zincite retains its own classification of native
+scalar/value wrappers, MiniZinc model admission and Data edit restrictions.
+Counts and source-copy bounds use the shared located nonnegative integer
+conversion. See [the adapter API contract](https://zayenz.se/zirql/guides/host-integration/#declaration-metadata-and-scalar-arguments).
 
 ## Query library
 

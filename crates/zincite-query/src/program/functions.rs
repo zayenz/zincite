@@ -1676,15 +1676,20 @@ pub(super) fn check_argument(
 ) -> Result<(), zirql::QueryError> {
     let kind = value_kind(expression, host, input, scope, budget)?;
     let types = host.scalar_types(&kind, budget, &expression.range)?;
-    if types.as_ref().is_none_or(|types| {
-        types
-            .iter()
-            .any(|ty| !matches!(ty, zirql::ValueType::Unestablished) && !expected.admits(ty))
-    }) {
+    let Some(types) = types else {
         return Err(zirql::QueryError::query(
             expression.range.clone(),
             "primitive argument has an incompatible scalar type",
         ));
+    };
+    for ty in &types {
+        // Zincite permits unknown facts here, but does not admit ScalarKind.
+        let policy = if matches!(ty, zirql::ValueType::Unestablished) {
+            zirql::TypeFactPolicy::Deferred
+        } else {
+            zirql::TypeFactPolicy::Strict
+        };
+        expected.admit(ty, policy, budget, &expression.range)?;
     }
     Ok(())
 }

@@ -84,34 +84,7 @@ pub(super) fn declaration(
 ) -> Result<Rc<D<Kind>>, zirql::QueryError> {
     let location = Location::Query(range.clone());
     budget.charge_results(1, location.clone())?;
-    let mut pending = vec![value];
-    while let Some(value) = pending.pop() {
-        budget.charge(1, location.clone())?;
-        budget.charge_results(1, location.clone())?;
-        match value {
-            D::Optional(v) | D::Sequence(v) | D::Array(v) | D::Queue(v) | D::Keyed(v) => {
-                pending.push(v)
-            }
-            D::Dictionary(key, value) => {
-                budget.charge_results(2, location.clone())?;
-                pending.push(key);
-                pending.push(value);
-            }
-            D::Tuple(values) => {
-                budget.charge_results(values.len(), location.clone())?;
-                pending.extend(values);
-            }
-            D::Record(values) => {
-                budget.charge_results(values.len(), location.clone())?;
-                for (name, value) in values {
-                    budget.charge(name.len() + 1, location.clone())?;
-                    pending.push(value);
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(Rc::new(value.clone()))
+    Ok(Rc::new(zirql::copy_declaration(value, budget, &location)?))
 }
 impl<'a> composition::CompositionHost<'_, '_> {
     pub(super) fn sequence_values(

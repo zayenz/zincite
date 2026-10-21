@@ -1487,21 +1487,24 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        if let Some(expected) = expected
-            && zirql::query_value_types(
+        if let Some(expected) = expected {
+            for ty in zirql::query_value_types(
                 &expression.expression,
                 &types,
                 &mut ConstructedTypes,
                 &mut self.preflight,
             )
             .map_err(pipeline::core_error)?
-            .iter()
-            .any(|ty| !expected.admits(ty))
-        {
-            return Err(QueryError::query(
-                expression.expression.range.clone(),
-                "primitive argument has an incompatible scalar type",
-            ));
+            {
+                expected
+                    .admit(
+                        &ty,
+                        zirql::TypeFactPolicy::Strict,
+                        &mut self.preflight,
+                        &expression.expression.range,
+                    )
+                    .map_err(pipeline::core_error)?;
+            }
         }
         Ok(names)
     }
@@ -2353,19 +2356,16 @@ impl<'a> NativeHost<'_> {
                     )));
                 }
             };
-            if !argument.kind.admits(&ty) {
-                return Err(zirql::EvaluationError::Host(QueryError::query(
-                    range.clone(),
-                    "primitive argument has an incompatible scalar type",
-                )));
-            }
+            argument
+                .kind
+                .admit(&ty, zirql::TypeFactPolicy::Strict, budget, range)?;
             if let zirql::ConstructedValue::Integer(value) = value {
-                let value = usize::try_from(value).map_err(|_| {
-                    zirql::EvaluationError::Host(QueryError::query(
-                        range.clone(),
-                        "primitive argument needs a non-negative int fitting usize",
-                    ))
-                })?;
+                let value = zirql::nonnegative_integer_to_usize(
+                    value,
+                    zirql::Location::Query(range.clone()),
+                    "primitive argument needs a non-negative int fitting usize",
+                )
+                .map_err(|error| zirql::EvaluationError::Host(pipeline::core_error(error)))?;
                 let stage = query
                     .stages
                     .iter_mut()

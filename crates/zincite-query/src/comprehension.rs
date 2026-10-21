@@ -1477,83 +1477,6 @@ pub(crate) fn key_expression(
     };
     Ok(Located::new(K::Literal(value), range.clone()))
 }
-// Copy only the already available declaration, never the source's stored data.
-fn copy_declaration(
-    ty: &zirql::DeclaredType<()>,
-    budget: &mut Budget,
-    range: &Range<usize>,
-    depth: usize,
-) -> Result<zirql::DeclaredType<()>, zirql::QueryError> {
-    use zirql::DeclaredType as D;
-    let location = zirql::Location::Query(range.clone());
-    budget.charge(1, location.clone())?;
-    if depth >= 64 {
-        return Err(zirql::QueryError::query(
-            range.clone(),
-            "declaration nesting limit exceeded",
-        ));
-    }
-    Ok(match ty {
-        D::Optional(child) | D::Array(child) | D::Sequence(child) | D::Keyed(child) => {
-            budget.charge_results(1, location)?;
-            let child = Box::new(copy_declaration(child, budget, range, depth + 1)?);
-            match ty {
-                D::Optional(_) => D::Optional(child),
-                D::Array(_) => D::Array(child),
-                D::Sequence(_) => D::Sequence(child),
-                _ => D::Keyed(child),
-            }
-        }
-        D::Tuple(types) => {
-            budget.charge_results(types.len(), location)?;
-            D::Tuple(
-                types
-                    .iter()
-                    .map(|ty| copy_declaration(ty, budget, range, depth + 1))
-                    .collect::<Result<_, _>>()?,
-            )
-        }
-        D::Record(fields) => {
-            budget.charge_results(fields.len(), location.clone())?;
-            let mut output = Vec::with_capacity(fields.len());
-            for (name, ty) in fields {
-                budget.charge(name.len(), location.clone())?;
-                output.push((
-                    name.clone(),
-                    copy_declaration(ty, budget, range, depth + 1)?,
-                ));
-            }
-            D::Record(output)
-        }
-        D::Value => D::Value,
-        D::Dictionary(key, value) => {
-            budget.charge_results(2, location)?;
-            D::Dictionary(
-                Box::new(copy_declaration(key, budget, range, depth + 1)?),
-                Box::new(copy_declaration(value, budget, range, depth + 1)?),
-            )
-        }
-        D::Boolean => D::Boolean,
-        D::Integer => D::Integer,
-        D::Float => D::Float,
-        D::String => D::String,
-        D::Member(id) => D::Member(*id),
-        D::Set(ty) => D::Set(*ty),
-        D::Queue(_) | D::IdentitySet(()) => {
-            return Err(zirql::QueryError::query(
-                range.clone(),
-                "computational values are unavailable in Zincite",
-            ));
-        }
-        D::Native(()) => {
-            return Err(zirql::QueryError::query(
-                range.clone(),
-                "native declaration requires its host",
-            ));
-        }
-    })
-}
-
 /// Available outer kinds and declared contracts, without inspecting stored data.
 pub(crate) fn value_facts(
     value: &V,
@@ -1587,7 +1510,16 @@ pub(crate) fn value_facts(
         budget.charge_results(1, zirql::Location::Query(range.clone()))?;
         Ok(T::Declared {
             actual: Box::new(actual),
-            declaration: copy_declaration(declaration, budget, range, 0)?,
+            declaration: {
+                let location = zirql::Location::Query(range.clone());
+                if zirql::contains_native(declaration, budget, &location)? {
+                    return Err(zirql::QueryError::query(
+                        range.clone(),
+                        "native or computational declaration requires its host",
+                    ));
+                }
+                zirql::copy_declaration(declaration, budget, &location)?
+            },
         })
     } else {
         Ok(actual)

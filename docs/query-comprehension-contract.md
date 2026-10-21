@@ -66,7 +66,7 @@ retain the closed MiniZinc subset and serialization checks below.
 ## Transform report rows
 
 The development checkout pins Zirql
-[`967eb05c80fd122fb5a91cd9056cce124f844150`](https://github.com/zayenz/zirql/commit/967eb05c80fd122fb5a91cd9056cce124f844150).
+[`40640084c88e56aa58538efbb254a78b6a021bbe`](https://github.com/zayenz/zirql/commit/40640084c88e56aa58538efbb254a78b6a021bbe).
 The following report forms require that checkout; the published Zirql 0.2.0
 integration predates them.
 
