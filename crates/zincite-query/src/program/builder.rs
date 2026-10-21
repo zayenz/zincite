@@ -90,7 +90,6 @@ impl Program {
                 check_native(query, &mut budget, limits.nesting)?;
             }
         }
-        let mut binding_names = Vec::new();
         for (pattern, value) in &inputs.bindings {
             let selected =
                 zirql::pattern_names(pattern, &mut budget).map_err(pipeline::core_error)?;
@@ -102,7 +101,6 @@ impl Program {
                     ));
                 }
             }
-            binding_names.push(selected.into_iter().cloned().collect());
             for query in functions::check_value(value, &mut budget, limits.nesting)? {
                 check_native(query, &mut budget, limits.nesting)?;
             }
@@ -134,23 +132,15 @@ impl Program {
             })
             .collect::<Vec<_>>();
         let mut statements = Vec::new();
-        for ((pattern, value), names) in std::mem::take(&mut inputs.bindings)
-            .into_iter()
-            .zip(binding_names)
-        {
+        for (pattern, value) in std::mem::take(&mut inputs.bindings) {
             let range = value.range.clone();
             statements.push(Located::new(
-                zirql::Statement::BindFields {
-                    names,
-                    expression: value_stage(
-                        Stage::PatternBinding(
-                            pattern,
-                            zirql::map_value_payloads(value, &mut |query| {
-                                map_native(query, &mut lower)
-                            }),
-                        ),
-                        range.clone(),
-                    ),
+                zirql::Statement::BindPattern {
+                    pattern: Arc::new(pattern),
+                    value: zirql::map_value_payloads(value, &mut |query| {
+                        map_native(query, &mut lower)
+                    })
+                    .into(),
                 },
                 range,
             ));
@@ -180,6 +170,16 @@ impl Program {
                 zirql::Statement::Bind { expression, .. }
                 | zirql::Statement::BindFields { expression, .. }
                 | zirql::Statement::Evaluate { expression, .. } => expression,
+                zirql::Statement::BindPattern { value, .. } => {
+                    functions::normalize_value(
+                        Arc::get_mut(value).expect("builder-owned value"),
+                        &BTreeMap::new(),
+                        &queries,
+                        &Default::default(),
+                    );
+                    continue;
+                }
+                zirql::Statement::Parameter { .. } => continue,
             };
             if let ExpressionKind::Sequence { steps, .. } = &mut expression.value {
                 for step in steps {
@@ -187,7 +187,6 @@ impl Program {
                         ExpressionStep::Value(value) => {
                             Arc::get_mut(value).expect("builder-owned value")
                         }
-                        ExpressionStep::Stage(Stage::PatternBinding(_, value)) => value,
                         _ => continue,
                     };
                     functions::normalize_value(
@@ -343,6 +342,9 @@ fn map_step(
                 .into(),
             )
         }
+        ExpressionStep::Group(body) => ExpressionStep::Group(
+            map_body(Arc::try_unwrap(body).expect("builder-owned group"), lower).into(),
+        ),
         ExpressionStep::WhereExists(body) => ExpressionStep::WhereExists(
             map_body(
                 Arc::try_unwrap(body).expect("builder-owned relation"),
@@ -422,9 +424,9 @@ fn check_native(
                         ExpressionStep::Projection(value) => Arc::strong_count(value),
                         ExpressionStep::Ordering(value) => Arc::strong_count(value),
                         ExpressionStep::Mapping(value) => Arc::strong_count(value),
-                        ExpressionStep::WhereExists(value) | ExpressionStep::FixedPoint(value) => {
-                            Arc::strong_count(value)
-                        }
+                        ExpressionStep::Group(value)
+                        | ExpressionStep::WhereExists(value)
+                        | ExpressionStep::FixedPoint(value) => Arc::strong_count(value),
                         ExpressionStep::Filter(_)
                         | ExpressionStep::Match(_)
                         | ExpressionStep::Paths(_) => {

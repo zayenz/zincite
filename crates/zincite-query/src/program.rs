@@ -25,39 +25,11 @@ type Expression = zirql::Expression<Stage, zirql::NativeSetOperator, Emitter>;
 
 #[derive(Debug)]
 enum Stage {
-    Parameter(usize),
-    PatternBinding(zirql::Pattern, zirql::ValueExpression<Expression>),
     Member(comprehension::MemberRequest),
     Query(usize, Rc<Vec<QueryArgument>>),
     Guard(Box<composition::Guard>),
     Copy(source_copy::CopyStage),
     Data(Vec<data::Edit>, Vec<(Located<String>, Located<String>)>),
-}
-
-impl Drop for Stage {
-    fn drop(&mut self) {
-        let empty = || {
-            Located::new(
-                zirql::ValueExpressionKind::Literal(zirql::ConstructedValue::Absent),
-                0..0,
-            )
-        };
-        match self {
-            Self::PatternBinding(pattern, value) => {
-                zirql::dispose_pattern(std::mem::replace(
-                    pattern,
-                    Located::new(zirql::PatternKind::Wildcard, 0..0),
-                ));
-                zirql::dispose_native_value(std::mem::replace(value, empty()));
-            }
-            Self::Copy(_)
-            | Self::Parameter(_)
-            | Self::Member(_)
-            | Self::Query(..)
-            | Self::Guard(_)
-            | Self::Data(..) => {}
-        }
-    }
 }
 
 /// Program bounds retain the single-pipeline stream ceiling and add a request
@@ -517,12 +489,17 @@ impl Program {
             let mut budget =
                 std::mem::replace(&mut parser.preflight, Budget::for_program(limits.core()));
             for statement in &statements {
-                let expression = match &statement.value {
-                    zirql::Statement::Bind { expression, .. }
-                    | zirql::Statement::BindFields { expression, .. }
-                    | zirql::Statement::Evaluate { expression, .. } => expression,
-                };
-                parser.admit_data_expression(expression, &mut budget, true)?;
+                match &statement.value {
+                    zirql::Statement::Parameter { .. } => {}
+                    zirql::Statement::BindPattern { value, .. } => {
+                        parser.admit_data_value(value, &mut budget, true)?
+                    }
+                    _ => parser.admit_data_expression(
+                        statement.value.expression().unwrap(),
+                        &mut budget,
+                        true,
+                    )?,
+                }
             }
             parser.preflight = budget;
             if let Some(range) = invalid_binding {
@@ -671,7 +648,10 @@ impl Program {
         budget
             .charge_results(initial.len(), zirql::Location::Query(self.program.range()))
             .map_err(pipeline::core_error)?;
-        let parameter_values = initial.into_iter().map(|(_, value)| Some(value)).collect();
+        let parameter_values = initial
+            .into_iter()
+            .map(|(name, value)| (name, ReportValue::Constructed(value)))
+            .collect();
         let bindings = Bindings::default();
         let empty = Query {
             stages: Vec::new(),
@@ -699,12 +679,10 @@ impl Program {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let mut context = Context {
-            functions: None,
             query: &mut context,
             input,
             facts,
             facts_admitted: false,
-            parameters: parameter_values,
             emissions: Vec::new(),
             candidate: None,
             guard_unknown: None,
@@ -718,12 +696,15 @@ impl Program {
             .program
             .statements()
             .iter()
-            .map(|statement| match &statement.value {
-                zirql::Statement::Bind { expression, .. }
-                | zirql::Statement::BindFields { expression, .. }
-                | zirql::Statement::Evaluate { expression, .. } => expression,
-            })
+            .filter_map(|statement| statement.value.expression())
             .collect();
+        written_values.extend(self.program.statements().iter().filter_map(|statement| {
+            if let zirql::Statement::BindPattern { value, .. } = &statement.value {
+                Some(value.as_ref())
+            } else {
+                None
+            }
+        }));
         admit_written_members(
             &mut written_native,
             &mut written_values,
@@ -735,12 +716,14 @@ impl Program {
         let host = NativeHost {
             project_reports: !self.functions.is_empty()
                 || self.program.statements().iter().any(|statement| {
-                    matches!(&statement.value, zirql::Statement::BindFields { .. })
+                    matches!(
+                        &statement.value,
+                        zirql::Statement::BindFields { .. } | zirql::Statement::BindPattern { .. }
+                    )
                 }),
             functions: self.prepared,
             signatures: &signatures,
             declarations: &self.functions,
-            parameters: &self.parameters,
             queries: &self.queries,
             pipelines,
             nesting: limits.nesting,
@@ -749,38 +732,45 @@ impl Program {
         };
 
         let function_host = composition::CompositionHost(&host);
-        let session = if !self.prepared && !self.prepared_values {
-            None
-        } else {
-            Some(functions::Session::new(
-                &self.functions,
-                &signatures,
+        if self.prepared || self.prepared_values || !self.parameters.is_empty() {
+            let functions = zirql::PreparedFunctions::prepare_patterns_borrowed(
+                self.functions
+                    .iter()
+                    .zip(&signatures)
+                    .map(|(body, signature)| body.with_signature(signature)),
                 &function_host,
-                &self.program,
-                self.function_limits,
-                Kind::Nodes,
                 &mut budget,
-            )?)
-        };
-        context.functions = session.as_ref();
-        zirql::evaluate_program_with(
-            &self.program,
-            &host,
-            input_value,
-            &mut context,
-            bindings,
-            &mut budget,
-            &mut |expression, input, context, bindings, budget| {
-                if let Some(session) = context.functions {
-                    session
-                        .run_expression(expression, bindings, &input, context, budget)
-                        .map_err(zirql::EvaluationError::Host)
-                } else {
-                    zirql::evaluate_expression(expression, &host, input, context, bindings, budget)
-                }
-            },
-        )
-        .map_err(pipeline::evaluation_error)?;
+            )
+            .map_err(functions::error)?;
+            let prepared = zirql::PreparedProgram::prepare(
+                functions,
+                &self.program,
+                &BTreeMap::new(),
+                Some(Kind::Nodes),
+                self.function_limits,
+                &mut budget,
+            )
+            .map_err(functions::error)?;
+            prepared
+                .evaluate(
+                    bindings,
+                    parameter_values,
+                    Some(input_value),
+                    &mut context,
+                    &mut budget,
+                )
+                .map_err(functions::error)?;
+        } else {
+            zirql::evaluate_program(
+                &self.program,
+                &host,
+                input_value,
+                &mut context,
+                bindings,
+                &mut budget,
+            )
+            .map_err(pipeline::evaluation_error)?;
+        }
         let report_limitations = if context.facts_admitted {
             let limitations = context
                 .facts
@@ -862,6 +852,16 @@ impl Drop for Program {
                 zirql::Statement::Bind { expression, .. }
                 | zirql::Statement::BindFields { expression, .. }
                 | zirql::Statement::Evaluate { expression, .. } => expression,
+                zirql::Statement::Parameter { .. } => continue,
+                zirql::Statement::BindPattern { pattern, value } => {
+                    if let Ok(pattern) = Arc::try_unwrap(pattern) {
+                        zirql::dispose_pattern(pattern);
+                    }
+                    if let Ok(value) = Arc::try_unwrap(value) {
+                        zirql::dispose_native_value(value);
+                    }
+                    continue;
+                }
             };
             zirql::dispose_expression(expression);
         }
@@ -1389,12 +1389,10 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
 }
 
 struct Context<'c, 'a> {
-    functions: Option<&'c functions::Session<'c, 'a>>,
     query: &'c mut pipeline::Context<'a>,
     input: &'a Input,
     facts: Option<Rc<ModelFacts<'a>>>,
     facts_admitted: bool,
-    parameters: Vec<Option<zirql::ConstructedValue>>,
     emissions: Vec<ProgramEmission<'a>>,
     candidate: Option<Input>,
     guard_unknown: Option<SourceDiagnostic>,
@@ -1527,7 +1525,6 @@ struct NativeHost<'q> {
     project_reports: bool,
     signatures: &'q [zirql::ResolvedPatternFunctionSignature<'q, Kind>],
     declarations: &'q [zirql::UnresolvedPatternFunctionDeclaration<Expression>],
-    parameters: &'q [zirql::ParameterDeclaration],
     queries: &'q [ProgramQuery],
     pipelines: Vec<Option<NativePipeline<'q>>>,
     editing: bool,
@@ -1575,12 +1572,6 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
         }
         let result = (|| {
             let index = match stage {
-                Stage::PatternBinding(_, expression) => {
-                    let session = context.functions.expect("prepared pattern program");
-                    return session
-                        .bind(expression, bindings, &value, context, budget)
-                        .map_err(zirql::EvaluationError::Host);
-                }
                 Stage::Member(member) => {
                     let facts = context
                         .report_facts(budget, &member.range)
@@ -1595,13 +1586,6 @@ impl<'a, 'q> ProgramHost<Context<'_, 'a>> for NativeHost<'q> {
                     .map(zirql::ConstructedValue::Member)
                     .map(ReportValue::Constructed)
                     .map_err(zirql::EvaluationError::Host);
-                }
-                Stage::Parameter(index) => {
-                    return Ok(ReportValue::Constructed(
-                        context.parameters[*index]
-                            .take()
-                            .expect("admitted parameter is bound once"),
-                    ));
                 }
                 Stage::Query(index, _) => *index,
                 Stage::Guard(_) => {
@@ -2910,12 +2894,10 @@ pub(crate) fn filter_query_rows<'a>(
         ReportValue::Query(stream)
     };
     let mut context = Context {
-        functions: None,
         query,
         input,
         facts,
         facts_admitted: false,
-        parameters: Vec::new(),
         emissions: Vec::new(),
         candidate: None,
         guard_unknown: None,
@@ -2940,7 +2922,6 @@ pub(crate) fn filter_query_rows<'a>(
         functions: true,
         signatures: &[],
         declarations: &[],
-        parameters: &[],
         queries: &predicate.queries,
         pipelines,
         nesting: predicate.nesting.min(limits.nesting),
@@ -2950,22 +2931,30 @@ pub(crate) fn filter_query_rows<'a>(
     let host = composition::CompositionHost(&host);
     let input_kind = zirql::ProjectionHost::kind(&host, &input_value, budget, range)
         .map_err(pipeline::core_error)?;
-    let session = functions::Session::new(
-        &[],
-        &[],
-        &host,
+    let functions = zirql::PreparedFunctions::prepare_patterns(std::iter::empty(), &host, budget)
+        .map_err(functions::error)?;
+    let prepared = zirql::PreparedProgram::prepare(
+        functions,
         &program,
+        &BTreeMap::new(),
+        Some(input_kind),
         zirql::FunctionLimits { active_depth: 64 },
-        input_kind,
         budget,
-    )?;
-    context.functions = Some(&session);
+    )
+    .map_err(functions::error)?;
     let zirql::Statement::Evaluate { expression, .. } = &program.statements()[0].value else {
         unreachable!()
     };
-    let bindings = Bindings::new(Vec::new()).map_err(pipeline::core_error)?;
-    let result =
-        session.run_expression(expression, &bindings, &input_value, &mut context, budget)?;
+    let bindings = Bindings::default();
+    let result = prepared
+        .evaluate_expression(
+            expression,
+            &bindings,
+            Some(input_value),
+            &mut context,
+            budget,
+        )
+        .map_err(functions::error)?;
     let ReportValue::Query(stream) = functions::owned(result, budget, range)? else {
         return Err(QueryError::query(
             range.clone(),
@@ -3029,7 +3018,6 @@ fn admit_written_members<'v, 'a>(
                                     error = Some(failure);
                                 }
                             }
-                            Stage::PatternBinding(_, value) => values.push(value),
                             Stage::Query(_, arguments) => {
                                 values.extend(arguments.iter().map(|argument| &argument.expression))
                             }
@@ -3289,7 +3277,7 @@ impl zirql::ProgramReaderHost for Parser<'_> {
     fn parameter_statement(
         &mut self,
         declaration: &zirql::ParameterDeclaration,
-        index: usize,
+        _index: usize,
         budget: &mut Budget,
     ) -> Result<Option<Located<zirql::ReadStatement<Self>>>, zirql::QueryError> {
         std::mem::swap(&mut self.preflight, budget);
@@ -3301,9 +3289,8 @@ impl zirql::ProgramReaderHost for Parser<'_> {
             Kind::Scalar(declaration.ty.value),
         );
         Ok(Some(Located::new(
-            zirql::Statement::Bind {
-                name: declaration.name.clone(),
-                expression: value_stage(Stage::Parameter(index), declaration.name.range.clone()),
+            zirql::Statement::Parameter {
+                declaration: declaration.clone(),
             },
             declaration.name.range.clone(),
         )))
@@ -3324,11 +3311,10 @@ impl zirql::ProgramReaderHost for Parser<'_> {
             for name in &names {
                 self.names.insert(name.value.clone(), Kind::Constructed);
             }
-            let range = expression.range.clone();
             let value = functions::into_value(expression);
-            Ok(zirql::Statement::BindFields {
-                names,
-                expression: value_stage(Stage::PatternBinding(pattern, value), range),
+            Ok(zirql::Statement::BindPattern {
+                pattern: Arc::new(pattern),
+                value: value.into(),
             })
         }
     }

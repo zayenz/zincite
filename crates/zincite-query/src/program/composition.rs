@@ -284,7 +284,6 @@ impl Parser<'_> {
             functions: self.prepared || self.prepared_values || !self.function_names.is_empty(),
             signatures: &[],
             declarations: &[],
-            parameters: &[],
             queries: &self.queries,
             pipelines: Vec::new(),
             editing: false,
@@ -417,7 +416,7 @@ impl Parser<'_> {
             )),
         }
     }
-    fn admit_data_value(
+    pub(super) fn admit_data_value(
         &self,
         value: &zirql::ValueExpression<Expression>,
         budget: &mut Budget,
@@ -463,8 +462,7 @@ impl Parser<'_> {
         budget: &mut Budget,
     ) -> Result<(), QueryError> {
         match stage {
-            Stage::Copy(_) | Stage::Data(..) | Stage::Parameter(_) | Stage::Member(_) => Ok(()),
-            Stage::PatternBinding(_, value) => self.admit_data_value(value, budget, true),
+            Stage::Copy(_) | Stage::Data(..) | Stage::Member(_) => Ok(()),
             Stage::Guard(guard) => {
                 if semantic::requests_facts(&guard.stage) {
                     return Err(QueryError::query(
@@ -1545,7 +1543,6 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                     Kind::SourceCopies
                 })
             }
-            Stage::Parameter(index) => Ok(Kind::Scalar(self.0.parameters[*index].ty.value)),
             Stage::Member(_) => Ok(Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished]))),
             Stage::Query(index, arguments) => {
                 for argument in arguments.iter() {

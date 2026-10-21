@@ -200,7 +200,7 @@ by the objective expression. Each node retains its precise source range.
 ## Development report transformations
 
 The development query adapter pins Zirql Git revision
-`b2b7a9e37584cf30079fabea98558f0c750f2fce`. It supports positional `map` and
+`f89cb7a68a6124e0938ea582e03efc040b5ecafe`. It supports positional `map` and
 `flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
 with `with`, and full `align` by a unique field. The
 [report transformation example](query-comprehension-contract.md#transform-report-rows)
@@ -1018,7 +1018,7 @@ extract exactly one value from a projection. Native node and semantic selections
 retain their identities; use an explicit projection before passing them to a
 scalar operation or comprehension.
 
-The development dependency pins Zirql `b2b7a9e37584cf30079fabea98558f0c750f2fce`.
+The development dependency pins Zirql `f89cb7a68a6124e0938ea582e03efc040b5ecafe`.
 Zirql traverses mixed native/constructed containers, converts constructed nodes
 with its tagged-data codec, and writes JSON with the active request budget.
 Zincite supplies native source/semantic descriptors, shape admission and the
@@ -1150,6 +1150,13 @@ it does not open a fresh rendering budget.
 Call `render(&mut self)` to obtain one output buffer, then write those bytes only
 after success. Every JSON emission uses `{complete, limitations, result}`, including
 syntax-only reports. Repeated rendering spends the same remaining allowance again.
+
+Zincite lowers written parameters and pattern lets directly to Zirql's common
+statements. One `PreparedProgram` prepares all function bodies and program
+entries before execution, advances statement scope and installs pattern fields
+atomically. Native model/member admission, complete selections, candidate edit
+safety and buffered CLI output remain Zincite responsibilities. Fixed-query
+filters use the same prepared owner.
 
 #### Program limits
 
