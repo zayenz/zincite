@@ -52,6 +52,16 @@ Bindings cannot edit or emit. Parsing builds syntax only; preparation and
 execution validate native facts and the complete candidate before output.
 Zincite output stages remain terminal and later errors leave stdout empty.
 
+Typed string results work directly as tally keys:
+
+```zirql
+fn echo(s:string)->string {s}
+report [echo("ash"),echo("ash")] | tally;
+```
+
+The `result` object is `{"ash":{"kind":"integer","value":2}}`, matching a
+literal string tally. Zincite retains its tagged integer output.
+
 Run the existing function recipe from this development checkout:
 
 ```sh

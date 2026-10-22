@@ -5704,7 +5704,8 @@ fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
         [&V::String("a".into()), &V::String("b".into())]
     );
     assert!(
-        matches!(result.emissions()[1].value(), ReportValue::Constructed(value) if matches!(value.data(), V::Dictionary(entries) if entries.len() == 2))
+        matches!(result.emissions()[1].value(), ReportValue::Constructed(value)
+            if value.data() == &V::Record(vec![("a".into(), V::Integer(1)), ("b".into(), V::Integer(1))]))
     );
     for prefix in ["", "fn unused(n:int)->int { n } "] {
         let request = format!(
