@@ -578,6 +578,7 @@ fn string_key_type(ty: &zirql::ValueType) -> bool {
 pub(super) fn map_sort_kind(input: &Kind, range: &Range<usize>) -> Result<Kind, zirql::QueryError> {
     match input {
         Kind::Dictionary(values) if values.iter().all(supported_key) => Ok(input.clone()),
+        Kind::GeneralDictionary(schema) if supported_key(&schema.1) => Ok(input.clone()),
         Kind::Tally | Kind::Record => Ok(input.clone()),
         _ => Err(zirql::QueryError::query(
             range.clone(),

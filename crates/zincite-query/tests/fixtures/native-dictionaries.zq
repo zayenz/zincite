@@ -10,3 +10,5 @@ report (counts: counts,
         tally: ds | names | tally | sort_by(value));
 let made = (z: (inner: 3), a: 1);
 report made;
+report (size: length(counts), strict: counts["A"], found: lookup(counts, "B"),
+        present: has_key(counts, "C"), selected: counts | filter(_ > 0) | count);

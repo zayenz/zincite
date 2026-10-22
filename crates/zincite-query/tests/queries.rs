@@ -6499,7 +6499,24 @@ fn native_ordering_and_operand_order_sets_keep_values_and_owners() {
 
 #[test]
 fn native_dictionaries_keep_payloads_order_and_preflight_contracts() {
-    use zincite_query::{Program, ProgramLimits, ProgramNative, SemanticStream};
+    use zincite_query::{Program, ProgramLimits, ProgramNative, ReportValue, SemanticStream};
+    fn entries<'v, 'a>(value: &'v ReportValue<'a>) -> &'v [(ReportValue<'a>, ReportValue<'a>)] {
+        let ReportValue::Dictionary(dictionary) = value else {
+            panic!("native dictionary: {value:?}")
+        };
+        dictionary.entries()
+    }
+    fn keys<'v, 'a>(value: &'v ReportValue<'a>) -> Vec<&'v str> {
+        entries(value)
+            .iter()
+            .map(|(key, _)| {
+                let ReportValue::Constructed(zirql::ConstructedValue::String(key)) = key else {
+                    panic!("string key")
+                };
+                key.as_str()
+            })
+            .collect()
+    }
     let limits = ProgramLimits::default();
     let source = include_bytes!("fixtures/native-dictionaries.mzn");
     let model = semantic_model("native-dictionaries", source, b"", "");
@@ -6509,17 +6526,9 @@ fn native_dictionaries_keep_payloads_order_and_preflight_contracts() {
         .evaluate_with_model(&input, Some(&model), limits)
         .unwrap();
     let report = result.emissions()[0].value().fields().unwrap();
-    let counts = report[0].1.fields().unwrap();
-    assert_eq!(
-        counts.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
-        ["A", "B", "C"]
-    );
-    let ranked = report[1].1.fields().unwrap();
-    assert_eq!(
-        ranked.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
-        ["B", "A"]
-    );
-    assert!(report[3].1.fields().unwrap().is_empty());
+    assert_eq!(keys(&report[0].1), ["A", "B", "C"]);
+    assert_eq!(keys(&report[1].1), ["B", "A"]);
+    assert!(entries(&report[3].1).is_empty());
     let output = String::from_utf8(result.render().unwrap()).unwrap();
     assert!(output.contains(r#""ranked":{"B":2,"A":1}"#), "{output}");
     assert!(output.contains(r#""reranked":{"C":{"kind":"integer","value":1},"B":{"kind":"integer","value":1},"A":{"kind":"integer","value":1}}"#), "{output}");
@@ -6531,12 +6540,14 @@ fn native_dictionaries_keep_payloads_order_and_preflight_contracts() {
     );
     assert!(output.contains(r#""result":{"z":{"inner":{"kind":"integer","value":3}},"a":{"kind":"integer","value":1}}"#), "{output}");
 
+    assert!(output.contains(r#""size":{"kind":"integer","value":3},"strict":1,"found":2,"present":{"kind":"boolean","value":true},"selected":{"kind":"integer","value":2}"#), "{output}");
+
     let retained = r#"let payload = items | filter(name("A") or name("B") or name("C")); let dict = payload | map_by(names, input); report dict | reverse | tail(100);"#;
     let result = Program::parse(retained, limits)
         .unwrap()
         .evaluate(&input, limits)
         .unwrap();
-    for (_, value) in result.emissions()[0].value().fields().unwrap() {
+    for (_, value) in entries(result.emissions()[0].value()) {
         let Some(SemanticStream::Inspection(value)) = value.stream() else {
             panic!("native selection")
         };
@@ -6561,36 +6572,9 @@ fn native_dictionaries_keep_payloads_order_and_preflight_contracts() {
         .evaluate_with_model(&input, Some(&model), limits)
         .unwrap();
     let fields = result.emissions()[0].value().fields().unwrap();
-    assert_eq!(
-        fields[0]
-            .1
-            .fields()
-            .unwrap()
-            .iter()
-            .map(|(k, _)| k.as_str())
-            .collect::<Vec<_>>(),
-        ["A", "B", "C"]
-    );
-    assert_eq!(
-        fields[1]
-            .1
-            .fields()
-            .unwrap()
-            .iter()
-            .map(|(k, _)| k.as_str())
-            .collect::<Vec<_>>(),
-        ["negative", "positive"]
-    );
-    assert_eq!(
-        fields[2]
-            .1
-            .fields()
-            .unwrap()
-            .iter()
-            .map(|(k, _)| k.as_str())
-            .collect::<Vec<_>>(),
-        ["second", "first"]
-    );
+    assert_eq!(keys(&fields[0].1), ["A", "B", "C"]);
+    assert_eq!(keys(&fields[1].1), ["negative", "positive"]);
+    assert_eq!(keys(&fields[2].1), ["second", "first"]);
     let output = String::from_utf8(result.render().unwrap()).unwrap();
     assert!(
         output.contains(r#""strings":{"A":["A"],"B":["B"],"C":["C"]}"#),
@@ -6609,26 +6593,17 @@ fn native_dictionaries_keep_payloads_order_and_preflight_contracts() {
         .unwrap()
         .evaluate(&input, limits)
         .unwrap();
-    assert_eq!(result.emissions()[0].value().fields().unwrap()[0].0, "B");
+    assert_eq!(keys(result.emissions()[0].value())[0], "B");
     let QueryResult::Count(item_count) = query(&input, "items | count") else {
         panic!()
     };
-    for (_, value) in result.emissions()[1].value().fields().unwrap() {
+    for (_, value) in entries(result.emissions()[1].value()) {
         let Some(SemanticStream::Inspection(value)) = value.stream() else {
             panic!("original count: {value:?}")
         };
         assert!(matches!(value.as_ref(),QueryResult::Count(n) if *n == item_count));
     }
-    assert_eq!(
-        result.emissions()[2]
-            .value()
-            .fields()
-            .unwrap()
-            .iter()
-            .map(|(key, _)| key.as_str())
-            .collect::<Vec<_>>(),
-        ["A", "B"]
-    );
+    assert_eq!(keys(result.emissions()[2].value()), ["A", "B"]);
     result.render().unwrap();
     let bounds = r#"let empty=items | head(0) | map_by(names,names); let full=items | filter(name("A") or name("B") or name("C")) | map_by(names,names); let n=0;
         report (empty:empty | sort_by(value) | reverse | tail(100), zero:full | tail(n), full:full | head(100));"#;
@@ -6740,16 +6715,7 @@ fn native_dictionaries_keep_payloads_order_and_preflight_contracts() {
     .evaluate_with_model(&input, Some(&model), limits)
     .unwrap();
     let mut text=Program::parse(r#"declarations | filter(name("A") or name("B") or name("C")) | map_by(names,uses | count) | sort_by(value)"#,limits).unwrap().evaluate_with_model(&input,Some(&model),limits).unwrap();
-    assert_eq!(
-        typed.emissions()[0]
-            .value()
-            .fields()
-            .unwrap()
-            .iter()
-            .map(|(k, _)| k.as_str())
-            .collect::<Vec<_>>(),
-        ["C", "A", "B"]
-    );
+    assert_eq!(keys(typed.emissions()[0].value()), ["C", "A", "B"]);
     assert_eq!(typed.render().unwrap(), text.render().unwrap());
     assert!(
         Program::from_values(
@@ -7987,6 +7953,69 @@ fn empty_native_tally_checks_schema_and_mixed_dictionary_keys_keep_tags() {
             .evaluate(&input, limits)
             .is_err()
     );
+
+    let native = r#"
+        fn counts(roots:sequence<Node>)->dict<Node,int> { roots | tally }
+        fn keep(d:dict<Node,int>)->dict<Node,int> { d }
+        fn rows(n:Node)->sequence<Node> { [n] }
+        fn groups(roots:sequence<Node>)->dict<string,sequence<Node>> {
+            roots | map_by(names,rows(input))
+        }
+        fn saved(d:dict<string,sequence<Node>>)->dict<string,sequence<Node>> { d }
+        report keep(counts(items));
+        report keep(counts(items | head(0)));
+        report saved(groups(items));
+        report saved(groups(items | head(0)));
+        fn direct(n:Node)->dict<string,sequence<Node>> { let key="x"; {key: [n]} }
+        report items | map_by(names,direct(input));
+    "#;
+    let result = Program::parse(native, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    for index in [0, 1, 2, 3] {
+        let zincite_query::ReportValue::Dictionary(dictionary) = result.emissions()[index].value()
+        else {
+            panic!("retained dictionary")
+        };
+        assert_eq!(dictionary.entries().len(), usize::from(index % 2 == 0));
+    }
+    let empty_values = r#"
+        fn retain(state:Node,item:Node)->Node { state }
+        fn empty(roots:sequence<Node>,n:Node)->dict<string,sequence<Node>> {
+            let key="x"; {key: scan(roots | head(0),n,retain)}
+        }
+        fn keep(d:dict<string,sequence<Node>>)->dict<string,sequence<Node>> { d }
+        report items | map_by(names,keep(empty(items,input)));
+    "#;
+    let result = Program::parse(empty_values, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let zincite_query::ReportValue::Dictionary(dictionary) = result.emissions()[0].value() else {
+        panic!("dictionary")
+    };
+    let zincite_query::ReportValue::Dictionary(inner) = &dictionary.entries()[0].1 else {
+        panic!("nested dictionary")
+    };
+    let zincite_query::ReportValue::Sequence(sequence) = &inner.entries()[0].1 else {
+        panic!("native sequence")
+    };
+    assert!(sequence.values().is_empty());
+    for source in [
+        "fn bad(d:dict<Declaration,int>)->int { 0 } report bad(items | head(0) | tally);",
+        "fn rows(n:Node)->sequence<Node> { [n] } fn bad(d:dict<string,sequence<Declaration>>)->int { 0 } report bad(items | head(0) | map_by(names,rows(input)));",
+        "fn retain(state:Node,item:Node)->Node { state } fn bad(d:dict<string,sequence<Declaration>>)->int { 0 } let present((n,_))=pop_front(queue<Node>(items)); let key=\"x\"; report bad({key:scan(items | head(0),n,retain)});",
+    ] {
+        let error = Program::parse(source, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap_err();
+        assert!(
+            error.message.contains("dictionary schema"),
+            "{source}: {error:?}"
+        );
+    }
 
     let mut result = Program::parse(
         "report {(set<int>(),[1]):1}; report {(set<int>(),[1]):items | head(1)};",

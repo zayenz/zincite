@@ -966,6 +966,20 @@ the original input. [Dictionary ordering](https://zayenz.se/zirql/guides/library
 and [collection selection](https://zayenz.se/zirql/guides/library-pipelines/)
 apply to the result, including native tally dictionaries.
 
+Save the dictionary to use its length or look up a declaration's count:
+
+```zirql
+let ds = declarations | filter(name("A") or name("B") or name("C"));
+let counts = ds | map_by(names, uses | count);
+report (size: length(counts), a: counts["A"], b: lookup(counts, "B"));
+```
+
+This reports a size of 3, a count of 1 for `A` and a count of 2 for `B`. `lookup` returns
+absence for a missing key; bracket access requires the key to exist.
+Functions can accept and return `dict<Node, int>` or
+`dict<string, sequence<Node>>`. Native entries retain their source owner and
+coordinates, and an empty result retains its declared key and value schemas.
+
 Constructed dictionary fields keep their existing tagged values inside an
 ordered JSON object. For example:
 

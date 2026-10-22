@@ -678,7 +678,7 @@ query or model location and append bounded function-call context.
 | --- | --- |
 | `bool`, `int`, `float`, `string` | Checked fixed scalars. |
 | `value` | Any constructed value; excludes native handles and computational worklists. |
-| `dict<K, V>` | Constructed keys and values matching their declared types. |
+| `dict<K, V>` | Keys and values matching their declared types, including native handles and native sequences. Empty dictionaries retain both schemas. |
 | `EnumName` | A member of that actual enum in the current retained model. |
 | `opt T` | Absence or a value matching `T`. |
 | `sequence<T>` | A homogeneous positional sequence, including an empty sequence with its element contract. |

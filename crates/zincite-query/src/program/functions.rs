@@ -510,14 +510,11 @@ impl<'c, 'a> zirql::FunctionHost<Context<'c, 'a>> for composition::CompositionHo
         Ok(match declaration {
             D::Value => Kind::Value(Rc::new(vec![zirql::ValueType::Unestablished])),
             D::Dictionary(key, value) => {
-                if native_declaration(declaration) {
-                    return Err(zirql::QueryError::query(
-                        range.clone(),
-                        "dictionaries containing native values are unavailable in Zincite",
-                    ));
-                }
                 let key_kind = self.declaration_kind(key, budget, range)?;
                 let value_kind = self.declaration_kind(value, budget, range)?;
+                if native_declaration(declaration) {
+                    return Ok(Kind::GeneralDictionary(Rc::new((key_kind, value_kind))));
+                }
                 let keys = self
                     .scalar_types(&key_kind, budget, range)?
                     .unwrap_or_else(|| vec![zirql::ValueType::Unestablished]);
@@ -1224,9 +1221,10 @@ pub(super) fn parsed_native_kind(
                     ExpressionStep::WhereExists(_) => {
                         native::set_kind(&kind, &step.range).unwrap_or(Kind::Constructed)
                     }
-                    ExpressionStep::Mapping(_) => {
-                        Kind::Dictionary(Rc::new(vec![Kind::Constructed]))
-                    }
+                    ExpressionStep::Mapping(_) => Kind::GeneralDictionary(Rc::new((
+                        Kind::Scalar(zirql::ParameterType::String),
+                        Kind::Constructed,
+                    ))),
                     ExpressionStep::Collection(operation) => {
                         let stage = match operation {
                             zirql::Stage::Count => Some(language::StageKind::Count),

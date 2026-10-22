@@ -1984,7 +1984,10 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
                 "map_by key must produce exactly one string",
             ));
         }
-        Ok(Kind::Dictionary(Rc::new(vec![value.clone()])))
+        Ok(Kind::GeneralDictionary(Rc::new((
+            Kind::Scalar(zirql::ParameterType::String),
+            value.clone(),
+        ))))
     }
     fn mapping_keys(
         &self,
@@ -2001,11 +2004,7 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
         _: &mut Budget,
         range: &Range<usize>,
     ) -> Result<Kind, zirql::QueryError> {
-        if matches!(input, Kind::GeneralDictionary(_)) {
-            Ok(input.clone())
-        } else {
-            native::map_sort_kind(input, range)
-        }
+        native::map_sort_kind(input, range)
     }
     fn is_map_kind(&self, kind: &Kind) -> bool {
         matches!(
@@ -2025,11 +2024,30 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
     fn construct_map(
         &self,
         entries: Vec<(String, Self::Value)>,
-        _: &mut Context<'_, 'a>,
-        _: &mut Budget,
-        _: &Range<usize>,
+        value_kind: Option<Kind>,
+        context: &mut Context<'_, 'a>,
+        budget: &mut Budget,
+        range: &Range<usize>,
     ) -> Result<Self::Value, zirql::EvaluationError<QueryError>> {
-        Ok(ReportValue::Record(entries))
+        let location = zirql::Location::Query(range.clone());
+        budget.charge(entries.len().saturating_add(1), location.clone())?;
+        budget.charge_results(entries.len().saturating_add(1), location)?;
+        let entries = entries
+            .into_iter()
+            .map(|(key, value)| {
+                (
+                    ReportValue::Constructed(zirql::ConstructedValue::String(key)),
+                    value,
+                )
+            })
+            .collect();
+        let Some(value_kind) = value_kind else {
+            return self.construct_dictionary(entries, context, budget, range);
+        };
+        Ok(ReportValue::Dictionary(NativeDictionary {
+            entries: Rc::new(entries),
+            schema: Rc::new((Kind::Scalar(zirql::ParameterType::String), value_kind)),
+        }))
     }
     fn restore_map(
         &self,

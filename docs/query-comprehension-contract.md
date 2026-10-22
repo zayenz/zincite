@@ -76,8 +76,10 @@ These report forms do not extend the closed Data subset or `.dzn` serialization
 permissions below.
 
 Dictionary declarations check retained schemas before entries, including empty
-and nested dictionaries. Present native keys and values keep their source owner
-and coordinates; ordinary wrapped data uses the shared constructed checks.
+and nested dictionaries. Declarations such as `dict<Node, int>` and
+`dict<string, sequence<Node>>` admit native keys and values, retaining their
+source owner and coordinates. Ordinary wrapped data uses the shared constructed
+checks.
 For example, this counts names while retaining the string-key schema when no
 items remain:
 

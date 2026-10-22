@@ -1269,6 +1269,7 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
                         | Kind::Types
                         | Kind::Instantiations
                         | Kind::Dictionary(_)
+                        | Kind::GeneralDictionary(_)
                         | Kind::Record
                         | Kind::Tally
                 );
@@ -1290,7 +1291,10 @@ fn validate_stages(query: &Query, mut kind: Kind) -> Result<Kind, QueryError> {
                     | Kind::Instantiations
             ),
             S::Head(_) | S::Tail(_) | S::Reverse | S::Check { .. }
-                if matches!(kind, Kind::Dictionary(_) | Kind::Record | Kind::Tally) =>
+                if matches!(
+                    kind,
+                    Kind::Dictionary(_) | Kind::GeneralDictionary(_) | Kind::Record | Kind::Tally
+                ) =>
             {
                 true
             }
@@ -3411,6 +3415,7 @@ impl zirql::ProgramReaderHost for Parser<'_> {
                         self.expression_kind,
                         Kind::Record
                             | Kind::Dictionary(_)
+                            | Kind::GeneralDictionary(_)
                             | Kind::Constructed
                             | Kind::Value(_)
                             | Kind::Capture(_)
