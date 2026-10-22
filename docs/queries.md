@@ -1021,6 +1021,23 @@ and limits. For more scalar examples, see Zirql's
 [functions and control-flow guide](https://zayenz.se/zirql/guides/functions-and-control-flow/).
 `Node`, `Declaration` and the source-inspection operations here belong to Zincite.
 
+A sequence of present nodes also satisfies `sequence<opt Node>`. This example
+passes a constructed node sequence to a function that uses an optional-element
+queue:
+
+```zirql
+fn first_present(nodes: sequence<opt Node>) -> bool {
+    let present((first, _)) = pop_front(queue<opt Node>(nodes));
+    occurs(first)
+}
+let nodes = [node | node in items];
+report first_present(nodes);
+```
+
+On `calls.mzn`, the result is `true`. The function and queue check every node's
+owner and source coordinates. An empty sequence retains its element declaration;
+an empty `sequence<Declaration>` cannot satisfy `sequence<opt Node>`.
+
 ## Walk declaration references
 
 A custom worklist can follow declaration references while skipping duplicate

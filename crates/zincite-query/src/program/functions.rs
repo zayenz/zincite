@@ -732,7 +732,7 @@ impl<'a> zirql::RuntimeTypeHost<Context<'_, 'a>> for composition::CompositionHos
                 return Ok(());
             }
             (D::Sequence(inner) | D::Array(inner), ReportValue::Sequence(sequence)) => {
-                if sequence.element.as_ref() != inner.as_ref() {
+                if !zirql::declarations_compatible(&sequence.element, inner, budget, &location)? {
                     return Err(zirql::QueryError::query(
                         range.clone(),
                         "native sequence element contract mismatch",
@@ -776,13 +776,17 @@ impl<'a> zirql::RuntimeTypeHost<Context<'_, 'a>> for composition::CompositionHos
             }
             _ => {}
         }
-        let (element, singleton) = match expected {
+        let (mut element, singleton) = match expected {
             D::Optional(inner) => {
                 return zirql::admit_value(value, inner, self, context, budget, location);
             }
             D::Sequence(inner) | D::Array(inner) => (inner.as_ref(), false),
             other => (other, true),
         };
+        while let D::Optional(inner) = element {
+            budget.charge(1, location.clone())?;
+            element = inner;
+        }
         if singleton != is_item(value) {
             return Err(zirql::QueryError::query(
                 range.clone(),

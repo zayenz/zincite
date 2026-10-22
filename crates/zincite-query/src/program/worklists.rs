@@ -97,12 +97,15 @@ impl<'a> composition::CompositionHost<'_, '_> {
     ) -> Result<Vec<ReportValue<'a>>, zirql::EvaluationError<QueryError>> {
         let location = Location::Query(range.clone());
         if let ReportValue::Sequence(sequence) = functions::unretained(value) {
-            if sequence.element.as_ref() != element {
+            if !zirql::declarations_compatible(&sequence.element, element, budget, &location)? {
                 return Err(zirql::QueryError::query(
                     range.clone(),
                     "native sequence element contract mismatch",
                 )
                 .into());
+            }
+            for value in sequence.values.iter() {
+                zirql::admit_value(value, element, self, context, budget, location.clone())?;
             }
             budget.check_items(sequence.values.len(), location.clone())?;
             budget.charge_results(sequence.values.len(), location)?;

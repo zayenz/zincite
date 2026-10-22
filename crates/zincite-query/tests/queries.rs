@@ -8004,3 +8004,53 @@ fn empty_native_tally_checks_schema_and_mixed_dictionary_keys_keep_tags() {
     assert_eq!(ordinary_key["kind"], "tuple");
     assert_eq!(native_key, ordinary_key);
 }
+
+#[test]
+fn optional_native_sequences_admit_present_nodes_in_functions_and_queues() {
+    use zincite_query::{Program, ProgramLimits, ReportValue};
+    use zirql::ConstructedValue as V;
+    let input = Input::parse(b"int: x=1; solve satisfy;".to_vec(), FileMode::Model).unwrap();
+    let limits = ProgramLimits::default();
+    let original = "fn size(d:sequence<opt Node>)->int {1} let xs=items; report size(items); size([n for n in xs])";
+    let result = Program::parse(original, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let ReportValue::Constructed(value) = result.emissions()[0].value() else {
+        panic!("integer result")
+    };
+    assert_eq!(value.data(), &V::Integer(1));
+    let ReportValue::Constructed(value) = result.emissions()[1].value() else {
+        panic!("integer result")
+    };
+    assert_eq!(value.data(), &V::Integer(1));
+
+    let source = r#"
+        fn first_present(nodes:sequence<opt Node>)->bool {
+            let present((first,_))=pop_front(queue<opt Node>(nodes));
+            occurs(first)
+        }
+        let nodes=[node | node in items];
+        report first_present(nodes);
+    "#;
+    let result = Program::parse(source, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let ReportValue::Constructed(value) = result.emissions()[0].value() else {
+        panic!("Boolean result")
+    };
+    assert_eq!(value.data(), &V::Boolean(true));
+
+    let incompatible = r#"
+        fn empty(nodes:sequence<Node>)->sequence<Node> { nodes | head(0) }
+        fn accept(nodes:sequence<opt Declaration>)->int { 1 }
+        report accept(empty(items));
+    "#;
+    assert!(
+        Program::parse(incompatible, limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .is_err()
+    );
+}
