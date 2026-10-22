@@ -75,6 +75,22 @@ report forms; nominal members and empty nominal sets need host evidence.
 These report forms do not extend the closed Data subset or `.dzn` serialization
 permissions below.
 
+Dictionary declarations check retained schemas before entries, including empty
+and nested dictionaries. Present native keys and values keep their source owner
+and coordinates; ordinary wrapped data uses the shared constructed checks.
+For example, this counts names while retaining the string-key schema when no
+items remain:
+
+```zirql
+fn counts(roots: sequence<Node>) -> dict<string, int> {
+  roots | names | tally
+}
+report counts(items | head(0));
+```
+
+The empty result satisfies `dict<string, int>`. Passing it to a
+`dict<int, int>` parameter fails even though there are no keys to inspect.
+
 ## Shared reader routing and names
 
 Zirql distinguishes constructed ordering calls such as

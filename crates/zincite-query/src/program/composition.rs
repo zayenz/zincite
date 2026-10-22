@@ -2188,6 +2188,12 @@ impl<'a> ProjectionHost<Context<'_, 'a>> for CompositionHost<'_, '_> {
             _ => None,
         }
     }
+    fn dictionary_view_kind<'k>(&self, kind: &'k Kind) -> Option<&'k (Kind, Kind)> {
+        match kind {
+            Kind::GeneralDictionary(schema) => Some(schema),
+            _ => None,
+        }
+    }
     fn construct_dictionary(
         &self,
         entries: Vec<(Self::Value, Self::Value)>,
@@ -2687,6 +2693,74 @@ fn path_declaration(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nested_dictionary_admission_checks_native_source_ownership() {
+        use zirql::DeclaredType as D;
+        let limits = ProgramLimits::default();
+        let input = Input::parse(b"x=1;".to_vec(), zincite_syntax::FileMode::Data).unwrap();
+        let foreign = Input::parse(b"x=1;".to_vec(), zincite_syntax::FileMode::Data).unwrap();
+        let result = Program::parse("report {items: {items: items}};", limits)
+            .unwrap()
+            .evaluate(&input, limits)
+            .unwrap();
+        let value = result.emissions()[0].value();
+        let expected = D::Dictionary(
+            Box::new(D::Native(Kind::Nodes)),
+            Box::new(D::Optional(Box::new(D::Dictionary(
+                Box::new(D::Native(Kind::Nodes)),
+                Box::new(D::Native(Kind::Nodes)),
+            )))),
+        );
+        let query = Query {
+            stages: Vec::new(),
+            range: 0..0,
+            nesting_limit: limits.nesting,
+        };
+        let native = NativeHost {
+            functions: true,
+            project_reports: false,
+            signatures: &[],
+            declarations: &[],
+            queries: &[],
+            pipelines: Vec::new(),
+            editing: false,
+            nesting: limits.nesting,
+            limits: limits.query(),
+        };
+        let host = CompositionHost(&native);
+        let mut budget = Budget::for_program(limits.core());
+        for owner in [&input, &foreign] {
+            let (mut query_context, _) =
+                pipeline::prepare_context(&query, owner, None, limits.query(), &mut budget)
+                    .unwrap();
+            let mut context = Context {
+                query: &mut query_context,
+                input: owner,
+                facts: None,
+                facts_admitted: false,
+                emissions: Vec::new(),
+                candidate: None,
+                guard_unknown: None,
+            };
+            let admitted = zirql::admit_value(
+                value,
+                &expected,
+                &host,
+                &mut context,
+                &mut budget,
+                zirql::Location::Query(7..12),
+            );
+            if std::ptr::eq(owner, &input) {
+                admitted.unwrap();
+            } else {
+                let error = admitted.unwrap_err();
+                assert!(
+                    matches!(error, zirql::EvaluationError::Core(error) if error.location == zirql::Location::Query(7..12) && error.message.contains("another input"))
+                );
+            }
+        }
+    }
 
     #[test]
     fn unknown_category_uses_the_responsible_model_diagnostic_or_retains_core_error() {

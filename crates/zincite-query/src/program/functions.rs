@@ -858,59 +858,6 @@ impl<'c, 'a> zirql::FunctionHost<Context<'c, 'a>> for composition::CompositionHo
             )
     }
 }
-fn admit_dictionary_schema(
-    host: &composition::CompositionHost<'_, '_>,
-    schema: &(Kind, Kind),
-    expected: (&D<Kind>, &D<Kind>),
-    budget: &mut Budget,
-    location: &zirql::Location,
-) -> Result<(), zirql::QueryError> {
-    use zirql::FunctionHost;
-    budget.within_evaluation(1, location.clone(), |budget| {
-        let range = match location {
-            zirql::Location::Query(range) | zirql::Location::Source(range) => range,
-        };
-        for (kind, expected, is_key) in [
-            (&schema.0, expected.0, true),
-            (&schema.1, expected.1, false),
-        ] {
-            let mut underlying = expected;
-            while let D::Optional(inner) = underlying {
-                budget.charge(1, location.clone())?;
-                underlying = inner;
-            }
-            if let (Kind::GeneralDictionary(schema), D::Dictionary(key, value)) = (kind, underlying)
-            {
-                admit_dictionary_schema(host, schema, (key, value), budget, location)?;
-                continue;
-            }
-            let facts = if is_key && *kind == Kind::Strings {
-                budget.charge_results(1, location.clone())?;
-                Some(vec![zirql::ValueType::String])
-            } else {
-                host.scalar_types(kind, budget, range)?
-            };
-            if let Some(facts) = facts {
-                for fact in facts {
-                    zirql::admit_type_facts(
-                        &fact,
-                        expected,
-                        zirql::TypeFactPolicy::Deferred,
-                        budget,
-                        location,
-                    )?;
-                }
-            } else if *kind != host.declaration_kind(underlying, budget, range)? {
-                return Err(zirql::QueryError::query(
-                    range.clone(),
-                    "dictionary schema does not satisfy its declaration",
-                ));
-            }
-        }
-        Ok(())
-    })
-}
-
 impl<'a> zirql::RuntimeTypeHost<Context<'_, 'a>> for composition::CompositionHost<'_, '_> {
     type Kind = Kind;
     fn constructed_value<'v>(
@@ -941,86 +888,15 @@ impl<'a> zirql::RuntimeTypeHost<Context<'_, 'a>> for composition::CompositionHos
             zirql::Location::Query(range) | zirql::Location::Source(range) => range,
         };
         budget.charge(1, location.clone())?;
-        if let ReportValue::Dictionary(dictionary) = unretained(value) {
-            let mut expected = expected;
-            while let D::Optional(inner) = expected {
-                budget.charge(1, location.clone())?;
-                expected = inner;
-            }
-            match expected {
-                D::Dictionary(key, value) => {
-                    admit_dictionary_schema(
-                        self,
-                        &dictionary.schema,
-                        (key, value),
-                        budget,
-                        &location,
-                    )?;
-                }
-                D::Native(Kind::GeneralDictionary(schema)) if schema == &dictionary.schema => {}
-                _ => {
-                    return Err(zirql::QueryError::query(
-                        range.clone(),
-                        "dictionary schema does not satisfy its declaration",
-                    )
-                    .into());
-                }
-            }
-            for (key, item) in dictionary.entries() {
-                for (value, declaration) in [
-                    (
-                        key,
-                        match expected {
-                            D::Dictionary(key, _) => Some(key.as_ref()),
-                            _ => None,
-                        },
-                    ),
-                    (
-                        item,
-                        match expected {
-                            D::Dictionary(_, value) => Some(value.as_ref()),
-                            _ => None,
-                        },
-                    ),
-                ] {
-                    if let Some(declaration) = declaration {
-                        if let Some(ordinary) = zirql::FunctionHost::ordinary_value(
-                            self, value, context, budget, range,
-                        )? {
-                            zirql::admit_constructed(
-                                &ordinary,
-                                declaration,
-                                budget,
-                                location.clone(),
-                            )?;
-                            continue;
-                        }
-                        zirql::admit_value(
-                            value,
-                            declaration,
-                            self,
-                            context,
-                            budget,
-                            location.clone(),
-                        )?;
-                    } else if let Some(value) = self.constructed_value(value) {
-                        zirql::admit_constructed(value, &D::<()>::Value, budget, location.clone())?;
-                    } else if zirql::FunctionHost::ordinary_value(
-                        self, value, context, budget, range,
-                    )?
-                    .is_none()
-                    {
-                        let kind = self.kind(value, budget, range)?;
-                        self.admit_native(
-                            value,
-                            &D::Native(kind),
-                            context,
-                            budget,
-                            location.clone(),
-                        )?;
-                    }
-                }
-            }
+        if zirql::admit_dictionary(
+            value,
+            expected,
+            self,
+            context,
+            budget,
+            location.clone(),
+            &Kind::Strings,
+        )? {
             return Ok(());
         }
         match expected {
