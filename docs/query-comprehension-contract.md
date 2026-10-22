@@ -124,10 +124,7 @@ Zincite responsibilities.
 
 ## Transform report rows
 
-The development checkout pins Zirql
-[`49c30dac58ed2614fb9d6ba97dafe1432fa7a9cc`](https://github.com/zayenz/zirql/commit/49c30dac58ed2614fb9d6ba97dafe1432fa7a9cc).
-The following report forms require that checkout; the published Zirql 0.2.0
-integration predates them.
+Zincite 0.3.0 uses Zirql 0.3.0 for these report transformations.
 
 Use the shared entries for [map and flat_map](https://zayenz.se/zirql/guides/library-pipelines/#map),
 [selective comprehensions](https://zayenz.se/zirql/guides/library-collections/#comprehensions),
@@ -135,7 +132,7 @@ Use the shared entries for [map and flat_map](https://zayenz.se/zirql/guides/lib
 [record updates](https://zayenz.se/zirql/guides/library-operators/#record-update)
 and [alignment](https://zayenz.se/zirql/guides/library-grouping/#align).
 
-For example, run this from the development checkout:
+For example, run this from the Zincite 0.3.0 checkout:
 
 ```sh
 printf 'x = 1;\n' | cargo run --locked --bin zincite-query -- \
@@ -596,12 +593,12 @@ A collection with comments often needs to grow without rebuilding its values.
 Source-copy stages retain those bytes and change only established enum member
 and key tokens. These operations are available since Zincite 0.1.2.
 
-The small [model](https://github.com/zayenz/zincite/blob/v0.2.0/crates/zincite-query/tests/fixtures/source-copies.mzn) declares
+The small [model](https://github.com/zayenz/zincite/blob/v0.3.0/crates/zincite-query/tests/fixtures/source-copies.mzn) declares
 `People`, an array of person records, group sets, and integer weights. Its
-[data file](https://github.com/zayenz/zincite/blob/v0.2.0/crates/zincite-query/tests/fixtures/source-copies.dzn) defines
+[data file](https://github.com/zayenz/zincite/blob/v0.3.0/crates/zincite-query/tests/fixtures/source-copies.dzn) defines
 `Alice` and `Bob`, with comments on their records. Each record contains a display
 label, an unrelated colour enum, and a set of friends. The
-[complete query](https://github.com/zayenz/zincite/blob/v0.2.0/crates/zincite-query/tests/fixtures/source-copies.zq) grows all
+[complete query](https://github.com/zayenz/zincite/blob/v0.3.0/crates/zincite-query/tests/fixtures/source-copies.zq) grows all
 four assignments explicitly:
 
 ```zirql

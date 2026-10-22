@@ -26,7 +26,7 @@ for (const name of guides) {
     const slug = resolved.match(/^docs\/([\w-]+)\.md$/)?.[1];
     if (slug && guides.includes(slug)) return `](../${slug}/${anchor ? `#${anchor}` : ''})`;
     if (resolved === 'README.md') return `](../../${anchor ? `#${anchor}` : ''})`;
-    return `](https://github.com/zayenz/zincite/blob/v0.2.0/${resolved}${anchor ? `#${anchor}` : ''})`;
+    return `](https://github.com/zayenz/zincite/blob/v0.3.0/${resolved}${anchor ? `#${anchor}` : ''})`;
   });
   await writeFile(resolve(output, `${name}.md`), `---\ntitle: ${JSON.stringify(title[1])}\neditUrl: false\n---\n${body}`);
 }

@@ -220,7 +220,7 @@ let limit=2;
 report [3,1,3] | filter(_>1) | head(limit) | reverse | check(limit,"two rows");
 ```
 
-This reports `[3,3]`. The development checkout accepts runtime bounds and check
+This reports `[3,3]`. Zincite accepts runtime bounds and check
 messages. Dictionary filters test values and keep their keys/order. See the
 [collection reference](reference.md#collection-selection-and-cardinality) for
 kinds, declarations and the Data boundary.

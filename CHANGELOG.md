@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.3.0
+
+- Use Zirql 0.3.0 for shared program reading, preparation, scalar conversions, formatting, collection operations and JSON/Markdown reports.
+- Retain native dictionaries through common report operations and typed functions, including empty schemas and native payloads.
+- Align sorting, selection, cardinality, structural unique and tally with constructed values while preserving native identity and result order.
+- Use shared function-call admission and suffix reading, reducing duplicate query machinery.
+- Link the shared library reference from the MiniZinc guides. Model facts, completeness, source-preserving rendering and Data/edit restrictions remain in Zincite.
+
 ## 0.2.0
 
 - Adopt Zirql 0.2 for general constructed dictionary keys and set elements,

@@ -25,7 +25,7 @@ Its [shared native reference](https://zayenz.se/zirql/guides/library-native/)
 describes common composition; the recipes below supply Zincite's actual native
 operations and source/model policies.
 
-Saved repository examples use the [v0.2.0 checkout](getting-started.md#build-from-a-checkout).
+Saved repository examples use the [v0.3.0 checkout](getting-started.md#build-from-a-checkout).
 Run their repository-relative paths from the checkout root. Examples that give
 file contents can be run in a new directory with the installed commands.
 
@@ -62,7 +62,7 @@ report [echo("ash"),echo("ash")] | tally;
 The `result` object is `{"ash":{"kind":"integer","value":2}}`, matching a
 literal string tally. Zincite retains its tagged integer output.
 
-Run the existing function recipe from this development checkout:
+Run the existing function recipe from the Zincite 0.3.0 checkout:
 
 ```sh
 cargo run --locked --bin zincite -- query --program-file \
@@ -1348,8 +1348,7 @@ retain their existing closed subset.
 
 ## Render a mixed native report
 
-The development Git dependency at Zirql `49c30dac58ed2614fb9d6ba97dafe1432fa7a9cc`
-uses the shared tagged-data codec inside native reports. Against `model.mzn`
+Zincite uses Zirql 0.3.0's tagged-data codec inside native reports. Against `model.mzn`
 above, run:
 
 ```sh
@@ -1366,9 +1365,7 @@ source output still uses Zincite's source-preserving renderer.
 
 ## Markdown reports
 
-End a read-only report expression with `| markdown` to print a table. This
-requires the development checkout and its pinned Zirql revision above;
-published Zincite 0.2.0 does not include this emitter. Save this as
+End a read-only report expression with `| markdown` to print a table. Save this as
 `report.zq`:
 
 ```zirql
@@ -1420,9 +1417,8 @@ zincite-query --program-file conversion-report.zq calls.mzn
 The parsed quantity is `2` and the price is `12.5`. The
 [shared scalar reference](https://zayenz.se/zirql/guides/library-strings/#parse_int)
 defines the decimal grammar, finite limits and formatting. These calls use the
-shared evaluator in reports and pure functions. They require this development
-checkout's pinned Zirql revision and are unavailable in Data/edit expressions,
-including unused bindings and unselected branches. Native ownership, model facts
+shared evaluator in reports and pure functions. They are unavailable in Data/edit
+expressions, including unused bindings and unselected branches. Native ownership, model facts
 and edit safety remain Zincite responsibilities.
 
 ## Retained tally keys

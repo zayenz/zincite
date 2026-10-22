@@ -13,7 +13,7 @@ functions, environment, domain and DNS settings.
 
 ## Prepare an update
 
-Use a reviewed, committed Zincite revision. Confirm the examples and support
+Use the Zincite 0.3.0 release source. Confirm the examples and support
 claims describe that revision, including any unfinished query or semantic work.
 The Markdown guides in `docs/` remain authoritative.
 

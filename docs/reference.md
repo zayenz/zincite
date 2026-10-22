@@ -197,10 +197,9 @@ Include nodes expose their path literal as a child. Output nodes expose an optio
 item; `SolveMinimize` and `SolveMaximize` expose direct solve annotations followed
 by the objective expression. Each node retains its precise source range.
 
-## Development report transformations
+## Report transformations
 
-The development query adapter pins Zirql Git revision
-`49c30dac58ed2614fb9d6ba97dafe1432fa7a9cc`. It supports positional `map` and
+The query adapter uses Zirql 0.3.0. It supports positional `map` and
 `flat_map`, selective `case` generators, `windows`, `runs_by`, record updates
 with `with`, and full `align` by a unique field. The
 [report transformation example](query-comprehension-contract.md#transform-report-rows)
@@ -238,7 +237,7 @@ late-known forward function result facts. Its
 [name and routing rules](query-comprehension-contract.md#shared-reader-routing-and-names)
 describe the remaining MiniZinc and program-name exclusions.
 
-Declaration metadata in this development adapter uses Zirql's budgeted copy
+Declaration metadata in the adapter uses Zirql's budgeted copy
 operation, preserving record order and empty element contracts before wrapping
 it in Zincite's `Rc` storage. Common scalar arguments use shared type-fact
 admission; preparation may defer unknown facts, while evaluated values must
@@ -254,8 +253,7 @@ parameters, pattern lets, duplicate checks, sequential scope and separators.
 Zincite callbacks admit native types/expressions and lower its source/edit
 statements; output and atomic candidate validation stay in Zincite. The public
 `Program::parse` API remains read-only. See [program syntax and output](queries.md#program-syntax-and-output)
-for the supported surface and runnable recipe. These APIs use this development
-checkout's pinned Zirql revision; registry Zirql 0.2.0 does not include the reader.
+for the supported surface and runnable recipe.
 
 ## Query library
 
@@ -891,7 +889,6 @@ extract exactly one value from a projection. Native node and semantic selections
 retain their identities; use an explicit projection before passing them to a
 scalar operation or comprehension.
 
-The development dependency pins Zirql `49c30dac58ed2614fb9d6ba97dafe1432fa7a9cc`.
 Zirql traverses mixed native/constructed containers, converts constructed nodes
 with its tagged-data codec, and writes JSON with the active request budget.
 Zincite supplies native source/semantic descriptors, shape admission and the
@@ -943,8 +940,8 @@ targets can establish empty axes; they cannot repair nonempty keys or holes.
 See the [data-edit guide](data-edits.md#construct-new-data) and the
 [explicit doubled instance](query-comprehension-contract.md#a-complete-doubled-instance).
 The single-pipeline `Query` API also supports the assignment edits described
-below. Add the 0.2.0 library to a Rust project with `cargo add zincite-query@0.2.0`.
-The [Rust API documentation](https://docs.rs/zincite-query/0.2.0) describes its
+below. Add the 0.3.0 library to a Rust project with `cargo add zincite-query@0.3.0`.
+The [Rust API documentation](https://docs.rs/zincite-query/0.3.0) describes its
 native result types.
 
 #### Brace collections in reports
@@ -1099,7 +1096,7 @@ copies, aliases, ordering and set results, including discarded or empty results;
 strict nested observations refuse that value.
 
 The [walkthrough](queries.md#filter-connections-and-accumulate-declarations)
-shows both forms. From the [v0.2.0 checkout](getting-started.md#build-from-a-checkout)
+shows both forms. From the [v0.3.0 checkout](getting-started.md#build-from-a-checkout)
 root, the saved program also runs as:
 
 ```sh
@@ -1731,7 +1728,7 @@ source-preserving path. See the [inline and file recipe](queries.md#markdown-rep
 
 ## Collection selection and cardinality
 
-The development checkout uses the [shared collection stages](https://zayenz.se/zirql/guides/library-pipelines/)
+Zincite uses the [shared collection stages](https://zayenz.se/zirql/guides/library-pipelines/)
 for ordinary report data and admitted native selections/maps. Native leaves keep
 Zincite's owner and completeness checks. Keyed arrays retain their axes and
 missing cells; project cells explicitly before removal or reordering. Data
@@ -1747,5 +1744,3 @@ The report is `[3,3]`. Rust `ProgramValue` uses Zirql's `Filter`, `Head`, `Tail`
 Native query leaves preserve Zincite's owner and completeness checks. Full
 signatures and empty behavior are in the
 [shared collection reference](https://zayenz.se/zirql/guides/library-pipelines/#filter).
-These additions require this development checkout; published versions retain
-their documented support.
