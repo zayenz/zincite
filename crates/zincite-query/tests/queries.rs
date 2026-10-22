@@ -8084,3 +8084,67 @@ fn optional_native_sequences_admit_present_nodes_in_functions_and_queues() {
             .is_err()
     );
 }
+
+#[test]
+fn report_field_ordering_and_grouping_retain_source_subjects() {
+    use zincite_query::{Program, ProgramLimits, ReportValue, SemanticStream};
+    use zirql::ConstructedValue as V;
+    let input = Input::parse(b"b=1; a=2; c=3;".to_vec(), FileMode::Data).unwrap();
+    let limits = ProgramLimits::default();
+    let source = r#"
+        let rows=[(key: if (n | names | one)=="a" {"a"} else {"b"}, subject:n) | n in items];
+        report sort_by(rows,"key");
+        report sort_by(rows,"key",descending=true);
+        report group_by(rows,"key");
+    "#;
+    let result = Program::parse(source, limits)
+        .unwrap()
+        .evaluate(&input, limits)
+        .unwrap();
+    let check_row = |row: &ReportValue<'_>, index: usize| {
+        let fields = row.fields().unwrap();
+        let key = match &fields[0].1 {
+            ReportValue::Constructed(key) => key,
+            ReportValue::SharedConstructed(key) => key.as_ref(),
+            _ => panic!("key"),
+        };
+        assert_eq!(
+            key.data(),
+            &V::String(if index == 1 { "a" } else { "b" }.into())
+        );
+        let Some(SemanticStream::Inspection(subject)) = fields[1].1.stream() else {
+            panic!("native subject")
+        };
+        let QueryResult::Selection(subject) = subject.as_ref() else {
+            panic!("source subject")
+        };
+        assert!(std::ptr::eq(subject.input(), &input));
+        assert_eq!(subject.items()[0].range, [0..4, 5..9, 10..14][index]);
+        assert!(std::ptr::eq(
+            subject.items()[0].node,
+            input.syntax().tree().child_nodes().nth(index).unwrap()
+        ));
+    };
+    for (emission, expected) in result.emissions()[..2].iter().zip([[1, 0, 2], [0, 2, 1]]) {
+        let ReportValue::Sequence(rows) = emission.value() else {
+            panic!("ordered rows")
+        };
+        assert_eq!(rows.values().len(), 3);
+        for (row, index) in rows.values().iter().zip(expected) {
+            check_row(row, index);
+        }
+    }
+    let ReportValue::Sequence(groups) = result.emissions()[2].value() else {
+        panic!("groups")
+    };
+    assert_eq!(groups.values().len(), 2);
+    for (group, expected) in groups.values().iter().zip([vec![0, 2], vec![1]]) {
+        let ReportValue::Sequence(items) = &group.fields().unwrap()[1].1 else {
+            panic!("group items")
+        };
+        assert_eq!(items.values().len(), expected.len());
+        for (row, index) in items.values().iter().zip(expected) {
+            check_row(row, index);
+        }
+    }
+}

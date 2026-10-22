@@ -995,6 +995,19 @@ Arrays, scalar values and nominal members retain their
 [constructed tags](query-comprehension-contract.md#constructed-shape-and-result).
 Native count payloads in the first report render as ordinary numbers.
 
+Rows can keep native source subjects while ordering or grouping by an ordinary
+field:
+
+```zirql
+let rows = [(key: n | names | one, subject: n) | n in items];
+report sort_by(rows, "key");
+report group_by(rows, "key");
+```
+
+The reports retain each subject's original input and source range. Sorting is
+stable. Groups follow first-seen key order, and their items keep incoming order.
+Inspect the native report before choosing an explicit renderer.
+
 ## Count written calls with a function
 
 A named function can express a source traversal that you want to reuse or
