@@ -92,18 +92,8 @@ impl Parser<'_> {
                     .iter()
                     .any(|parameter| signature_needs_model(&parameter.value.declaration.value));
         }
-        self.constructed_functions = functions
-            .iter()
-            .filter(|function| constructed_signature(&function.result.value))
-            .map(|function| function.name.value.clone())
-            .collect();
         for function in functions {
-            normalize_value(
-                &mut function.value,
-                &BTreeMap::new(),
-                &self.queries,
-                &self.constructed_functions,
-            );
+            normalize_value(&mut function.value, &BTreeMap::new(), &self.queries);
         }
         Ok(())
     }
@@ -142,12 +132,7 @@ impl Parser<'_> {
             ));
         }
         written_value_natives(&value, &mut self.preflight, nesting)?;
-        normalize_value(
-            &mut value,
-            &self.names,
-            &self.queries,
-            &self.constructed_functions,
-        );
+        normalize_value(&mut value, &self.names, &self.queries);
         Ok(value)
     }
 }
@@ -156,20 +141,12 @@ pub(super) fn normalize_value(
     expression: &mut E<Expression>,
     names: &BTreeMap<String, Kind>,
     queries: &[ProgramQuery],
-    constructed_functions: &std::collections::BTreeSet<String>,
 ) {
-    recover_call_value(expression, queries, constructed_functions);
-    lower_recovered_value(expression, names, queries, constructed_functions);
-}
-
-// The caller already applied late-known function result facts at this root.
-// Children still use the complete recovery/lowering entry point.
-pub(super) fn lower_recovered_value(
-    expression: &mut E<Expression>,
-    names: &BTreeMap<String, Kind>,
-    queries: &[ProgramQuery],
-    constructed_functions: &std::collections::BTreeSet<String>,
-) {
+    if let K::NativeValue(query) | K::NativeQuery(query) = &mut expression.value
+        && let Some(value) = take_source_value(query)
+    {
+        *expression = value;
+    }
     if let K::Name(name) = &expression.value
         && matches!(
             names.get(name),
@@ -198,23 +175,11 @@ pub(super) fn lower_recovered_value(
     // Admission bounded this tree before lowering. Hosts rewrite native leaves;
     // Zirql owns child and generator structure and ordinary record evaluation.
     zirql::for_each_value_child_mut(expression, |child| {
-        normalize_value(child, names, queries, constructed_functions);
+        normalize_value(child, names, queries);
     });
 }
 
-pub(super) fn recover_call_value(
-    expression: &mut E<Expression>,
-    queries: &[ProgramQuery],
-    functions: &std::collections::BTreeSet<String>,
-) {
-    if let K::NativeValue(query) | K::NativeQuery(query) = &mut expression.value
-        && let Some(value) =
-            take_constructed_suffix(query, queries, functions).or_else(|| take_source_call(query))
-    {
-        *expression = value;
-    }
-}
-fn constructed_signature(signature: &zirql::SignatureType) -> bool {
+pub(super) fn constructed_signature(signature: &zirql::SignatureType) -> bool {
     use zirql::SignatureType as S;
     match signature {
         S::Value | S::Boolean | S::Integer | S::Float | S::String => true,
@@ -234,223 +199,10 @@ fn constructed_signature(signature: &zirql::SignatureType) -> bool {
         _ => false,
     }
 }
-// Payload mapping stays with the host. Spelling, terminal classification and
-// lowering use the same suffix kinds as the reader.
-fn value_suffix_kind(
-    stage: &ExpressionStep<Stage, Emitter, zirql::NativeSetOperator>,
-    queries: &[ProgramQuery],
-) -> Option<zirql::ValueSuffixKind> {
-    if matches!(stage, ExpressionStep::Ordering(order) if order.order == zirql::NativeOrder::Sort && order.selector.is_none())
-    {
-        return Some(zirql::ValueSuffixKind::Sort);
-    }
-    match stage {
-        ExpressionStep::Head(_) => return Some(zirql::ValueSuffixKind::Head),
-        ExpressionStep::Tail(_) => return Some(zirql::ValueSuffixKind::Tail),
-        ExpressionStep::Check { .. } => return Some(zirql::ValueSuffixKind::Check),
-        _ => {}
-    }
-    if let ExpressionStep::Collection(operation) = stage {
-        match operation {
-            zirql::Stage::Head(n) | zirql::Stage::Tail(n) => {
-                i64::try_from(*n).ok()?;
-            }
-            zirql::Stage::Check {
-                expected: Some(n), ..
-            } => {
-                i64::try_from(*n).ok()?;
-            }
-            _ => {}
-        }
-        return Some(match operation {
-            zirql::Stage::Count => zirql::ValueSuffixKind::Count,
-            zirql::Stage::Head(_) => zirql::ValueSuffixKind::Head,
-            zirql::Stage::Tail(_) => zirql::ValueSuffixKind::Tail,
-            zirql::Stage::Reverse => zirql::ValueSuffixKind::Reverse,
-            zirql::Stage::Check { .. } => zirql::ValueSuffixKind::Check,
-            zirql::Stage::Unique => zirql::ValueSuffixKind::Unique,
-            zirql::Stage::Tally => zirql::ValueSuffixKind::Tally,
-            _ => return None,
-        });
-    }
-    let ExpressionStep::Stage(Stage::Query(index, _)) = stage else {
-        return None;
-    };
-    let [stage] = queries[*index].query.stages.as_slice() else {
-        return None;
-    };
-    match &stage.kind {
-        language::StageKind::Head(n) | language::StageKind::Tail(n) => {
-            i64::try_from(*n).ok()?;
-        }
-        language::StageKind::Check {
-            expected: Some(n), ..
-        } => {
-            i64::try_from(*n).ok()?;
-        }
-        _ => {}
-    }
-    Some(match stage.kind {
-        language::StageKind::Count => zirql::ValueSuffixKind::Count,
-        language::StageKind::Head(_) => zirql::ValueSuffixKind::Head,
-        language::StageKind::Tail(_) => zirql::ValueSuffixKind::Tail,
-        language::StageKind::Reverse => zirql::ValueSuffixKind::Reverse,
-        language::StageKind::Check { .. } => zirql::ValueSuffixKind::Check,
-        language::StageKind::Unique => zirql::ValueSuffixKind::Unique,
-        language::StageKind::Tally => zirql::ValueSuffixKind::Tally,
-        _ => return None,
-    })
-}
-fn constructed_call(
-    query: &Expression,
-    queries: &[ProgramQuery],
-    functions: &std::collections::BTreeSet<String>,
-) -> bool {
-    fn inspect(
-        query: &Expression,
-        queries: &[ProgramQuery],
-        functions: &std::collections::BTreeSet<String>,
-    ) -> Option<()> {
-        match &query.value {
-            ExpressionKind::Group(value) => inspect(value, queries, functions),
-            ExpressionKind::Sequence { input, steps } => {
-                let steps = if let Some(Located {
-                    value: ExpressionStep::Value(value),
-                    ..
-                }) = steps.first()
-                {
-                    if !matches!(&value.value, K::Call { function, .. } if functions.contains(&function.value))
-                    {
-                        return None;
-                    }
-                    &steps[1..]
-                } else {
-                    inspect(input, queries, functions)?;
-                    steps.as_slice()
-                };
-                for step in steps {
-                    value_suffix_kind(&step.value, queries)?;
-                }
-                Some(())
-            }
-            _ => None,
-        }
-    }
-    inspect(query, queries, functions).is_some()
-}
-fn take_constructed_suffix(
-    query: &mut Expression,
-    queries: &[ProgramQuery],
-    functions: &std::collections::BTreeSet<String>,
-) -> Option<E<Expression>> {
-    if !constructed_call(query, queries, functions) {
-        return None;
-    }
-    fn take(query: &mut Expression, queries: &[ProgramQuery]) -> Option<E<Expression>> {
-        match &mut query.value {
-            ExpressionKind::Group(value) => take(value, queries),
-            ExpressionKind::Sequence { input, steps } => {
-                let mut value = if matches!(
-                    steps.first().map(|step| &step.value),
-                    Some(ExpressionStep::Value(_))
-                ) {
-                    let step = steps.remove(0);
-                    let ExpressionStep::Value(value) = step.value else {
-                        unreachable!()
-                    };
-                    Arc::try_unwrap(value).expect("parser-owned value")
-                } else {
-                    take(input, queries)?
-                };
-                for step in std::mem::take(steps) {
-                    let kind =
-                        value_suffix_kind(&step.value, queries).expect("suffixes checked above");
-                    let literal =
-                        |value| Box::new(Located::new(K::Literal(value), step.range.clone()));
-                    let suffix = match step.value {
-                        ExpressionStep::Head(value) => zirql::ValueSuffix::Head(Box::new(
-                            Arc::try_unwrap(value).expect("parser-owned bound"),
-                        )),
-                        ExpressionStep::Tail(value) => zirql::ValueSuffix::Tail(Box::new(
-                            Arc::try_unwrap(value).expect("parser-owned bound"),
-                        )),
-                        ExpressionStep::Check { operand, message } => zirql::ValueSuffix::Check {
-                            operand: operand.map(|v| {
-                                Box::new(Arc::try_unwrap(v).expect("parser-owned check operand"))
-                            }),
-                            message: message.map(|v| {
-                                Box::new(Arc::try_unwrap(v).expect("parser-owned check message"))
-                            }),
-                        },
-                        ExpressionStep::Collection(operation) => match operation {
-                            zirql::Stage::Head(n) => {
-                                zirql::ValueSuffix::Head(literal(zirql::ConstructedValue::Integer(
-                                    i64::try_from(n).expect("admitted bound"),
-                                )))
-                            }
-                            zirql::Stage::Tail(n) => {
-                                zirql::ValueSuffix::Tail(literal(zirql::ConstructedValue::Integer(
-                                    i64::try_from(n).expect("admitted bound"),
-                                )))
-                            }
-                            zirql::Stage::Check { expected, message } => {
-                                zirql::ValueSuffix::Check {
-                                    operand: expected.map(|n| {
-                                        literal(zirql::ConstructedValue::Integer(
-                                            i64::try_from(n).expect("admitted count"),
-                                        ))
-                                    }),
-                                    message: message
-                                        .map(|s| literal(zirql::ConstructedValue::String(s))),
-                                }
-                            }
-                            _ => kind.without_arguments().expect("argument-free suffix"),
-                        },
-                        ExpressionStep::Stage(Stage::Query(index, _)) => {
-                            match &queries[index].query.stages[0].kind {
-                                language::StageKind::Head(n) => zirql::ValueSuffix::Head(literal(
-                                    zirql::ConstructedValue::Integer(
-                                        i64::try_from(*n).expect("admitted bound"),
-                                    ),
-                                )),
-                                language::StageKind::Tail(n) => zirql::ValueSuffix::Tail(literal(
-                                    zirql::ConstructedValue::Integer(
-                                        i64::try_from(*n).expect("admitted bound"),
-                                    ),
-                                )),
-                                language::StageKind::Check { expected, message } => {
-                                    zirql::ValueSuffix::Check {
-                                        operand: expected.map(|n| {
-                                            literal(zirql::ConstructedValue::Integer(
-                                                i64::try_from(n).expect("admitted count"),
-                                            ))
-                                        }),
-                                        message: message.as_ref().map(|s| {
-                                            literal(zirql::ConstructedValue::String(s.clone()))
-                                        }),
-                                    }
-                                }
-                                _ => kind
-                                    .without_arguments()
-                                    .expect("legacy argument-free suffix"),
-                            }
-                        }
-                        _ => kind.without_arguments().expect("argument-free suffix"),
-                    };
-                    value = zirql::lower_value_suffix(value, Located::new(suffix, step.range))
-                        .expect("the suffix kind was checked");
-                }
-                Some(value)
-            }
-            _ => None,
-        }
-    }
-    take(query, queries)
-}
-fn take_source_call(query: &mut Expression) -> Option<E<Expression>> {
+pub(super) fn take_source_value(query: &mut Expression) -> Option<E<Expression>> {
     match &mut query.value {
-        ExpressionKind::Group(value) => take_source_call(value),
-        ExpressionKind::Sequence { input, steps } if steps.is_empty() => take_source_call(input),
+        ExpressionKind::Group(value) => take_source_value(value),
+        ExpressionKind::Sequence { input, steps } if steps.is_empty() => take_source_value(input),
         ExpressionKind::Sequence { steps, .. }
             if steps.len() == 1 && matches!(steps[0].value, ExpressionStep::Value(_)) =>
         {

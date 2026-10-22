@@ -4040,6 +4040,65 @@ fn typed_query_functions_share_native_trees_tail_frames_and_fresh_requests() {
     );
     let aliases=Program::parse("fn identity(n: int) -> int { n } let n=items | count; let alias=n; report (value:identity(alias), unchanged:identity(n));",limits).unwrap();
     aliases.evaluate(&input, limits).unwrap();
+    let suffixes = Program::parse(
+        r#"
+            fn grouped() -> sequence<sequence<int>> {
+                rows() | map(x => [x, x + 10]) | flat_map(xs => xs) | windows(2)
+            }
+            fn rows() -> sequence<int> { [3, 1, 2] }
+            let saved = rows();
+            report {
+                "direct": rows() | map(x => [x, x + 10]) | flat_map(xs => xs) | windows(2),
+                "literal": [3, 1, 2] | map(x => [x, x + 10]) | flat_map(xs => xs) | windows(2),
+                "bound": saved | map(x => [x, x + 10]) | flat_map(xs => xs) | windows(2),
+                "forward": grouped()
+            };
+            report rows() | map(x => x + 1) | min;
+            report rows() | max;
+            report rows() | reverse | json;
+        "#,
+        limits,
+    )
+    .unwrap();
+    let suffixes = suffixes.evaluate(&input, limits).unwrap();
+    let ReportValue::Constructed(V::Record(fields)) = suffixes.emissions()[0].value() else {
+        panic!("constructed suffix report")
+    };
+    let expected = [[3, 13], [13, 1], [1, 11], [11, 2], [2, 12]];
+    for (_, value) in fields {
+        let V::Array(windows) = value.data() else {
+            panic!("constructed windows")
+        };
+        assert_eq!(windows.len(), expected.len());
+        for (window, expected) in windows.iter().zip(expected) {
+            let V::Array(pair) = window.data() else {
+                panic!("window pair")
+            };
+            assert_eq!(pair.len(), expected.len());
+            for (cell, expected) in pair.iter().zip(expected) {
+                assert_eq!(cell.data(), &V::Integer(expected));
+            }
+        }
+    }
+    assert_eq!(suffixes.emissions().len(), 4);
+    for (emission, expected) in suffixes.emissions()[1..].iter().zip([
+        vec![V::Integer(2)],
+        vec![V::Integer(3)],
+        vec![V::Integer(2), V::Integer(1), V::Integer(3)],
+    ]) {
+        let value = match emission.value() {
+            ReportValue::Constructed(value) => value,
+            ReportValue::SharedConstructed(value) => value.as_ref(),
+            value => panic!("constructed native continuation: {value:?}"),
+        };
+        let V::Array(values) = value.data() else {
+            panic!("constructed continuation values")
+        };
+        assert_eq!(
+            values.iter().map(V::data).collect::<Vec<_>>(),
+            expected.iter().collect::<Vec<_>>()
+        );
+    }
     let native_alias=Program::parse("fn keep(xs:sequence<Node>)->sequence<Node> { xs } let xs=items; report keep(xs) | count; report xs | count;",limits).unwrap();
     native_alias.evaluate(&input, limits).unwrap();
     let common=Program::parse("fn countdown(n: int) -> int { if n == 0 { 0 } else { countdown(n - 1) } } report countdown(1000);",limits).unwrap().with_function_limits(zirql::FunctionLimits{active_depth:1});
@@ -4439,7 +4498,7 @@ fn report_ordering_keeps_rows_ties_optional_results_and_selector_ranges() {
         assert_eq!(value.data(), &V::Array(vec![V::Integer(selected)]));
     }
     let structural = r#"fn key(n:Node)->sequence<int> { [1, 2] }
-        report items | sort_by(key(input)) | count;
+        report items | sort_by((key /* selector */ (input) | reverse)) | count;
         report sort([[1], "a", -2.0, 1, true, <>]);"#;
     let result = Program::parse(structural, limits)
         .unwrap()
@@ -5567,7 +5626,6 @@ fn saved_native_and_minizinc_values_compose_with_shared_suffixes() {
             expected = Some(rendered);
         }
     }
-    // Forward result facts are unavailable while the caller body is read.
     let forward = r#"fn ordered()->sequence<string> { labels() | sort | unique }
         fn labels()->sequence<string> { ["b","a","b"] }
         let saved=ordered(); report saved | count;"#;

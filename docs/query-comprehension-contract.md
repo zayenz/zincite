@@ -98,8 +98,18 @@ Zirql distinguishes constructed ordering calls such as
 `items | sort_by(names)`. A comma at the call's own argument level selects the
 constructed form; nested calls, strings, quoted identifiers and comments retain
 their existing meaning. Saved values and constructed function results use the
-same suffix grammar, including dictionary continuations after `tally`. Forward function calls keep
-their declared native or constructed result kind after all declarations are read.
+same suffix grammar, including dictionary continuations after `tally`.
+Declared result types are available before function bodies are read, so forward
+calls use the same suffix grammar.
+
+```zirql
+fn rows() -> sequence<int> { [3, 1, 2] }
+report rows() | map(x => x + 1) | windows(2);
+```
+
+This reports `[[4, 2], [2, 3]]`, matching the equivalent literal or `let` binding.
+Constructed calls can continue into native stages such as `min`, `max` and
+`json`; native selector arguments keep their existing syntax.
 
 Binding names use the common reader's identifier spelling and Zincite's
 MiniZinc identifier rules. Contextual names such as `if`, `match` and `present`

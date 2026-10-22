@@ -158,12 +158,7 @@ impl Program {
             range.clone(),
         ));
         for function in &mut functions {
-            functions::normalize_value(
-                &mut function.value,
-                &BTreeMap::new(),
-                &queries,
-                &Default::default(),
-            );
+            functions::normalize_value(&mut function.value, &BTreeMap::new(), &queries);
         }
         for statement in &mut statements {
             let expression = match &mut statement.value {
@@ -175,7 +170,6 @@ impl Program {
                         Arc::get_mut(value).expect("builder-owned value"),
                         &BTreeMap::new(),
                         &queries,
-                        &Default::default(),
                     );
                     continue;
                 }
@@ -189,12 +183,7 @@ impl Program {
                         }
                         _ => continue,
                     };
-                    functions::normalize_value(
-                        value,
-                        &BTreeMap::new(),
-                        &queries,
-                        &Default::default(),
-                    );
+                    functions::normalize_value(value, &BTreeMap::new(), &queries);
                 }
             }
         }

@@ -218,20 +218,18 @@ impl Parser<'_> {
         }
         let retained_record = native_record
             && functions::retain_native_record(&mut value, &self.names, &self.queries);
-        // Functions are collected before their result declarations are known.
-        // Recover that late semantic fact before choosing native/value lowering.
-        functions::recover_call_value(&mut value, &self.queries, &self.constructed_functions);
+        if let zirql::ValueExpressionKind::NativeValue(query)
+        | zirql::ValueExpressionKind::NativeQuery(query) = &mut value.value
+            && let Some(source) = functions::take_source_value(query)
+        {
+            value = source;
+        }
         let native = matches!(
             value.value,
             zirql::ValueExpressionKind::NativeQuery(_) | zirql::ValueExpressionKind::NativeValue(_)
         );
         if !native && !retained_record {
-            functions::lower_recovered_value(
-                &mut value,
-                &self.names,
-                &self.queries,
-                &self.constructed_functions,
-            );
+            functions::normalize_value(&mut value, &self.names, &self.queries);
         }
         if let Some(error) = self.composition_error.take() {
             zirql::dispose_native_value(value);
@@ -609,6 +607,9 @@ impl ValueReaderHost for Parser<'_> {
             .unwrap_or(&self.names)
             .contains_key(name)
     }
+    fn is_constructed_function(&self, name: &str) -> bool {
+        self.constructed_functions.contains(name)
+    }
     fn retains_native_values(&self) -> bool {
         true
     }
@@ -617,9 +618,7 @@ impl ValueReaderHost for Parser<'_> {
     }
 
     fn is_stage(&self, name: &str) -> bool {
-        matches!(name, "clone_members" | "clone_elements" | "repeat_elements")
-            || domain_stage(name)
-            || self.function_names.contains(name)
+        matches!(name, "clone_members" | "clone_elements" | "repeat_elements") || domain_stage(name)
     }
     fn parse_stage_in_scope(
         &mut self,
@@ -745,12 +744,7 @@ impl ValueReaderHost for Parser<'_> {
                 budget,
                 self.reader_nesting,
             )?;
-            functions::normalize_value(
-                &mut value,
-                &self.names,
-                &self.queries,
-                &self.constructed_functions,
-            );
+            functions::normalize_value(&mut value, &self.names, &self.queries);
             return Ok(ExpressionStep::Value(value.into()));
         }
         let mut arguments = Vec::new();

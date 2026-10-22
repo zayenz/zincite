@@ -3118,6 +3118,22 @@ impl zirql::ProgramReaderHost for Parser<'_> {
         self.function_names.insert(name.value.to_owned());
         Ok(())
     }
+    fn function_result(
+        &mut self,
+        name: Located<&str>,
+        result: &Located<zirql::SignatureType>,
+        budget: &mut Budget,
+    ) -> Result<(), zirql::QueryError> {
+        if functions::constructed_signature(&result.value) {
+            budget.charge(
+                name.value.len() + 1,
+                zirql::Location::Query(name.range.clone()),
+            )?;
+            budget.charge_results(1, zirql::Location::Query(name.range))?;
+            self.constructed_functions.insert(name.value.to_owned());
+        }
+        Ok(())
+    }
     fn function_scope(&mut self, active: bool) {
         self.function_scope = active.then(BTreeMap::new);
     }
