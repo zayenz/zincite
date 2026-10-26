@@ -56,7 +56,8 @@ payloads. Integer sets use `{ "kind": "integer_set", "value": { "ranges":
 [{ "lower": "1", "upper": "3" }] } }`; an empty set has `ranges: []`. Loading
 rejects reversed, unordered, overlapping or adjacent ranges. The format stays
 at version 1 with additive set value/domain, set operation and strict global
-records; Boolean and integer records keep their existing shapes. Loading rejects
+records and integer relation variants. The original `Linear` executable with its
+`equality` Boolean and `ReifiedLessEqual` executable keep their existing shapes. Loading rejects
 incompatible versions, bad references, wrong types and invalid definition
 annotations before exposing a checkable model. It rebuilds aliases, definition directions and dependencies from validated
 operations rather than accepting serialized execution caches. A slot's seed
@@ -238,7 +239,7 @@ or a MiniZinc installation.
   is exactly one final solve item: `satisfy`, or `minimize`/`maximize` of a scalar
   integer literal or reference. An available objective value appears in reports;
   the checker makes no optimality claim.
-- Exactly the predicates and arithmetic aliases in the coverage table below. Linear coefficients
+- Exactly the predicates and aliases in the coverage table below. Linear coefficients
   and bounds are fixed integers; coefficient and operand arrays have equal lengths.
   Bodyless declarations for these names validate types, fixed/variable roles and
   scalar/array shapes independently of formal spelling. A declared fixed length
@@ -312,9 +313,12 @@ by both application models:
 
 | Predicate | Direct check | Completion through matching `defines_var` |
 | --- | --- | --- |
+| `int_eq(x,y)` | `x = y` | Either integer output if it occurs once |
+| `int_ne`, `int_lt`, `int_le`, `int_gt`, `int_ge` `(x,y)` | `x != y`, `x < y`, `x <= y`, `x > y`, `x >= y` | None |
 | `int_lin_eq(a,x,c)` | `sum(a[i]*x[i]) = c` | One integer output occurring once with a nonzero coefficient; all other terms known and exact division |
-| `int_lin_le(a,x,c)` | `sum(a[i]*x[i]) <= c` | None |
-| `int_le_reif(x,y,b)` | `b <-> (x <= y)`, including `b=false` | Boolean result `b` from known integer operands `x` and `y` |
+| `int_lin_ne`, `int_lin_lt`, `int_lin_le`, `int_lin_gt`, `int_lin_ge` `(a,x,c)` | Compare `sum(a[i]*x[i])` with `c` using the named relation | None |
+| Each scalar/linear comparison with `_reif` and final Boolean `b` | `b <-> relation`, including `b=false` | Boolean `b` from all known integer inputs |
+| Each scalar/linear comparison with `_imp` and final Boolean `b` | `b -> relation`; a false guard satisfies the constraint immediately | None |
 | `set_in(x,s)` | Integer membership | None |
 | `set_eq(s,t)` | Set equality | Either set output when it occurs once |
 | `set_subset(s,t)` | Subset inclusion | None |
@@ -328,6 +332,15 @@ by both application models:
 | `int_min(x,y,r)`, `int_max(x,y,r)` | Minimum or maximum | Final argument `r` |
 | `int_pow(x,y,r)`, `int_pow_fixed(x,y,r)` | Integer power; the latter requires a fixed exponent | Final argument `r` |
 | `gecode_int_pow(x,y,r)`, `gecode_gecode_int_pow(x,y,r)`, `fzn_gecode_int_pow(x,y,r)` | Integer power with fixed exponent in `0..2147483646` | Final argument `r` |
+
+All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
+`fzn_` spellings, for 108 relation names and 147 admitted names overall.
+For example, `fzn_int_lin_gt_reif(a,x,c,b)` is full reification, while
+`gecode_int_ge_imp(x,y,b)` checks the comparison only when `b` is true.
+Linear arrays may be empty, with sum zero. A false implication guard bypasses
+missing integer terms and checked accumulation, including otherwise-overflowing
+products. Unresolved variables and their domain checks still make the report
+incomplete. Strict comparisons use direct `<` and `>` at the i64 boundaries.
 
 The nine arithmetic names from `int_abs` through `int_max` also accept their
 exact `gecode_` and `fzn_` prefixes, such as `gecode_int_minus` and `fzn_int_negate`.
@@ -344,8 +357,10 @@ supported `defines_var` outputs until no new values are available:
   only when all other terms are known and the division is exact. Negative
   coefficients and results are supported; nonexact division leaves the output
   unresolved.
-- `int_le_reif(x,y,b)` defines only its Boolean result, calculating `x <= y`
-  when both integer operands are known. A false comparison derives `false`.
+- Plain `int_eq(x,y)` can copy either unique output from the other operand.
+- Each scalar or linear `_reif` form defines only its Boolean result from known
+  integer operands. A false comparison derives `false`; `_imp` never derives
+  its guard.
 
 The checker does not invert inequalities or reification, combine repeated
 output occurrences, or choose values for unresolved cycles. A cycle with
@@ -388,6 +403,12 @@ There is no u32 exponent cutoff, and `(-2)^63` fits the i64 boundary. Native
 Gecode power instead requires its fixed exponent in `0..2147483646` during
 preparation and loading. Arithmetic findings use `integer_arithmetic`, a typed
 `operation`, integer `inputs` and the supplied `result` with variable references.
+The existing `linear` and `reified_less_equal` finding kinds keep their shapes.
+New comparisons use `integer_relation` or `linear_relation` with a typed `relation`
+(`equal`, `not_equal`, `less`, `less_equal`, `greater`, `greater_equal`), typed
+operands and a `condition`: `plain`, `reified` with its Boolean `result`, or
+`implied` with its Boolean `guard`. Linear records also carry coefficients, sum
+and bound.
 Integer sets use compact sorted, disjoint, nonadjacent inclusive ranges; large
 intervals are never expanded just to store a value. Cardinality above i64::MAX is
 a located execution error. JSON writes values, coefficients, sums, bounds, domain endpoints

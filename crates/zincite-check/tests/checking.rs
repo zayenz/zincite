@@ -401,7 +401,7 @@ fn unsupported_forms_fail_preparation_and_arithmetic_is_checked() {
         "var int:x::is_defined_var; var int:y; constraint int_lin_eq([1],[y],0)::defines_var(x); solve satisfy;",
         "int:p=0; constraint int_lin_eq([1],[p],0)::defines_var(p); solve satisfy;",
         "var int:x::is_defined_var; var int:y::is_defined_var=x; constraint int_lin_eq([1],[x],0)::defines_var(x); constraint int_lin_eq([1],[y],0)::defines_var(y); solve satisfy;",
-        "var int:x; var bool:b::is_defined_var; constraint int_le_imp(x,1,b)::defines_var(b); solve satisfy;",
+        "var int:x; var bool:b::is_defined_var; constraint int_between(x,1,b)::defines_var(b); solve satisfy;",
         "var int:x; var int:y=x+1; solve satisfy;",
         "var int:x; solve minimize x+1;",
         "var int:x; constraint int_lin_eq([1],[x],0)::checker_constraint(1,[2]); solve satisfy;",
@@ -945,4 +945,222 @@ fn arithmetic_completion_feeds_downstream_checks_and_starts_fresh() {
             .value,
         Value::Integer(6)
     );
+}
+
+#[test]
+fn integer_relations_check_all_exact_names_and_reification_truth_tables() {
+    for (relation, compare) in [
+        ("eq", i64::eq as fn(&i64, &i64) -> bool),
+        ("ne", i64::ne),
+        ("lt", i64::lt),
+        ("le", i64::le),
+        ("gt", i64::gt),
+        ("ge", i64::ge),
+    ] {
+        for linear in [false, true] {
+            for suffix in ["", "_reif", "_imp"] {
+                for prefix in ["", "gecode_", "fzn_"] {
+                    let name = format!(
+                        "{prefix}int_{}{relation}{suffix}",
+                        if linear { "lin_" } else { "" }
+                    );
+                    let arguments = if linear { "[1],[x],0" } else { "x,0" };
+                    let (boolean_decl, boolean_arg) = if suffix.is_empty() {
+                        ("", "")
+                    } else {
+                        (",var bool: flag", ",b")
+                    };
+                    let signature = if linear {
+                        "array[int] of int: cs,array[int] of var int: xs,int: bound"
+                    } else {
+                        "var int: lhs,var int: rhs"
+                    };
+                    let source = format!(
+                        "predicate {name}({signature}{boolean_decl});var int:x;var bool:b;constraint {name}({arguments}{boolean_arg});solve satisfy;"
+                    );
+                    let model = prepare("relations.fzn", &source).unwrap();
+                    for x in [-1, 0, 1] {
+                        for b in [false, true] {
+                            let truth = compare(&x, &0);
+                            let satisfied = match suffix {
+                                "_reif" => b == truth,
+                                "_imp" => !b || truth,
+                                _ => truth,
+                            };
+                            let report =
+                                model.check(&assignment(&format!("x={x};b={b};"))).unwrap();
+                            assert_eq!(
+                                report.status,
+                                if satisfied {
+                                    Status::Valid
+                                } else {
+                                    Status::Invalid
+                                },
+                                "{name}: {x}, {b}"
+                            );
+                            assert!(report.completeness.complete);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn relation_completion_uses_only_unique_equalities_and_boolean_equivalence() {
+    let model = prepare("completion.fzn", "var int:x;var 0..1:y::is_defined_var;var int:z::is_defined_var;var bool:b::is_defined_var;constraint int_eq(z,y)::defines_var(z);constraint fzn_int_lin_eq([2,-2],[y,x],4)::defines_var(y);constraint gecode_int_lin_gt_reif([1],[z],3,b)::defines_var(b);constraint int_ne(z,4);solve minimize z;").unwrap();
+    for candidate in ["x=2;", "x=-1;", "", "x=2;y=1;z=1;b=true;", "x=2;"] {
+        let report = model.check(&assignment(candidate)).unwrap();
+        assert_eq!(report.completeness.complete, !candidate.is_empty());
+        if candidate == "x=2;" {
+            assert_eq!(report.status, Status::Invalid);
+            assert_eq!(report.violations.len(), 2);
+            assert!(matches!(
+                report.violations[0].details,
+                ViolationKind::Domain {
+                    value: Value::Integer(4)
+                }
+            ));
+            assert_eq!(report.objective.unwrap().argument.value, Value::Integer(4));
+        } else if candidate == "x=-1;" {
+            assert_eq!(report.status, Status::Valid);
+            assert_eq!(report.objective.unwrap().argument.value, Value::Integer(1));
+        } else if !candidate.is_empty() {
+            assert_eq!(report.violations.len(), 2);
+        }
+    }
+    for relation in [
+        "int_eq(x,alias)",
+        "int_lin_eq([1,1],[x,alias],4)",
+        "int_lin_eq([0],[x],0)",
+        "int_lin_eq([2],[x],3)",
+        "int_ge(x,4)",
+        "int_eq_reif(x,4,true)",
+        "int_lin_ge_reif([1],[x],4,true)",
+    ] {
+        let source = format!(
+            "var int:x::is_defined_var;var 0..0:alias=x;constraint {relation}::defines_var(x);solve satisfy;"
+        );
+        let model = prepare("direction.fzn", &source).unwrap();
+        assert_eq!(
+            model.check(&Assignment::default()).unwrap().status,
+            Status::Incomplete,
+            "{relation}"
+        );
+        assert!(
+            model
+                .check(&assignment("x=4;"))
+                .unwrap()
+                .completeness
+                .complete
+        );
+    }
+    for relation in ["int_ge_imp(4,5,b)", "int_lin_eq_imp([1],[4],5,b)"] {
+        let source = format!(
+            "var bool:b::is_defined_var;constraint {relation}::defines_var(b);solve satisfy;"
+        );
+        let model = prepare("guard.fzn", &source).unwrap();
+        assert_eq!(
+            model.check(&Assignment::default()).unwrap().status,
+            Status::Incomplete
+        );
+        assert_eq!(
+            model.check(&assignment("b=false;")).unwrap().status,
+            Status::Valid
+        );
+        assert_eq!(
+            model.check(&assignment("b=true;")).unwrap().status,
+            Status::Invalid
+        );
+    }
+    for relation in ["int_eq(x,7)", "int_eq(7,x)"] {
+        let source = format!(
+            "var int:x::is_defined_var;constraint {relation}::defines_var(x);solve minimize x;"
+        );
+        assert_eq!(
+            prepare("copy.fzn", &source)
+                .unwrap()
+                .check(&Assignment::default())
+                .unwrap()
+                .objective
+                .unwrap()
+                .argument
+                .value,
+            Value::Integer(7)
+        );
+    }
+}
+
+#[test]
+fn implication_short_circuits_and_linear_checks_use_source_order_and_i64_bounds() {
+    let model = prepare("inactive.fzn", "var int:x;constraint int_lt_imp(x,0,false);constraint int_lin_eq_imp([2,1],[9223372036854775807,x],0,false);constraint int_lin_ne([],[],0);solve satisfy;").unwrap();
+    let report = model.check(&Assignment::default()).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert_eq!(report.violations.len(), 1);
+    assert_eq!(report.completeness.blocked_checks.len(), 1);
+    assert!(matches!(
+        report.completeness.blocked_checks[0].check,
+        CheckRef::Domain { .. }
+    ));
+    assert!(
+        model
+            .check(&assignment("x=0;"))
+            .unwrap()
+            .completeness
+            .complete
+    );
+    for relation in [
+        "int_lt(-9223372036854775808,9223372036854775807)",
+        "int_gt(9223372036854775807,-9223372036854775808)",
+        "int_lin_lt([1],[-9223372036854775808],9223372036854775807)",
+        "int_lin_gt([1],[9223372036854775807],-9223372036854775808)",
+        "int_lin_eq_reif([],[],0,true)",
+        "int_lin_lt_reif([],[],0,false)",
+        "int_lin_eq_imp([2],[9223372036854775807],0,false)",
+    ] {
+        let source = format!("constraint {relation};solve satisfy;");
+        assert_eq!(
+            prepare("bounds.fzn", &source)
+                .unwrap()
+                .check(&Assignment::default())
+                .unwrap()
+                .status,
+            Status::Valid,
+            "{relation}"
+        );
+    }
+    for relation in [
+        "int_lin_eq_imp([2],[9223372036854775807],0,true)",
+        "int_lin_ne_reif([2],[9223372036854775807],0,false)",
+        "int_lin_lt([1,1,-1],[9223372036854775807,1,1],0)",
+    ] {
+        let source = format!("constraint {relation};solve satisfy;");
+        let error = prepare("overflow.fzn", &source)
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Execution);
+        assert!(error.diagnostics[0].message.contains("overflow"));
+    }
+}
+
+#[test]
+fn relation_source_admission_rejects_wrong_types_shapes_roles_and_names() {
+    for source in [
+        "predicate int_ge(var bool:a,var int:b);solve satisfy;",
+        "predicate int_lin_lt_reif(array[int] of var int:a,array[int] of var int:b,int:c,var bool:d);solve satisfy;",
+        "predicate int_eq_imp(var int:a,var int:b,bool:c);solve satisfy;",
+        "constraint int_eq(1,2,true);solve satisfy;",
+        "constraint int_ge_reif(1,2,1);solve satisfy;",
+        "constraint int_ne([1],2);solve satisfy;",
+        "constraint int_lin_lt_reif([1,2],[1],0,true);solve satisfy;",
+        "var int:x;constraint int_lin_ge([1],[1],x);solve satisfy;",
+        "var int:x;constraint int_lin_ne_imp([x],[1],0,false);solve satisfy;",
+        "constraint gecode_gecode_int_eq(1,1);solve satisfy;",
+        "constraint int_lte(1,2);solve satisfy;",
+    ] {
+        let errors = prepare("bad-relations.fzn", source).unwrap_err();
+        assert!(errors[0].location.is_some(), "{source}");
+    }
 }

@@ -120,6 +120,23 @@ fn text_and_json_reports_cover_completeness_statuses_metadata_and_errors() {
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("conflicting positions: 1, 2") && text.contains("value = {1..5}"));
     assert!(text.contains("id=\"shared_bench\""));
+    std::fs::write(&model, "constraint int_gt_reif(2,1,false);constraint int_lin_ge_imp([1],[2],3,true);solve satisfy;").unwrap();
+    std::fs::write(&data, "").unwrap();
+    let output = run("text");
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("(2) > (1) <-> (false)"));
+    assert!(text.contains("2 >= 3 when (true)"));
+    let output = run("json");
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        report["violations"][0]["details"]["condition"]["kind"],
+        "reified"
+    );
+    assert_eq!(
+        report["violations"][1]["details"]["condition"]["kind"],
+        "implied"
+    );
     std::fs::write(&data, "missing=1;").unwrap();
     let error = run("json");
     assert_eq!(error.status.code(), Some(2));

@@ -6,6 +6,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 mod arithmetic;
 pub use arithmetic::ArithmeticOperation;
+mod relations;
+pub use relations::IntegerRelation;
+use relations::{RelationMode, RelationName, checked_sum};
 mod serialized;
 mod sets;
 pub use sets::IntegerSet;
@@ -247,6 +250,23 @@ pub struct ArgumentValue {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViolationKind {
+    IntegerRelation {
+        relation: IntegerRelation,
+        left: ArgumentValue,
+        right: ArgumentValue,
+        condition: RelationConditionValue,
+    },
+    LinearRelation {
+        relation: IntegerRelation,
+        #[serde(serialize_with = "serialize_integers")]
+        coefficients: Vec<i64>,
+        terms: Vec<ArgumentValue>,
+        #[serde(serialize_with = "serialize_integer")]
+        sum: i64,
+        #[serde(serialize_with = "serialize_integer")]
+        bound: i64,
+        condition: RelationConditionValue,
+    },
     IntegerArithmetic {
         operation: ArithmeticOperation,
         inputs: Vec<ArgumentValue>,
@@ -299,6 +319,14 @@ pub enum ViolationKind {
         right: ArgumentValue,
         result: ArgumentValue,
     },
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RelationConditionValue {
+    Plain,
+    Reified { result: ArgumentValue },
+    Implied { guard: ArgumentValue },
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -407,6 +435,27 @@ struct Variable {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Predicate {
+    IntegerRelation {
+        relation: IntegerRelation,
+        left: Operand,
+        right: Operand,
+        condition: RelationCondition,
+    },
+    LinearRelation {
+        relation: IntegerRelation,
+        #[serde(
+            serialize_with = "serialize_integers",
+            deserialize_with = "deserialize_integers"
+        )]
+        coefficients: Vec<i64>,
+        terms: Vec<Operand>,
+        #[serde(
+            serialize_with = "serialize_integer",
+            deserialize_with = "deserialize_integer"
+        )]
+        bound: i64,
+        condition: RelationCondition,
+    },
     IntegerArithmetic {
         operation: ArithmeticOperation,
         inputs: Vec<Operand>,
@@ -463,9 +512,58 @@ enum Predicate {
     },
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+enum RelationCondition {
+    Plain,
+    Reified { result: Operand },
+    Implied { guard: Operand },
+}
+
+impl RelationCondition {
+    fn mode(&self) -> RelationMode {
+        match self {
+            Self::Plain => RelationMode::Plain,
+            Self::Reified { .. } => RelationMode::Reified,
+            Self::Implied { .. } => RelationMode::Implied,
+        }
+    }
+
+    fn operand(&self) -> Option<&Operand> {
+        match self {
+            Self::Plain => None,
+            Self::Reified { result } => Some(result),
+            Self::Implied { guard } => Some(guard),
+        }
+    }
+
+    fn inactive(&self, values: &[Option<Value>]) -> bool {
+        matches!(self, Self::Implied { guard } if guard.value(values) == Some(&Value::Boolean(false)))
+    }
+
+    fn satisfied(&self, relation: bool, values: &[Option<Value>]) -> bool {
+        match self {
+            Self::Plain => relation,
+            Self::Reified { result } => result.value(values) == Some(&Value::Boolean(relation)),
+            Self::Implied { .. } => self.inactive(values) || relation,
+        }
+    }
+}
+
 impl Predicate {
     fn operands(&self) -> Vec<&Operand> {
         match self {
+            Self::IntegerRelation {
+                left,
+                right,
+                condition,
+                ..
+            } => [left, right]
+                .into_iter()
+                .chain(condition.operand())
+                .collect(),
+            Self::LinearRelation {
+                terms, condition, ..
+            } => terms.iter().chain(condition.operand()).collect(),
             Self::IntegerArithmetic { inputs, result, .. } => {
                 inputs.iter().chain(std::iter::once(result)).collect()
             }
@@ -491,6 +589,15 @@ impl Predicate {
             Self::DisjunctiveStrict { starts, durations } => {
                 starts.iter().chain(durations).collect()
             }
+        }
+    }
+
+    fn inactive_implication(&self, values: &[Option<Value>]) -> bool {
+        match self {
+            Self::IntegerRelation { condition, .. } | Self::LinearRelation { condition, .. } => {
+                condition.inactive(values)
+            }
+            _ => false,
         }
     }
 }
@@ -524,6 +631,8 @@ impl Constraint {
 
 #[derive(Clone, Copy, Debug)]
 enum DefinitionDirection {
+    IntegerEqual { input: usize },
+    ReifiedRelation,
     IntegerArithmetic,
     Linear { term: usize },
     ReifiedLessEqual,
@@ -591,6 +700,9 @@ impl PreparedModel {
             }
         }
         for constraint in &self.constraints {
+            if constraint.predicate.inactive_implication(&values) {
+                continue;
+            }
             let check = CheckRef::Constraint {
                 constraint: constraint.reference.clone(),
             };
@@ -729,6 +841,38 @@ impl PreparedModel {
         let constraint = &self.constraints[definition.constraint];
         match (&constraint.predicate, definition.direction) {
             (
+                Predicate::IntegerRelation { left, right, .. },
+                DefinitionDirection::IntegerEqual { input },
+            ) => Ok([left, right][input].value(values).cloned()),
+            (
+                Predicate::IntegerRelation {
+                    relation,
+                    left,
+                    right,
+                    ..
+                },
+                DefinitionDirection::ReifiedRelation,
+            ) => {
+                let (Some(left), Some(right)) = (left.value(values), right.value(values)) else {
+                    return Ok(None);
+                };
+                Ok(Some(Value::Boolean(
+                    relation.holds(left.integer(), right.integer()),
+                )))
+            }
+            (
+                Predicate::LinearRelation {
+                    relation,
+                    coefficients,
+                    terms,
+                    bound,
+                    ..
+                },
+                DefinitionDirection::ReifiedRelation,
+            ) => Ok(self
+                .linear_sum(constraint, coefficients, terms, None, values)?
+                .map(|sum| Value::Boolean(relation.holds(sum, *bound)))),
+            (
                 Predicate::IntegerArithmetic {
                     operation, inputs, ..
                 },
@@ -752,32 +896,20 @@ impl PreparedModel {
                     terms,
                     bound,
                     ..
+                }
+                | Predicate::LinearRelation {
+                    coefficients,
+                    terms,
+                    bound,
+                    ..
                 },
                 DefinitionDirection::Linear { term: output_term },
             ) => {
-                if terms
-                    .iter()
-                    .enumerate()
-                    .any(|(index, operand)| index != output_term && operand.value(values).is_none())
-                {
+                let Some(sum) =
+                    self.linear_sum(constraint, coefficients, terms, Some(output_term), values)?
+                else {
                     return Ok(None);
-                }
-                let mut sum = 0i64;
-                for (index, (&coefficient, operand)) in coefficients.iter().zip(terms).enumerate() {
-                    if index == output_term {
-                        continue;
-                    }
-                    let Value::Integer(value) = operand
-                        .value(values)
-                        .expect("definition inputs are available before calculation")
-                    else {
-                        unreachable!("preparation validates linear operands")
-                    };
-                    sum = coefficient
-                        .checked_mul(*value)
-                        .and_then(|product| sum.checked_add(product))
-                        .ok_or_else(|| constraint.linear_overflow())?;
-                }
+                };
                 let numerator = bound
                     .checked_sub(sum)
                     .ok_or_else(|| constraint.linear_overflow())?;
@@ -848,6 +980,49 @@ impl PreparedModel {
             },
             value: value.clone(),
         })
+    }
+
+    fn linear_sum(
+        &self,
+        constraint: &Constraint,
+        coefficients: &[i64],
+        terms: &[Operand],
+        skip: Option<usize>,
+        values: &[Option<Value>],
+    ) -> Result<Option<i64>, CheckError> {
+        let terms = coefficients
+            .iter()
+            .zip(terms)
+            .enumerate()
+            .filter(|(index, _)| Some(*index) != skip)
+            .map(|(_, (&coefficient, term))| {
+                term.value(values)
+                    .map(|value| (coefficient, value.integer()))
+            })
+            .collect::<Option<Vec<_>>>();
+        terms
+            .map(|terms| checked_sum(terms).ok_or_else(|| constraint.linear_overflow()))
+            .transpose()
+    }
+
+    fn condition_value(
+        &self,
+        condition: &RelationCondition,
+        values: &[Option<Value>],
+    ) -> RelationConditionValue {
+        match condition {
+            RelationCondition::Plain => RelationConditionValue::Plain,
+            RelationCondition::Reified { result } => RelationConditionValue::Reified {
+                result: self
+                    .argument(result, values)
+                    .expect("available reification result"),
+            },
+            RelationCondition::Implied { guard } => RelationConditionValue::Implied {
+                guard: self
+                    .argument(guard, values)
+                    .expect("available implication guard"),
+            },
+        }
     }
 
     fn missing(&self, predicate: &Predicate, values: &[Option<Value>]) -> Vec<VariableRef> {
@@ -929,6 +1104,48 @@ impl PreparedModel {
                 .expect("blocked constraints are excluded before evaluation")
         };
         match &constraint.predicate {
+            Predicate::IntegerRelation {
+                relation,
+                left,
+                right,
+                condition,
+            } => {
+                let holds = relation.holds(
+                    left.value(values).expect("available operand").integer(),
+                    right.value(values).expect("available operand").integer(),
+                );
+                Ok(
+                    (!condition.satisfied(holds, values)).then(|| ViolationKind::IntegerRelation {
+                        relation: *relation,
+                        left: argument(left),
+                        right: argument(right),
+                        condition: self.condition_value(condition, values),
+                    }),
+                )
+            }
+            Predicate::LinearRelation {
+                relation,
+                coefficients,
+                terms,
+                bound,
+                condition,
+            } => {
+                let sum = self
+                    .linear_sum(constraint, coefficients, terms, None, values)?
+                    .expect("available linear terms");
+                Ok(
+                    (!condition.satisfied(relation.holds(sum, *bound), values)).then(|| {
+                        ViolationKind::LinearRelation {
+                            relation: *relation,
+                            coefficients: coefficients.clone(),
+                            terms: terms.iter().map(argument).collect(),
+                            sum,
+                            bound: *bound,
+                            condition: self.condition_value(condition, values),
+                        }
+                    }),
+                )
+            }
             Predicate::IntegerArithmetic {
                 operation,
                 inputs,
@@ -1045,17 +1262,10 @@ impl PreparedModel {
                 bound,
                 equality,
             } => {
+                let sum = self
+                    .linear_sum(constraint, coefficients, terms, None, values)?
+                    .expect("available linear terms");
                 let terms: Vec<_> = terms.iter().map(argument).collect();
-                let mut sum = 0i64;
-                for (&coefficient, term) in coefficients.iter().zip(&terms) {
-                    let Value::Integer(value) = &term.value else {
-                        unreachable!("preparation validates linear operands")
-                    };
-                    sum = coefficient
-                        .checked_mul(*value)
-                        .and_then(|product| sum.checked_add(product))
-                        .ok_or_else(|| constraint.linear_overflow())?;
-                }
                 let satisfied = if *equality {
                     sum == *bound
                 } else {
@@ -1230,6 +1440,45 @@ fn definition_direction(
         return Err(absent());
     }
     match &constraint.predicate {
+        Predicate::IntegerRelation {
+            relation,
+            condition,
+            ..
+        } => Ok(match condition {
+            RelationCondition::Plain
+                if *relation == IntegerRelation::Equal && occurrences.len() == 1 =>
+            {
+                Some(DefinitionDirection::IntegerEqual {
+                    input: 1 - occurrences[0],
+                })
+            }
+            RelationCondition::Reified { .. } if occurrences.as_slice() == [2] => {
+                Some(DefinitionDirection::ReifiedRelation)
+            }
+            _ => None,
+        }),
+        Predicate::LinearRelation {
+            relation,
+            coefficients,
+            terms,
+            condition,
+            ..
+        } => {
+            let term = occurrences[0];
+            Ok(match condition {
+                RelationCondition::Plain
+                    if *relation == IntegerRelation::Equal
+                        && occurrences.len() == 1
+                        && coefficients[term] != 0 =>
+                {
+                    Some(DefinitionDirection::Linear { term })
+                }
+                RelationCondition::Reified { .. } if occurrences.as_slice() == [terms.len()] => {
+                    Some(DefinitionDirection::ReifiedRelation)
+                }
+                _ => None,
+            })
+        }
         Predicate::IntegerArithmetic { inputs, .. } => {
             let is_final_output = occurrences.as_slice() == [inputs.len()];
             Ok(is_final_output.then_some(DefinitionDirection::IntegerArithmetic))

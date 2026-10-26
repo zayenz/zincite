@@ -108,7 +108,22 @@ integer/set model; it does not run MiniZinc:
 cargo build --locked -p zincite-check --bin zincite-check
 checker_run=$(mktemp -d "$PWD/target/checker-wasm/run.XXXXXX")
 target/debug/zincite-check --export "$checker_run/schedule.json" examples/checker-compilation/model.fzn
-printf '%s\n' 'var int: x;' 'var set of int: exact_tools;' 'var int: incremented ::is_defined_var;' 'constraint int_lin_eq([1],[x],9007199254740993)::checker_constraint("exact",[9007199254740993]);' 'constraint set_eq(exact_tools,{9007199254740993});' 'constraint int_plus(x,1,incremented)::defines_var(incremented);' 'constraint int_pow_fixed(incremented,1,9007199254740994);' 'solve minimize x;' > "$checker_run/exact.fzn"
+cat > "$checker_run/exact.fzn" <<'FZN'
+var int: x;
+var set of int: exact_tools;
+var int: incremented ::is_defined_var;
+var bool: at_least ::is_defined_var;
+constraint int_lin_eq([1],[x],9007199254740993)::checker_constraint("exact",[9007199254740993]);
+constraint set_eq(exact_tools,{9007199254740993});
+constraint int_plus(x,1,incremented)::defines_var(incremented);
+constraint int_pow_fixed(incremented,1,9007199254740994);
+constraint fzn_int_ge_reif(x,9007199254740993,at_least)::defines_var(at_least);
+constraint int_gt(x,9007199254740992);
+constraint gecode_int_lin_lt_reif([1],[x],9007199254740994,at_least);
+constraint int_ge_imp(x,9007199254740993,at_least);
+constraint int_lin_eq_imp([2],[9223372036854775807],0,false);
+solve minimize x;
+FZN
 target/debug/zincite-check --export "$checker_run/exact.json" "$checker_run/exact.fzn"
 target/debug/zincite-check --export "$checker_run/bench.json" examples/checker-compilation/shared-bench.fzn
 node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" examples/checker-wasm/candidates.json target/debug/zincite-check
@@ -124,12 +139,14 @@ The ten named cases cover valid, invalid, incomplete and invalid-with-incomplete
 reports, application metadata, Boolean and array input, set definitions and domain
 failures, strict resource conflicts, and the distinct integers 9007199254740992
 and 9007199254740993 as both integers and set endpoints. The exact-value model
-also derives an arithmetic output and checks a conflicting supplied output above
-JavaScript's exact-number range. A second pass exercises
+also derives arithmetic and reified Boolean outputs and checks conflicting
+supplied outputs above JavaScript's exact-number range. It compares scalar and
+linear relation findings and skips an overflowing product under a false
+implication guard. A second pass exercises
 reuse after changing and removing inputs. Small boundary checks also reject a
 malformed artifact, a JSON number supplied as an integer and an unknown assignment
 name. Expected output ends with `Native/Wasm reports agree across 20 checks; exact
-integers, arithmetic, sets, global findings and input errors verified.` The native suite owns
+integers, arithmetic, relations, sets, global findings and input errors verified.` The native suite owns
 the wider evaluator coverage.
 
 

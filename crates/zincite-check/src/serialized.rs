@@ -185,6 +185,28 @@ impl PreparedModel {
                 return Err(invalid("constraint ordinals must follow executable order"));
             }
             let predicate_name = match &constraint.predicate {
+                Predicate::IntegerRelation {
+                    relation,
+                    left,
+                    right,
+                    condition,
+                } => {
+                    self.validate_operand(left, ValueType::Integer)?;
+                    self.validate_operand(right, ValueType::Integer)?;
+                    self.validate_relation(constraint, *relation, false, condition)?;
+                    &constraint.reference.predicate
+                }
+                Predicate::LinearRelation {
+                    relation,
+                    coefficients,
+                    terms,
+                    condition,
+                    ..
+                } => {
+                    self.validate_linear(coefficients, terms)?;
+                    self.validate_relation(constraint, *relation, true, condition)?;
+                    &constraint.reference.predicate
+                }
                 Predicate::IntegerArithmetic {
                     operation,
                     inputs,
@@ -269,19 +291,14 @@ impl PreparedModel {
                     equality,
                     ..
                 } => {
-                    if coefficients.len() != terms.len() {
-                        return Err(invalid(
-                            "linear coefficient and term arrays must have equal lengths",
-                        ));
-                    }
-                    for term in terms {
-                        self.validate_operand(term, ValueType::Integer)?;
-                    }
-                    if *equality {
-                        "int_lin_eq"
+                    self.validate_linear(coefficients, terms)?;
+                    let relation = if *equality {
+                        IntegerRelation::Equal
                     } else {
-                        "int_lin_le"
-                    }
+                        IntegerRelation::LessEqual
+                    };
+                    self.validate_relation(constraint, relation, true, &RelationCondition::Plain)?;
+                    &constraint.reference.predicate
                 }
                 Predicate::ReifiedLessEqual {
                     left,
@@ -291,7 +308,18 @@ impl PreparedModel {
                     self.validate_operand(left, ValueType::Integer)?;
                     self.validate_operand(right, ValueType::Integer)?;
                     self.validate_operand(result, ValueType::Boolean)?;
-                    "int_le_reif"
+                    if RelationName::from_name(&constraint.reference.predicate)
+                        != Some(RelationName {
+                            relation: IntegerRelation::LessEqual,
+                            linear: false,
+                            mode: RelationMode::Reified,
+                        })
+                    {
+                        return Err(invalid(
+                            "constraint report predicate does not match its operation",
+                        ));
+                    }
+                    &constraint.reference.predicate
                 }
             };
             if constraint.reference.predicate != predicate_name {
@@ -299,6 +327,42 @@ impl PreparedModel {
                     "constraint report predicate does not match its operation",
                 ));
             }
+        }
+        Ok(())
+    }
+
+    fn validate_relation(
+        &self,
+        constraint: &Constraint,
+        relation: IntegerRelation,
+        linear: bool,
+        condition: &RelationCondition,
+    ) -> Result<(), Diagnostic> {
+        if RelationName::from_name(&constraint.reference.predicate)
+            != Some(RelationName {
+                relation,
+                linear,
+                mode: condition.mode(),
+            })
+        {
+            return Err(invalid(
+                "constraint report predicate does not match its operation",
+            ));
+        }
+        if let Some(operand) = condition.operand() {
+            self.validate_operand(operand, ValueType::Boolean)?;
+        }
+        Ok(())
+    }
+
+    fn validate_linear(&self, coefficients: &[i64], terms: &[Operand]) -> Result<(), Diagnostic> {
+        if coefficients.len() != terms.len() {
+            return Err(invalid(
+                "linear coefficient and term arrays must have equal lengths",
+            ));
+        }
+        for term in terms {
+            self.validate_operand(term, ValueType::Integer)?;
         }
         Ok(())
     }

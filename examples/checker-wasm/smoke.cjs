@@ -34,7 +34,7 @@ try {
     assert.throws(() => models.exact.check(JSON.stringify({ entries: [{
         name: "missing", value: { kind: "scalar", value: { kind: "integer", value: "1" } }
     }] })), error => JSON.parse(error).kind === "assignment");
-    console.log(`Native/Wasm reports agree across ${cases.length * 2} checks; exact integers, arithmetic, sets, global findings and input errors verified.`);
+    console.log(`Native/Wasm reports agree across ${cases.length * 2} checks; exact integers, arithmetic, relations, sets, global findings and input errors verified.`);
 } finally {
     for (const model of Object.values(models)) model.free();
     rmSync(directory, { recursive: true, force: true });
@@ -88,6 +88,16 @@ function checkDetails(name, report) {
         assert.equal(finding.details.inputs[0].value.value, "9007199254740993");
         assert.equal(finding.details.result.value.value, "9007199254740995");
         assert.equal(finding.details.result.variable.name, "incremented");
+        const scalar = report.violations.find(finding => finding.details.relation === "greater_equal");
+        assert.equal(scalar.details.kind, "integer_relation");
+        assert.equal(scalar.details.left.value.value, "9007199254740993");
+        assert.equal(scalar.details.condition.kind, "reified");
+        assert.equal(scalar.details.condition.result.value.value, false);
+        const linear = report.violations.find(finding => finding.details.kind === "linear_relation");
+        assert.equal(linear.details.relation, "less");
+        assert.equal(linear.details.sum, "9007199254740993");
+        assert.equal(linear.details.bound, "9007199254740994");
+        assert.equal(linear.details.condition.result.variable.name, "at_least");
     }
     if (name === "infeasible") {
         assert.equal(report.violations.length, 3);

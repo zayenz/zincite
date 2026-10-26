@@ -21,9 +21,6 @@ BEGIN = "<!-- checker-coverage:begin -->"
 END = "<!-- checker-coverage:end -->"
 NAME = r"(?:[A-Za-z_][A-Za-z_0-9]*|'[^']*')"
 CURRENT = {
-    "int_lin_eq",
-    "int_lin_le",
-    "int_le_reif",
     "set_in",
     "set_eq",
     "set_subset",
@@ -31,6 +28,13 @@ CURRENT = {
     "set_union",
     "set_intersect",
     "fzn_disjunctive_strict",
+}
+CURRENT |= {
+    prefix + "int_" + shape + relation + suffix
+    for prefix in ("", "gecode_", "fzn_")
+    for shape in ("", "lin_")
+    for relation in ("eq", "ne", "lt", "le", "gt", "ge")
+    for suffix in ("", "_reif", "_imp")
 }
 CURRENT |= {
     prefix + name
@@ -623,10 +627,14 @@ def render_inventory(
 
 def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None:
     lowerer = (ROOT / "crates/zincite-check/src/prepare.rs").read_text()
-    arity = lowerer.split("let arity = match name.as_str() {", 1)[1].split("_ =>", 1)[0]
+    arity = lowerer.split("match name.as_str() {", 1)[1].split("_ =>", 1)[0]
     arithmetic = (ROOT / "crates/zincite-check/src/arithmetic.rs").read_text()
     arithmetic_names = arithmetic.split("match name {", 1)[1].split("_ =>", 1)[0]
-    admitted = set(re.findall(r'"([a-z_]+)"', arity + arithmetic_names))
+    relations = (ROOT / "crates/zincite-check/src/relations.rs").read_text()
+    relation_names = relations.split("match name {", 1)[1].split("_ =>", 1)[0]
+    admitted = set(
+        re.findall(r'"([a-z_]+)"', arity + arithmetic_names + relation_names)
+    )
     if admitted != CURRENT:
         raise ValueError("current admission changed; review current-support rows")
     counts = Counter(key[0] for key in files)

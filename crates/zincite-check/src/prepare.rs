@@ -192,18 +192,22 @@ impl Source<'_> {
                 arguments[1].is_var = false;
             }
             arguments
-        } else {
-            match name {
-                "int_lin_eq" | "int_lin_le" => vec![
+        } else if let Some(relation) = RelationName::from_name(name) {
+            let mut arguments = if relation.linear {
+                vec![
                     array(ValueType::Integer, false),
                     array(ValueType::Integer, true),
                     scalar(ValueType::Integer, false),
-                ],
-                "int_le_reif" => vec![
-                    scalar(ValueType::Integer, true),
-                    scalar(ValueType::Integer, true),
-                    scalar(ValueType::Boolean, true),
-                ],
+                ]
+            } else {
+                vec![scalar(ValueType::Integer, true); 2]
+            };
+            if relation.mode != RelationMode::Plain {
+                arguments.push(scalar(ValueType::Boolean, true));
+            }
+            arguments
+        } else {
+            match name {
                 "set_in" => vec![
                     scalar(ValueType::Integer, true),
                     scalar(ValueType::IntegerSet, true),
@@ -1003,15 +1007,19 @@ impl<'a> Lowerer<'a> {
         }
         let name = self.source.name(call)?;
         let args: Vec<_> = call.child_nodes().collect();
-        let arity = match name.as_str() {
-            "set_in" | "set_eq" | "set_subset" | "set_card" | "fzn_disjunctive_strict" => 2,
-            "int_lin_eq" | "int_lin_le" | "int_le_reif" | "set_union" | "set_intersect" => 3,
-            _ => ArithmeticOperation::from_name(&name)
-                .map(|operation| operation.input_count() + 1)
-                .ok_or_else(|| {
-                    self.source
-                        .error(call, format!("unsupported predicate '{name}'"))
-                })?,
+        let arity = if let Some(relation) = RelationName::from_name(&name) {
+            relation.arity()
+        } else {
+            match name.as_str() {
+                "set_in" | "set_eq" | "set_subset" | "set_card" | "fzn_disjunctive_strict" => 2,
+                "set_union" | "set_intersect" => 3,
+                _ => ArithmeticOperation::from_name(&name)
+                    .map(|operation| operation.input_count() + 1)
+                    .ok_or_else(|| {
+                        self.source
+                            .error(call, format!("unsupported predicate '{name}'"))
+                    })?,
+            }
         };
         if args.len() != arity {
             return Err(self
@@ -1020,6 +1028,8 @@ impl<'a> Lowerer<'a> {
         }
         let predicate = if let Some(operation) = ArithmeticOperation::from_name(&name) {
             self.integer_arithmetic(operation, &args)?
+        } else if let Some(relation) = RelationName::from_name(&name) {
+            self.integer_relation(call, relation, &args)?
         } else {
             match name.as_str() {
                 "set_in" => Predicate::SetIn {
@@ -1049,38 +1059,6 @@ impl<'a> Lowerer<'a> {
                     result: self.scalar(args[2], ValueType::IntegerSet)?,
                 },
                 "fzn_disjunctive_strict" => self.strict_disjunctive(call, &args)?,
-                "int_lin_eq" | "int_lin_le" => {
-                    let coefficients = self
-                        .array(args[0], ValueType::Integer)?
-                        .into_iter()
-                        .map(|operand| match operand {
-                            Operand::Literal(Value::Integer(value)) => Ok(value),
-                            _ => Err(self.source.error(
-                                args[0],
-                                "linear coefficients must be fixed integer parameters",
-                            )),
-                        })
-                        .collect::<Result<Vec<_>>>()?;
-                    let terms = self.array(args[1], ValueType::Integer)?;
-                    if coefficients.len() != terms.len() {
-                        return Err(self.source.error(
-                            call,
-                            "linear coefficient and variable arrays must have equal lengths",
-                        ));
-                    }
-                    let bound = self.constant_integer(args[2])?;
-                    Predicate::Linear {
-                        coefficients,
-                        terms,
-                        bound,
-                        equality: name == "int_lin_eq",
-                    }
-                }
-                "int_le_reif" => Predicate::ReifiedLessEqual {
-                    left: self.scalar(args[0], ValueType::Integer)?,
-                    right: self.scalar(args[1], ValueType::Integer)?,
-                    result: self.scalar(args[2], ValueType::Boolean)?,
-                },
                 _ => {
                     return Err(self
                         .source
@@ -1101,6 +1079,84 @@ impl<'a> Lowerer<'a> {
             predicate,
         });
         Ok(())
+    }
+
+    fn integer_relation(
+        &mut self,
+        call: &SyntaxNode,
+        name: RelationName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        let condition = match name.mode {
+            RelationMode::Plain => RelationCondition::Plain,
+            RelationMode::Reified => RelationCondition::Reified {
+                result: self.scalar(args[args.len() - 1], ValueType::Boolean)?,
+            },
+            RelationMode::Implied => RelationCondition::Implied {
+                guard: self.scalar(args[args.len() - 1], ValueType::Boolean)?,
+            },
+        };
+        if name.linear {
+            let coefficients = self
+                .array(args[0], ValueType::Integer)?
+                .into_iter()
+                .map(|operand| match operand {
+                    Operand::Literal(Value::Integer(value)) => Ok(value),
+                    _ => Err(self.source.error(
+                        args[0],
+                        "linear coefficients must be fixed integer parameters",
+                    )),
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let terms = self.array(args[1], ValueType::Integer)?;
+            if coefficients.len() != terms.len() {
+                return Err(self.source.error(
+                    call,
+                    "linear coefficient and variable arrays must have equal lengths",
+                ));
+            }
+            let bound = self.constant_integer(args[2])?;
+            if name.mode == RelationMode::Plain
+                && matches!(
+                    name.relation,
+                    IntegerRelation::Equal | IntegerRelation::LessEqual
+                )
+            {
+                Ok(Predicate::Linear {
+                    coefficients,
+                    terms,
+                    bound,
+                    equality: name.relation == IntegerRelation::Equal,
+                })
+            } else {
+                Ok(Predicate::LinearRelation {
+                    relation: name.relation,
+                    coefficients,
+                    terms,
+                    bound,
+                    condition,
+                })
+            }
+        } else {
+            let left = self.scalar(args[0], ValueType::Integer)?;
+            let right = self.scalar(args[1], ValueType::Integer)?;
+            if name.relation == IntegerRelation::LessEqual
+                && let RelationCondition::Reified { result } = condition
+            {
+                Ok(Predicate::ReifiedLessEqual {
+                    left,
+                    right,
+                    result,
+                })
+            } else {
+                Ok(Predicate::IntegerRelation {
+                    relation: name.relation,
+                    left,
+                    right,
+                    condition,
+                })
+            }
+        }
     }
 
     fn integer_arithmetic(

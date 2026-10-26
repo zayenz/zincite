@@ -166,6 +166,39 @@ pub fn render_text(report: &CheckReport) -> String {
             check_text(&violation.check)
         );
         match &violation.details {
+            ViolationKind::IntegerRelation {
+                relation,
+                left,
+                right,
+                condition,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  ({}) {relation} ({}){}",
+                    argument_text(left),
+                    argument_text(right),
+                    condition_text(condition)
+                );
+            }
+            ViolationKind::LinearRelation {
+                relation,
+                coefficients,
+                terms,
+                sum,
+                bound,
+                condition,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  coefficients = {coefficients:?}; terms = [{}]; sum = {sum}; {sum} {relation} {bound}{}",
+                    terms
+                        .iter()
+                        .map(argument_text)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    condition_text(condition)
+                );
+            }
             ViolationKind::IntegerArithmetic {
                 operation,
                 inputs,
@@ -355,6 +388,14 @@ fn argument_text(argument: &ArgumentValue) -> String {
     match &argument.variable {
         Some(variable) => format!("{} = {}", variable_name(variable), argument.value),
         None => argument.value.to_string(),
+    }
+}
+
+fn condition_text(condition: &RelationConditionValue) -> String {
+    match condition {
+        RelationConditionValue::Plain => String::new(),
+        RelationConditionValue::Reified { result } => format!(" <-> ({})", argument_text(result)),
+        RelationConditionValue::Implied { guard } => format!(" when ({})", argument_text(guard)),
     }
 }
 

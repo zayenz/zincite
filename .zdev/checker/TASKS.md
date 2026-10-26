@@ -3,9 +3,9 @@
 # Tasks: checker
 
 - Total: 33
-- Ready: 2
-- Blocked: 19
-- Done: 12
+- Ready: 3
+- Blocked: 17
+- Done: 13
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -21,8 +21,8 @@
 | [checker-010](tasks/010-inventory-complete-standard-and-gecode-flatzinc-coverage.md) | Inventory complete standard and Gecode FlatZinc coverage | done | checker-009 |
 | [checker-011](tasks/011-accept-the-full-flatzinc-text-structure-and-annotations.md) | Accept the full FlatZinc text structure and annotations | done | checker-010 |
 | [checker-012](tasks/012-check-standard-integer-arithmetic-and-derive-its-outputs.md) | Check standard integer arithmetic and derive its outputs | done | checker-011 |
-| [checker-013](tasks/013-complete-integer-comparisons-and-linear-reification.md) | Complete integer comparisons and linear reification | ready | checker-011 |
-| [checker-014](tasks/014-complete-boolean-logic-clauses-and-boolean-linear-constraint.md) | Complete Boolean logic, clauses and Boolean linear constraints | blocked | checker-011, checker-013 |
+| [checker-013](tasks/013-complete-integer-comparisons-and-linear-reification.md) | Complete integer comparisons and linear reification | done | checker-011 |
+| [checker-014](tasks/014-complete-boolean-logic-clauses-and-boolean-linear-constraint.md) | Complete Boolean logic, clauses and Boolean linear constraints | ready | checker-011, checker-013 |
 | [checker-015](tasks/015-add-finite-floats-configurable-tolerance-and-core-float-pred.md) | Add finite floats, configurable tolerance and core float predicates | blocked | checker-011, checker-013, checker-014 |
 | [checker-016](tasks/016-support-elements-offsets-and-conditionals-for-every-value-ty.md) | Support elements, offsets and conditionals for every value type | blocked | checker-014, checker-015 |
 | [checker-017](tasks/017-complete-standard-finite-set-relations-and-operations.md) | Complete standard finite-set relations and operations | blocked | checker-011, checker-014 |
@@ -37,7 +37,7 @@
 | [checker-026](tasks/026-check-packing-and-rectangle-non-overlap-interfaces.md) | Check packing and rectangle non-overlap interfaces | blocked | checker-012, checker-014 |
 | [checker-027](tasks/027-check-aggregate-ordered-and-weighted-set-globals.md) | Check aggregate, ordered and weighted set globals | blocked | checker-017, checker-012 |
 | [checker-028](tasks/028-check-set-selection-channels-and-set-valued-globals.md) | Check set selection, channels and set-valued globals | blocked | checker-027, checker-020 |
-| [checker-029](tasks/029-check-gecode-number-theory-products-and-distance-extensions.md) | Check Gecode number theory, products and distance extensions | blocked | checker-012, checker-013 |
+| [checker-029](tasks/029-check-gecode-number-theory-products-and-distance-extensions.md) | Check Gecode number theory, products and distance extensions | ready | checker-012, checker-013 |
 | [checker-030](tasks/030-compile-the-complete-standard-library-to-supported-checker-o.md) | Compile the complete standard library to supported checker operations | blocked | checker-012, checker-013, checker-014, checker-015, checker-018, checker-016, checker-017 |
 | [checker-031](tasks/031-compile-against-the-complete-pinned-gecode-minizinc-library.md) | Compile against the complete pinned Gecode MiniZinc library | blocked | checker-030, checker-019, checker-020, checker-021, checker-022, checker-023, checker-025, checker-026, checker-028, checker-029, checker-018 |
 | [checker-032](tasks/032-accept-the-standard-flatzinc-json-representation.md) | Accept the standard FlatZinc-JSON representation | blocked | checker-030 |

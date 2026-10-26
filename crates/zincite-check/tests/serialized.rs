@@ -388,3 +388,143 @@ fn set_global_round_trips_and_admission_validate_typed_compact_values() {
         assert!(serde_json::from_value::<Assignment>(json!({"entries":[{"name":"s","value":{"kind":"scalar","value":{"kind":"integer_set","value":{"ranges":ranges}}}}]})).is_err());
     }
 }
+
+#[test]
+fn parser_free_relations_validate_names_conditions_and_linear_shapes() {
+    let integer = |value: &str| json!({"Literal":{"kind":"integer","value":value}});
+    let boolean = |value| json!({"Literal":{"kind":"boolean","value":value}});
+    let mut original = executable();
+    original["model"]["constraints"][0]["reference"]["predicate"] = json!("fzn_int_gt_imp");
+    original["model"]["constraints"][0]["predicate"] = json!({"IntegerRelation":{
+        "relation":"greater", "left":{"Variable":0}, "right":integer("9007199254740993"),
+        "condition":{"Implied":{"guard":boolean(true)}}
+    }});
+    let candidate = Assignment {
+        entries: vec![AssignmentEntry {
+            name: "x".into(),
+            value: AssignmentValue::Scalar(Value::Integer(9_007_199_254_740_993)),
+            location: None,
+        }],
+    };
+    for (name, predicate) in [
+        (
+            "fzn_int_gt_imp",
+            original["model"]["constraints"][0]["predicate"].clone(),
+        ),
+        (
+            "gecode_int_lin_ne_reif",
+            json!({"LinearRelation":{
+                "relation":"not_equal", "coefficients":["1"], "terms":[{"Variable":0}], "bound":"0",
+                "condition":{"Reified":{"result":boolean(false)}}
+            }}),
+        ),
+    ] {
+        original["model"]["constraints"][0]["reference"]["predicate"] = json!(name);
+        original["model"]["constraints"][0]["predicate"] = predicate;
+        let loaded = PreparedModel::from_json(&original.to_string()).unwrap();
+        let exported = loaded.to_json().unwrap();
+        assert_eq!(serde_json::from_str::<Json>(&exported).unwrap(), original);
+        let report = loaded.check(&candidate).unwrap();
+        assert_eq!(report.status, Status::Invalid);
+        let reloaded = PreparedModel::from_json(&exported).unwrap();
+        assert_eq!(
+            serde_json::to_value(report).unwrap(),
+            serde_json::to_value(reloaded.check(&candidate).unwrap()).unwrap()
+        );
+    }
+    for (pointer, replacement, message) in [
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("int_lin_ne_imp"),
+            "report predicate",
+        ),
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("gecode_gecode_int_lin_ne_reif"),
+            "report predicate",
+        ),
+        (
+            "/model/constraints/0/predicate/LinearRelation/relation",
+            json!("less_equal"),
+            "report predicate",
+        ),
+        (
+            "/model/constraints/0/predicate/LinearRelation/relation",
+            json!("invalid"),
+            "unknown variant",
+        ),
+        (
+            "/model/constraints/0/predicate/LinearRelation/coefficients",
+            json!([]),
+            "equal lengths",
+        ),
+        (
+            "/model/constraints/0/predicate/LinearRelation/terms/0",
+            boolean(true),
+            "operand type",
+        ),
+        (
+            "/model/constraints/0/predicate/LinearRelation/terms/0",
+            json!({"Variable":20}),
+            "unknown slot",
+        ),
+        (
+            "/model/constraints/0/predicate/LinearRelation/condition/Reified/result",
+            integer("1"),
+            "operand type",
+        ),
+        (
+            "/model/constraints/0/predicate/LinearRelation/condition",
+            json!("Plain"),
+            "report predicate",
+        ),
+        (
+            "/model/constraints/0/predicate/LinearRelation/bound",
+            json!(1),
+            "string",
+        ),
+    ] {
+        let mut malformed = original.clone();
+        *malformed.pointer_mut(pointer).unwrap() = replacement;
+        let error = PreparedModel::from_json(&malformed.to_string()).unwrap_err();
+        assert!(
+            error.message.contains(message),
+            "{pointer}: {}",
+            error.message
+        );
+    }
+    let mut scalar = executable();
+    scalar["model"]["constraints"][0]["reference"]["predicate"] = json!("int_eq");
+    scalar["model"]["constraints"][0]["predicate"] = json!({"IntegerRelation":{
+        "relation":"equal", "left":{"Variable":0}, "right":integer("1"), "condition":"Plain"
+    }});
+    for (field, operand) in [("left", boolean(true)), ("right", json!({"Variable":30}))] {
+        let mut malformed = scalar.clone();
+        malformed["model"]["constraints"][0]["predicate"]["IntegerRelation"][field] = operand;
+        assert!(PreparedModel::from_json(&malformed.to_string()).is_err());
+    }
+}
+
+#[cfg(feature = "prepare")]
+#[test]
+fn completed_relation_reports_survive_serialization_with_legacy_shapes() {
+    use zincite_check::{parse_assignment, prepare};
+    let model = prepare("relations.fzn", "var int:x;var int:y::is_defined_var;var bool:b::is_defined_var;constraint int_eq(x,y)::defines_var(y);constraint int_lin_eq([1],[y],3);constraint int_le_reif(x,3,true);constraint int_lin_gt_reif([1],[y],2,b)::defines_var(b);constraint int_lt_imp(x,2,b);solve minimize y;").unwrap();
+    let original: Json = serde_json::from_str(&model.to_json().unwrap()).unwrap();
+    assert!(original["model"]["constraints"][1]["predicate"]["Linear"].is_object());
+    assert!(original["model"]["constraints"][2]["predicate"]["ReifiedLessEqual"].is_object());
+    let loaded = PreparedModel::from_json(&original.to_string()).unwrap();
+    for candidate in ["x=1;", "x=3;", "x=3;y=1;b=true;", "", "x=1;"] {
+        let candidate = parse_assignment("candidate.dzn", candidate).unwrap();
+        let before = model.check(&candidate).unwrap();
+        let after = loaded.check(&candidate).unwrap();
+        assert_eq!(
+            serde_json::to_value(&before).unwrap(),
+            serde_json::to_value(&after).unwrap()
+        );
+        assert_eq!(
+            zincite_check::cli::render_text(&before),
+            zincite_check::cli::render_text(&after)
+        );
+    }
+}
