@@ -3,7 +3,7 @@ schema_version = 1
 id = "checker-001"
 key = "compilation-contract"
 area = "checker"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "high"
@@ -26,11 +26,22 @@ Read [the area brief](../brief.md), especially the Checking contract and Testing
 
 ## Done when
 
-- [ ] The example model, compilation command and checker library/configuration needed by that command reproduce inspected FlatZinc without running a solver.
-- [ ] A compact compilation contract records primary-variable/array addressing, definition directions, application metadata transport, and a finite predicate list split into direct checks and functional-completion operations. It documents transformations that affect editing or violation reporting.
-- [ ] Direct inspection covers a feasible candidate, an infeasible candidate with several independent violations and determined auxiliaries, and insufficient primary input. Metadata loss or unsupported constructs are resolved for this bounded example before claiming a usable recipe.
+- [x] The example model, compilation command and checker library/configuration needed by that command reproduce inspected FlatZinc without running a solver.
+- [x] A compact compilation contract records primary-variable/array addressing, definition directions, application metadata transport, and a finite predicate list split into direct checks and functional-completion operations. It documents transformations that affect editing or violation reporting.
+- [x] Direct inspection covers a feasible candidate, an infeasible candidate with several independent violations and determined auxiliaries, and insufficient primary input. Metadata loss or unsupported constructs are resolved for this bounded example before claiming a usable recipe.
 
 ## Validation
 
 - Run the exact compiler recipe and inspect emitted declarations, definitions, predicates, domains and application metadata against the synthetic source.
 - Save the reusable findings under checker/background, index them from the brief, and run both zdev checks. No new Rust tests are expected.
+
+## Result
+
+Established the two-job checker compilation recipe, bounded predicate contract, structured metadata mapping and four direct candidate walkthroughs; independently verified.
+
+Validation:
+
+- MiniZinc 2.10.1 compile-only replay matched the archived FlatZinc except its command comment; no solver ran.
+- Direct inspection verified all five relations, domains, aliases, definitions, application metadata and complete/incomplete candidate outcomes.
+- Formatter checks and default lint passed, with the documented index-set-mismatch analysis limitation.
+- Independent verification passed against Wc7fc8860840c21b0; checker and base zdev checks passed.

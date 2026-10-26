@@ -27,6 +27,10 @@ to partial assignments and satisfiability. The user's subsequent clarification
 settles that insufficient input is a report, not an error.
 Read [the source and repository notes](background/design-context.md) before
 compiler integration, lowering, report design or extending predicate coverage.
+Read [the compilation contract](background/compilation-contract.md) before
+implementing the initial checker dialect, definition evaluation or compiler
+library. It records the verified two-job recipe, emitted predicates, metadata,
+domain changes and candidate calculations.
 
 Observable success is a small labelled MiniZinc model compiled once, prepared
 once, and checked repeatedly after editing its decisions. Native and browser
