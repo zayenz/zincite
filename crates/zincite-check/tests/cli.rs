@@ -587,3 +587,45 @@ fn ordering_cli_preserves_completion_exact_indexes_and_typed_faults() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn table_text_and_json_use_typed_membership_and_conditions() {
+    let directory = std::env::temp_dir().join(format!("zincite-table-cli-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let model = directory.join("tables.fzn");
+    let data = directory.join("candidate.dzn");
+    std::fs::write(
+        &model,
+        include_str!("../../../examples/checker-compilation/tables.fzn"),
+    )
+    .unwrap();
+    std::fs::write(&data, "x=9007199254740993;flag=true;member=false;").unwrap();
+    for format in ["text", "json"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+            .args(["--format", format])
+            .arg(&model)
+            .arg(&data)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        assert!(output.stderr.is_empty());
+        let text = String::from_utf8(output.stdout).unwrap();
+        if format == "text" {
+            assert!(text.contains("table membership true"));
+            assert!(text.contains("rows of width 2"));
+            assert!(text.contains("9007199254740993"));
+            assert!(text.contains("<-> (member = false)"));
+        } else {
+            let report: serde_json::Value = serde_json::from_str(&text).unwrap();
+            let finding = &report["violations"][0];
+            assert_eq!(finding["details"]["kind"], "table");
+            assert_eq!(finding["details"]["table"]["values"][0], "9007199254740993");
+            assert_eq!(finding["details"]["width"], 2);
+            assert_eq!(
+                finding["check"]["constraint"]["metadata"]["application"]["id"],
+                "integer_table"
+            );
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

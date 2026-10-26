@@ -199,6 +199,10 @@ impl PreparedModel {
                 return Err(invalid("constraint ordinals must follow executable order"));
             }
             let predicate_name = match &constraint.predicate {
+                Predicate::Table(table) => {
+                    self.validate_table(constraint, table)?;
+                    &constraint.reference.predicate
+                }
                 Predicate::Ordering(ordering) => {
                     self.validate_ordering(constraint, ordering)?;
                     &constraint.reference.predicate
@@ -450,6 +454,25 @@ impl PreparedModel {
                     self.validate_operand(result, ValueType::Boolean)?;
                 }
             }
+        }
+        Ok(())
+    }
+
+    fn validate_table(&self, constraint: &Constraint, table: &Table) -> Result<(), Diagnostic> {
+        let name = TableName::from_name(&constraint.reference.predicate).ok_or_else(|| {
+            invalid("table predicate name does not match its executable contract")
+        })?;
+        if name.kind() != table.table.kind() || name.mode != table.condition.mode() {
+            return Err(invalid(
+                "table predicate name does not match its executable contract",
+            ));
+        }
+        table.validate_shape().map_err(invalid)?;
+        for entry in &table.tuple {
+            self.validate_operand(entry, name.kind())?;
+        }
+        if let Some(operand) = table.condition.operand() {
+            self.validate_operand(operand, ValueType::Boolean)?;
         }
         Ok(())
     }

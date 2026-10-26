@@ -3,9 +3,9 @@
 # Tasks: checker
 
 - Total: 33
-- Ready: 8
+- Ready: 7
 - Blocked: 5
-- Done: 20
+- Done: 21
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -29,7 +29,7 @@
 | [checker-018](tasks/018-complete-float-powers-and-transcendental-operations.md) | Complete float powers and transcendental operations | done | checker-015 |
 | [checker-019](tasks/019-check-counts-cardinalities-and-value-distributions.md) | Check counts, cardinalities and value distributions | done | checker-013, checker-014 |
 | [checker-020](tasks/020-check-ordering-distinctness-extrema-and-integer-channels.md) | Check ordering, distinctness, extrema and integer channels | done | checker-013, checker-014 |
-| [checker-021](tasks/021-check-integer-and-boolean-tables-with-reification.md) | Check integer and Boolean tables with reification | ready | checker-013, checker-014 |
+| [checker-021](tasks/021-check-integer-and-boolean-tables-with-reification.md) | Check integer and Boolean tables with reification | done | checker-013, checker-014 |
 | [checker-022](tasks/022-check-deterministic-and-nondeterministic-regular-constraints.md) | Check deterministic and nondeterministic regular constraints | ready | checker-017 |
 | [checker-023](tasks/023-check-circuits-and-circuit-cost-relations.md) | Check circuits and circuit-cost relations | ready | checker-012 |
 | [checker-024](tasks/024-check-legacy-unary-and-cumulative-scheduling-predicates.md) | Check legacy unary and cumulative scheduling predicates | ready | checker-012, checker-014 |

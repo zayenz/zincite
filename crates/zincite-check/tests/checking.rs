@@ -3882,3 +3882,193 @@ fn legacy_float_and_set_decreasing_use_adjacent_relations_and_boolean_compositio
     assert_eq!(strict.status, Status::Invalid);
     assert_eq!(strict.violations.len(), 1);
 }
+
+#[test]
+fn table_names_signatures_and_malformed_source() {
+    for prefix in ["", "gecode_", "fzn_"] {
+        for (kind, tuple, table) in [
+            ("int", "1,2", "1,2,1,2"),
+            ("bool", "false,true", "false,true,false,true"),
+        ] {
+            for suffix in ["", "_reif", "_imp"] {
+                let name = format!("{prefix}gecode_table_{kind}{suffix}");
+                let extra = if suffix.is_empty() {
+                    ""
+                } else {
+                    ",var bool: answer"
+                };
+                let argument = if suffix.is_empty() { "" } else { ",true" };
+                let source = format!(
+                    "predicate {name}(array[int] of var {kind}: arbitrary,array[int] of {kind}: rows{extra}); constraint {name}([{tuple}],[{table}]{argument}); solve satisfy;"
+                );
+                let model = prepare("table-names", &source).unwrap();
+                assert_eq!(
+                    model.check(&Assignment::default()).unwrap().status,
+                    Status::Valid,
+                    "{name}"
+                );
+                let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+                assert_eq!(
+                    loaded.check(&Assignment::default()).unwrap().status,
+                    Status::Valid
+                );
+            }
+        }
+    }
+    for source in [
+        "constraint table_int([1],[1]);",
+        "constraint fzn_table_int([1],[1]);",
+        "constraint gecode_gecode_gecode_table_int([1],[1]);",
+        "constraint gecode_table_int([1],[1],true);",
+        "constraint gecode_table_bool([1],[true]);",
+        "constraint gecode_table_int([1],[true]);",
+        "constraint gecode_table_bool_reif([true],[true],1);",
+        "var int: x; constraint gecode_table_int([1],[x]);",
+        "var bool: x; constraint gecode_table_bool([true],[x]);",
+        "constraint gecode_table_int_imp([1,2],[1],false);",
+        "constraint gecode_table_bool_imp([],[false],false);",
+        "array[1..2] of int: rows=[1]; constraint gecode_table_int([1],rows);",
+        "predicate gecode_table_int(array[int] of int: a,array[int] of int: b); constraint gecode_table_int([1],[1]);",
+        "predicate gecode_table_bool(array[int] of var bool: a,array[int] of var bool: b); constraint gecode_table_bool([true],[true]);",
+        "predicate gecode_table_int(array[int] of var int: a,array[int] of int: b,var bool: c);",
+    ] {
+        assert!(
+            prepare("bad-table", &format!("{source} solve satisfy;")).is_err(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn tables_check_rows_empty_guards_reification_and_completion() {
+    for (call, status) in [
+        ("gecode_table_int([1,2],[1,2,3,4])", Status::Valid),
+        ("gecode_table_int([1,3],[1,2,3,4])", Status::Invalid),
+        ("gecode_table_int([1,2],[1,2,1,2])", Status::Valid),
+        (
+            "gecode_table_int([-9223372036854775808,9223372036854775807],[-9223372036854775808,9223372036854775807])",
+            Status::Valid,
+        ),
+        (
+            "gecode_table_bool([true,false],[false,true,true,false])",
+            Status::Valid,
+        ),
+        (
+            "gecode_table_bool_reif([true,false],[false,true],false)",
+            Status::Valid,
+        ),
+        ("gecode_table_int_reif([1],[1],false)", Status::Invalid),
+        ("gecode_table_int_reif([1],[],false)", Status::Valid),
+        ("gecode_table_int([],[])", Status::Invalid),
+        ("gecode_table_bool_reif([],[],false)", Status::Valid),
+        ("gecode_table_bool_imp([],[],true)", Status::Invalid),
+        (
+            "gecode_table_int_imp([missing],[],false)",
+            Status::Incomplete,
+        ),
+        (
+            "gecode_table_int_reif([missing],[],false)",
+            Status::Incomplete,
+        ),
+    ] {
+        let declaration = if call.contains("missing") {
+            "var int: missing;"
+        } else {
+            ""
+        };
+        let model = prepare(
+            "table-rows",
+            &format!("{declaration} constraint {call}; solve satisfy;"),
+        )
+        .unwrap();
+        let report = model.check(&Assignment::default()).unwrap();
+        assert_eq!(report.status, status, "{call}");
+        if call.contains("missing") && call.contains("_imp") {
+            assert!(
+                report
+                    .completeness
+                    .blocked_checks
+                    .iter()
+                    .all(|blocked| matches!(blocked.check, CheckRef::Domain { .. }))
+            );
+        }
+    }
+    for source in [
+        "var int: x; var bool: r ::is_defined_var; constraint gecode_table_int_reif([x],[],r)::defines_var(r);",
+        "var bool: r ::is_defined_var; constraint gecode_table_bool_reif([r],[true],r)::defines_var(r);",
+        "var bool: a ::is_defined_var; var bool: b ::is_defined_var; constraint gecode_table_bool_reif([a],[true],b)::defines_var(b); constraint gecode_table_bool_reif([b],[true],a)::defines_var(a);",
+        "var int: x ::is_defined_var; constraint gecode_table_int([x],[1])::defines_var(x);",
+        "var bool: guard ::is_defined_var; constraint gecode_table_int_imp([1],[1],guard)::defines_var(guard);",
+    ] {
+        let model = prepare("table-no-choice", &format!("{source} solve satisfy;")).unwrap();
+        if source.contains("var bool: a") {
+            assert_eq!(
+                model.check(&assignment("a=true;b=true;")).unwrap().status,
+                Status::Valid
+            );
+        }
+        assert_eq!(
+            model.check(&Assignment::default()).unwrap().status,
+            Status::Incomplete,
+            "{source}"
+        );
+    }
+    let empty = prepare("zero-width", "var bool: r ::is_defined_var; constraint gecode_table_int_reif([],[],r)::defines_var(r); constraint bool_eq(r,false); solve satisfy;").unwrap();
+    assert_eq!(
+        empty.check(&Assignment::default()).unwrap().status,
+        Status::Valid
+    );
+    let domain = prepare("table-domain", "var bool: r ::is_defined_var = false; constraint gecode_table_int_reif([1],[1],r)::defines_var(r); constraint bool_eq(r,false); solve satisfy;").unwrap();
+    assert_eq!(
+        domain
+            .check(&Assignment::default())
+            .unwrap()
+            .violations
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn table_reports_round_trip_with_metadata_and_fresh_assignments() {
+    let source = include_str!("../../../examples/checker-compilation/tables.fzn");
+    let model = prepare("tables.fzn", source).unwrap();
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for (candidate, status, complete) in [
+        ("x=9007199254740993;flag=true;", Status::Valid, true),
+        ("x=3;flag=false;", Status::Invalid, true),
+        (
+            "x=9007199254740993;flag=true;member=false;",
+            Status::Invalid,
+            true,
+        ),
+        ("", Status::Incomplete, false),
+        ("flag=false;bool_member=true;", Status::Invalid, false),
+    ] {
+        let input = assignment(candidate);
+        let report = model.check(&input).unwrap();
+        assert_eq!(report.status, status);
+        assert_eq!(report.completeness.complete, complete);
+        assert_eq!(
+            serde_json::to_value(&report).unwrap(),
+            serde_json::to_value(loaded.check(&input).unwrap()).unwrap()
+        );
+        if candidate.contains("member=false") {
+            let report = serde_json::to_value(report).unwrap();
+            let finding = &report["violations"][0];
+            assert_eq!(finding["details"]["kind"], "table");
+            assert_eq!(finding["details"]["table"]["values"][0], "9007199254740993");
+            assert_eq!(finding["details"]["width"], 2);
+            assert_eq!(finding["details"]["membership"], true);
+            assert_eq!(finding["details"]["tuple"][0]["variable"]["name"], "x");
+            assert_eq!(
+                finding["details"]["condition"]["result"]["value"]["value"],
+                false
+            );
+            assert_eq!(
+                finding["check"]["constraint"]["metadata"]["application"]["id"],
+                "integer_table"
+            );
+        }
+    }
+}

@@ -9,6 +9,9 @@ pub use ordering::{
     IndexFault, InverseFault, InverseSide, OrderingArgument, OrderingFinding, OrderingPair,
 };
 use ordering::{Ordering, OrderingName};
+mod tables;
+pub use tables::TableData;
+use tables::{Table, TableName};
 mod counting;
 pub use counting::{CountPosition, CountSelectorValue, WindowCount};
 use counting::{Counting, CountingName};
@@ -341,6 +344,13 @@ pub struct ArgumentValue {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViolationKind {
+    Table {
+        tuple: Vec<ArgumentValue>,
+        table: TableData,
+        width: usize,
+        membership: bool,
+        condition: RelationConditionValue,
+    },
     Ordering {
         finding: OrderingFinding,
     },
@@ -674,6 +684,7 @@ struct Variable {
 enum Predicate {
     Ordering(Ordering),
     Counting(Counting),
+    Table(Table),
     Element {
         indices: Vec<Operand>,
         elements: Vec<Operand>,
@@ -906,6 +917,7 @@ impl Predicate {
         match self {
             Self::Ordering(ordering) => ordering.operands(),
             Self::Counting(counting) => counting.operands(false),
+            Self::Table(table) => table.operands(),
             Self::Element {
                 indices,
                 elements,
@@ -1068,6 +1080,7 @@ impl Predicate {
 
     fn inactive_implication(&self, values: &[Option<Value>]) -> bool {
         match self {
+            Self::Table(table) => table.condition.inactive(values),
             Self::Counting(Counting::Count { condition, .. }) => condition.inactive(values),
             Self::SetRelation { condition, .. }
             | Self::SetMembership { condition, .. }
@@ -1113,6 +1126,7 @@ impl Constraint {
 
 #[derive(Clone, Copy, Debug)]
 enum DefinitionDirection {
+    Table,
     Ordering,
     Counting,
     Selection,
@@ -1350,6 +1364,9 @@ impl PreparedModel {
     ) -> Result<Option<Value>, CheckError> {
         let constraint = &self.constraints[definition.constraint];
         match (&constraint.predicate, definition.direction) {
+            (Predicate::Table(table), DefinitionDirection::Table) => {
+                Ok(table.membership(values).map(Value::Boolean))
+            }
             (Predicate::Ordering(ordering), DefinitionDirection::Ordering) => {
                 ordering.derive(definition.output, values, constraint)
             }
@@ -1932,6 +1949,7 @@ impl PreparedModel {
         match &constraint.predicate {
             Predicate::Ordering(ordering) => self.evaluate_ordering(constraint, ordering, values),
             Predicate::Counting(counting) => self.evaluate_counting(constraint, counting, values),
+            Predicate::Table(table) => Ok(self.evaluate_table(table, values)),
             Predicate::Element {
                 indices,
                 elements,
@@ -2712,6 +2730,9 @@ fn definition_direction(
         return Err(absent());
     }
     match &constraint.predicate {
+        Predicate::Table(table) => Ok(table
+            .can_define(output)
+            .then_some(DefinitionDirection::Table)),
         Predicate::Ordering(ordering) => Ok(ordering
             .can_define(output)
             .then_some(DefinitionDirection::Ordering)),

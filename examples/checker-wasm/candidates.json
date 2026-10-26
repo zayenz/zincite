@@ -874,5 +874,105 @@
         },
         "status": "invalid",
         "complete": false
+    },
+    {
+        "name": "tables-valid",
+        "model": "tables",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                },
+                {
+                    "name": "flag",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "valid",
+        "complete": true
+    },
+    {
+        "name": "tables-invalid",
+        "model": "tables",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                },
+                {
+                    "name": "flag",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                },
+                {
+                    "name": "member",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": false
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "tables-incomplete-invalid",
+        "model": "tables",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "flag",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": false
+                        }
+                    }
+                },
+                {
+                    "name": "bool_member",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": false
     }
 ]

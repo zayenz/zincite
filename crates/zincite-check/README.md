@@ -641,7 +641,7 @@ profile or general preservation of editable domains and variables.
 
 All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
 `fzn_` spellings, for 108 integer relation names. The 55 Boolean base names also
-accept those exact prefixes, for 165 Boolean names and 743 admitted names overall.
+accept those exact prefixes, for 165 Boolean names and 761 admitted names overall.
 Prefixed scalar XOR uses three arguments; only bare `bool_xor` also admits the
 two-argument assertion. Matching declarations select one admitted arity and calls
 must use that arity; duplicate declarations diagnose.
@@ -849,8 +849,8 @@ candidate is incomplete. The native/Wasm smoke covers these same three edits.
 
 ## Ordering and integer channels
 
-The checker adds 108 exact names from 36 registry literals, bringing admission
-to 743 names. Each literal accepts its bare, `gecode_` and `fzn_` expansion,
+The checker admits 108 ordering names from 36 registry literals. Each literal
+accepts its bare, `gecode_` and `fzn_` expansion,
 including literals already beginning with `gecode_`. See the
 [coverage inventory](../../docs/checker-coverage.md#family-020) for exact names.
 Declarations validate positional fixed/variable roles independently of formal names.
@@ -946,3 +946,69 @@ candidates and for the direct control. The raw standard metadata diagnosis agree
 through both forms. The direct FlatZinc control supplies the explicit array
 metadata for native and parser-free Wasm completion. These observations do not
 establish include/decomposition closure; checker-030/031 own profile repairs.
+
+
+## Integer and Boolean tables
+
+The checker admits the six `gecode_table_int/bool` literals with plain, `_reif`
+and `_imp` forms, each with the literal empty, `gecode_` and `fzn_` prefixes.
+The family has 18 exact names; the checker admits 761 names overall. The prefix applies to the
+whole literal: `gecode_gecode_table_int` and `fzn_gecode_table_int` are direct
+names; `table_int` and `fzn_table_int` are not.
+
+The first argument is the candidate tuple; the second is fixed row-major data
+of the same integer or Boolean type. The tuple length supplies the width. Data
+must contain complete rows, even under a false guard. Duplicate rows and repeated
+tuple aliases are legal. Empty data allows no tuple. Width zero with empty data
+also means zero rows and false membership; width zero with nonempty data is
+malformed. Both source preparation and validated loading reject malformed shapes.
+Integer entries use the full existing i64 range, without solver integer limits.
+
+Full reification compares membership with its supplied Boolean, including false.
+It derives only a marked Boolean result absent from the tuple inputs, after every
+tuple entry is known. An empty table does not bypass missing entries. A false
+implication guard skips unavailable tuple entries. Tables never choose a row,
+missing entry or guard. Supplied outputs are checked, derived domain failures
+feed downstream checks, and each check starts with fresh values.
+
+Typed `table` findings carry tuple argument values and variable references,
+fixed `table` data (`kind` and `values`), structural `width`, `membership` and
+`condition`, alongside constraint metadata. Integer entries use decimal JSON
+strings; width uses a JSON number. Text output renders those same fields.
+The [direct FlatZinc control](../../examples/checker-compilation/tables.fzn)
+checks integers above 2^53, Boolean membership, repeated aliases and reifier
+completion. `x=9007199254740993; flag=true;` is valid and complete; adding
+`member=false;` reports a typed table conflict and its downstream Boolean failure.
+An empty candidate is incomplete.
+
+### Compile-only table controls
+
+Both controls start with `globals.mzn` and `checker_annotations.mzn`. Format and
+default-lint them with the pinned standard library and the checker include path.
+Use MiniZinc 2.10.1 without starting a solver:
+
+```sh
+mkdir -p target/checker-table-controls
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-table-controls/standard.paths --output-fzn-to-file target/checker-table-controls/standard.fzn examples/checker-compilation/table-gecode-controls.mzn
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-table-controls/gecode.paths --output-fzn-to-file target/checker-table-controls/gecode.fzn examples/checker-compilation/table-gecode-controls.mzn
+```
+
+The explicit [native control](../../examples/checker-compilation/table-gecode-controls.mzn)
+compiles under both profiles into plain integer membership, integer/Boolean
+reifiers and integer implication. Both keep named `entries` and `flags` arrays,
+integer domains `1..3`, the two scalar definition markers, all four application
+IDs, labels and paths. Supplying `entries=[1,2]; flags=[true,false]; guard=true;`
+derives both reifiers and checks completely. `entries=[3,3]; flags=[true,true];
+guard=true; member=true;` produces three table findings. Omitting entries with
+`flags=[false,false]; guard=false;` gives an incomplete report. Both CLI forms
+and source/export/load paths check these candidates.
+
+The [standard table control](../../examples/checker-compilation/table-controls.mzn)
+also exercises actual standard wrappers. The standard profile aborts in
+`std/fzn_table_bool_reif.mzn`: the pinned implementation does not support reified Boolean tables.
+The Gecode profile compiles it, folds the integer reifier to true because plain
+membership already requires the same rows, and emits `bool_clause`, native
+Boolean reification and native integer implication. That output drops membership
+application IDs and emits `is_defined_var` on a constraint; preparation diagnoses
+that misplaced annotation. These compiler-profile limits belong
+to checker-030/031. The runtime keeps its existing marker rules.

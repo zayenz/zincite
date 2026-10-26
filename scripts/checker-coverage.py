@@ -286,6 +286,20 @@ CURRENT |= {
 }
 
 
+CURRENT |= {
+    prefix + name
+    for prefix in ("", "gecode_", "fzn_")
+    for name in (
+        "gecode_table_int",
+        "gecode_table_int_reif",
+        "gecode_table_int_imp",
+        "gecode_table_bool",
+        "gecode_table_bool_reif",
+        "gecode_table_bool_imp",
+    )
+}
+
+
 @dataclass(frozen=True)
 class Declaration:
     file: str
@@ -759,7 +773,11 @@ def output_rule(name: str, task: int, *, wrapper: bool = False) -> str:
             return "Boolean array or integer, when unique"
         return "none"
     if task == 21:
-        return "none"
+        return (
+            "last Boolean, only for full reification"
+            if name.endswith("_reif")
+            else "none"
+        )
     if task in {23, 26, 27, 28}:
         return f"[unique outputs](#family-{task:03})"
     return "compiler lowering; emitted definitions"
@@ -907,6 +925,13 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
     admitted |= {
         prefix + name
         for name in re.findall(r'"([a-z_0-9]+)"', ordering_names)
+        for prefix in ("", "gecode_", "fzn_")
+    }
+    tables = (ROOT / "crates/zincite-check/src/tables.rs").read_text()
+    table_names = tables.split("match base {", 1)[1].split("_ =>", 1)[0]
+    admitted |= {
+        prefix + name
+        for name in re.findall(r'"([a-z_0-9]+)"', table_names)
         for prefix in ("", "gecode_", "fzn_")
     }
     if admitted != CURRENT:

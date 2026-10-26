@@ -1685,3 +1685,108 @@ fn ordering_loaded_array_targets_validate_the_complete_output() {
         json!({"Variable":0});
     assert!(PreparedModel::from_json(&edited.to_string()).is_err());
 }
+
+#[test]
+fn parser_free_tables_validate_names_types_shapes_and_conditions() {
+    let mut artifact = executable();
+    artifact["model"]["objective"] = Json::Null;
+    artifact["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_table_int");
+    artifact["model"]["constraints"][0]["predicate"] = json!({"Table": {
+        "tuple": [{"Variable":0}], "table":{"kind":"integer","values":["9007199254740993"]}, "condition":"Plain"
+    }});
+    let model = PreparedModel::from_json(&artifact.to_string()).unwrap();
+    let input = Assignment {
+        entries: vec![AssignmentEntry {
+            name: "x".into(),
+            value: AssignmentValue::Scalar(Value::Integer(9_007_199_254_740_992)),
+            location: None,
+        }],
+    };
+    let report = model.check(&input).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert_eq!(
+        serde_json::to_value(&report).unwrap()["violations"][0]["details"]["table"]["values"][0],
+        "9007199254740993"
+    );
+    assert_eq!(
+        serde_json::to_value(report).unwrap(),
+        serde_json::to_value(
+            PreparedModel::from_json(&model.to_json().unwrap())
+                .unwrap()
+                .check(&input)
+                .unwrap()
+        )
+        .unwrap()
+    );
+    for (name, tuple, table, condition) in [
+        (
+            "table_int",
+            json!([]),
+            json!({"kind":"integer","values":[]}),
+            json!("Plain"),
+        ),
+        (
+            "gecode_table_bool",
+            json!([{"Variable":0}]),
+            json!({"kind":"boolean","values":[true]}),
+            json!("Plain"),
+        ),
+        (
+            "gecode_table_int",
+            json!([]),
+            json!({"kind":"boolean","values":[]}),
+            json!("Plain"),
+        ),
+        (
+            "gecode_table_int",
+            json!([]),
+            json!({"kind":"integer","values":["1"]}),
+            json!("Plain"),
+        ),
+        (
+            "gecode_table_int_imp",
+            json!([{"Variable":0},{"Variable":0}]),
+            json!({"kind":"integer","values":["1"]}),
+            json!({"Implied":{"guard":{"Literal":{"kind":"boolean","value":false}}}}),
+        ),
+        (
+            "gecode_table_int_reif",
+            json!([]),
+            json!({"kind":"integer","values":[]}),
+            json!("Plain"),
+        ),
+        (
+            "gecode_table_int",
+            json!([]),
+            json!({"kind":"integer","values":[]}),
+            json!({"Reified":{"result":{"Literal":{"kind":"boolean","value":false}}}}),
+        ),
+        (
+            "gecode_table_int_imp",
+            json!([]),
+            json!({"kind":"integer","values":[]}),
+            json!({"Implied":{"guard":{"Variable":0}}}),
+        ),
+        (
+            "gecode_table_int",
+            json!([{"Variable":99}]),
+            json!({"kind":"integer","values":["1"]}),
+            json!("Plain"),
+        ),
+        (
+            "gecode_table_int",
+            json!([]),
+            json!({"kind":"integer","values":[1]}),
+            json!("Plain"),
+        ),
+    ] {
+        let mut bad = artifact.clone();
+        bad["model"]["constraints"][0]["reference"]["predicate"] = json!(name);
+        bad["model"]["constraints"][0]["predicate"] =
+            json!({"Table":{"tuple":tuple,"table":table,"condition":condition}});
+        assert!(
+            PreparedModel::from_json(&bad.to_string()).is_err(),
+            "{name}: {bad}"
+        );
+    }
+}

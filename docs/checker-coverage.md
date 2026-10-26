@@ -48,7 +48,7 @@ The helper verifies both Git identities and clean source trees, scans balanced
 MiniZinc items without treating comments or strings as declarations, resolves
 both include profiles, expands registry aliases literally, checks task assignment,
 and compares the generated tables. It also checks the admission names in
-`Lowerer::constraint`, `ArithmeticOperation::from_name` and the exact integer, Boolean, float, selection, set and counting matchers. `--write` updates only the generated section after source
+`Lowerer::constraint`, `ArithmeticOperation::from_name` and the exact integer, Boolean, float, selection, set, counting, ordering and table matchers. `--write` updates only the generated section after source
 and ownership review. The helper needs Python 3.11 or newer and no dependencies.
 It does not compile a model or certify runtime semantics.
 
@@ -130,11 +130,12 @@ All other mathematical calls and aliases are planned work.
 | `sort`, `gecode_sort_permutation` | Equal lengths; sorted multiset; source-to-sorted permutation with signed offset | Sorted array; permutation for distinct inputs |
 | `inverse_offsets`, `gecode_bool_int_channel` | Equal inverse lengths and nonnegative offsets; exactly one true channel position with signed offset | Either side when unique |
 | `member_int/bool`, registered member reifiers, `gecode_precede` | Existential equality or earlier fixed value; empty member is false | Member reifier only |
+| `gecode_table_int/bool` and their `_reif`/`_imp` forms | Fixed typed row-major data; complete rows of candidate width; empty table is false | Full reifier only after every tuple entry is known |
 
-The checker admits 743 exact names, including 165 Boolean-family names,
+The checker admits 761 exact names, including 165 Boolean-family names,
 108 integer scalar/linear relation spellings, 80 float-core names, 57 selection
-names, 84 set-family names, 54 float-function names, 54 counting-family names
-and 108 ordering/channel names.
+names, 84 set-family names, 54 float-function names, 54 counting-family names,
+108 ordering/channel names and 18 table names.
 The `fzn_disjunctive_strict` declaration is required for that external call.
 The other listed names accept calls without declarations. All matching declarations
 validate signatures, roles and shapes, with call checks for declared domains and
@@ -294,7 +295,7 @@ still use compiler routes; direct support does not certify profile closure
 **checker-017 — finite-set primitives.** The checker supports the 26 assigned
 registry literals with their exact bare, `gecode_` and `fzn_` expansions, plus
 six source-only bare `set_eq/ne/le/lt/subset/superset_imp` names. This is 84 set
-names and 743 admitted names overall. It does not invent prefixed source-only
+names and 761 admitted names overall. It does not invent prefixed source-only
 implications, `equal_imp`, algebra reifiers or cardinality reifiers. Membership
 accepts integers against fixed or variable sets; `int_in` compatibility forms
 require fixed sets. Boolean membership maps false/true to 0/1 against fixed
@@ -432,7 +433,18 @@ checker-030/031 own include repair.
 **checker-021 — integer/Boolean tables.** Check tuple membership against flattened
 row-major tuples, with exact width and shape validation. Reification can calculate
 its Boolean; table membership does not choose a tuple or a missing tuple element.
-The registry distinguishes full reification and guarded implication.
+The registry distinguishes full reification and guarded implication. Each of the six
+`gecode_table_int/bool` literals (plain, `_reif`, `_imp`) accepts the literal
+empty, `gecode_` and `fzn_` prefixes, for 18 exact names. Width comes from the
+candidate tuple; fixed data must contain complete rows, including under a false
+guard. Duplicate rows and repeated tuple aliases are legal. Empty allowed data
+is false, including width zero (zero rows). Width zero with nonempty data is
+malformed. Missing tuple entries block evaluation and reifier completion even
+for an empty table. Full reification checks both truth values; a false implication
+guard skips unavailable tuple entries. Only a reifier absent from tuple inputs
+can be derived. Findings carry typed tuple arguments, fixed row-major data,
+width, membership and condition with the existing constraint metadata. Integer
+values are decimal strings; width is a JSON number.
 
 <a id="family-022"></a>
 **checker-022 — automata.** Check DFA and NFA acceptance of the supplied concrete
@@ -840,12 +852,12 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r133"></a>[R133](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2252) | ` increasing_bool `, ` gecode_increasing_bool `, ` fzn_increasing_bool ` | ` p_increasing_bool ` / ` always ` | [D1156](#d1156), [D1169](#d1169), [D2878](#d2878) | ` increasing_bool `, ` gecode_increasing_bool `, ` fzn_increasing_bool ` | [checker-020](#family-020) | none |
 | <a id="r134"></a>[R134](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2253) | ` decreasing_int `, ` gecode_decreasing_int `, ` fzn_decreasing_int ` | ` p_decreasing_int ` / ` always ` | [D0341](#d0341), [D2849](#d2849) | ` decreasing_int `, ` gecode_decreasing_int `, ` fzn_decreasing_int ` | [checker-020](#family-020) | none |
 | <a id="r135"></a>[R135](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2254) | ` decreasing_bool `, ` gecode_decreasing_bool `, ` fzn_decreasing_bool ` | ` p_decreasing_bool ` / ` always ` | [D0337](#d0337), [D2848](#d2848) | ` decreasing_bool `, ` gecode_decreasing_bool `, ` fzn_decreasing_bool ` | [checker-020](#family-020) | none |
-| <a id="r136"></a>[R136](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2255) | ` gecode_table_int `, ` gecode_gecode_table_int `, ` fzn_gecode_table_int ` | ` p_table_int ` / ` always ` | [D2930](#d2930) | planned | [checker-021](#family-021) | none |
-| <a id="r137"></a>[R137](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2256) | ` gecode_table_int_reif `, ` gecode_gecode_table_int_reif `, ` fzn_gecode_table_int_reif ` | ` p_table_int_reif ` / ` always ` | [D2932](#d2932) | planned | [checker-021](#family-021) | last Boolean (truth) |
-| <a id="r138"></a>[R138](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2257) | ` gecode_table_int_imp `, ` gecode_gecode_table_int_imp `, ` fzn_gecode_table_int_imp ` | ` p_table_int_imp ` / ` always ` | [D2933](#d2933) | planned | [checker-021](#family-021) | none (guard) |
-| <a id="r139"></a>[R139](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2258) | ` gecode_table_bool `, ` gecode_gecode_table_bool `, ` fzn_gecode_table_bool ` | ` p_table_bool ` / ` always ` | [D2924](#d2924) | planned | [checker-021](#family-021) | none |
-| <a id="r140"></a>[R140](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2259) | ` gecode_table_bool_reif `, ` gecode_gecode_table_bool_reif `, ` fzn_gecode_table_bool_reif ` | ` p_table_bool_reif ` / ` always ` | [D2926](#d2926) | planned | [checker-021](#family-021) | last Boolean (truth) |
-| <a id="r141"></a>[R141](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2260) | ` gecode_table_bool_imp `, ` gecode_gecode_table_bool_imp `, ` fzn_gecode_table_bool_imp ` | ` p_table_bool_imp ` / ` always ` | [D2927](#d2927) | planned | [checker-021](#family-021) | none (guard) |
+| <a id="r136"></a>[R136](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2255) | ` gecode_table_int `, ` gecode_gecode_table_int `, ` fzn_gecode_table_int ` | ` p_table_int ` / ` always ` | [D2930](#d2930) | ` gecode_table_int `, ` gecode_gecode_table_int `, ` fzn_gecode_table_int ` | [checker-021](#family-021) | none |
+| <a id="r137"></a>[R137](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2256) | ` gecode_table_int_reif `, ` gecode_gecode_table_int_reif `, ` fzn_gecode_table_int_reif ` | ` p_table_int_reif ` / ` always ` | [D2932](#d2932) | ` gecode_table_int_reif `, ` gecode_gecode_table_int_reif `, ` fzn_gecode_table_int_reif ` | [checker-021](#family-021) | last Boolean (truth) |
+| <a id="r138"></a>[R138](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2257) | ` gecode_table_int_imp `, ` gecode_gecode_table_int_imp `, ` fzn_gecode_table_int_imp ` | ` p_table_int_imp ` / ` always ` | [D2933](#d2933) | ` gecode_table_int_imp `, ` gecode_gecode_table_int_imp `, ` fzn_gecode_table_int_imp ` | [checker-021](#family-021) | none (guard) |
+| <a id="r139"></a>[R139](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2258) | ` gecode_table_bool `, ` gecode_gecode_table_bool `, ` fzn_gecode_table_bool ` | ` p_table_bool ` / ` always ` | [D2924](#d2924) | ` gecode_table_bool `, ` gecode_gecode_table_bool `, ` fzn_gecode_table_bool ` | [checker-021](#family-021) | none |
+| <a id="r140"></a>[R140](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2259) | ` gecode_table_bool_reif `, ` gecode_gecode_table_bool_reif `, ` fzn_gecode_table_bool_reif ` | ` p_table_bool_reif ` / ` always ` | [D2926](#d2926) | ` gecode_table_bool_reif `, ` gecode_gecode_table_bool_reif `, ` fzn_gecode_table_bool_reif ` | [checker-021](#family-021) | last Boolean (truth) |
+| <a id="r141"></a>[R141](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2260) | ` gecode_table_bool_imp `, ` gecode_gecode_table_bool_imp `, ` fzn_gecode_table_bool_imp ` | ` p_table_bool_imp ` / ` always ` | [D2927](#d2927) | ` gecode_table_bool_imp `, ` gecode_gecode_table_bool_imp `, ` fzn_gecode_table_bool_imp ` | [checker-021](#family-021) | none (guard) |
 | <a id="r142"></a>[R142](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2261) | ` cumulatives `, ` gecode_cumulatives `, ` fzn_cumulatives ` | ` p_cumulatives ` / ` always ` | [D0318](#d0318), [D0323](#d0323), [D0329](#d0329), [D2837](#d2837), [D2841](#d2841), [D2846](#d2846), [D2847](#d2847), [D3035](#d3035) | planned | [checker-024](#family-024) | none |
 | <a id="r143"></a>[R143](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2262) | ` gecode_among_seq_int `, ` gecode_gecode_among_seq_int `, ` fzn_gecode_among_seq_int ` | ` p_among_seq_int ` / ` always ` | [D2917](#d2917) | ` gecode_among_seq_int `, ` gecode_gecode_among_seq_int `, ` fzn_gecode_among_seq_int ` | [checker-019](#family-019) | none |
 | <a id="r144"></a>[R144](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2263) | ` gecode_among_seq_bool `, ` gecode_gecode_among_seq_bool `, ` fzn_gecode_among_seq_bool ` | ` p_among_seq_bool ` / ` always ` | [D2915](#d2915) | ` gecode_among_seq_bool `, ` gecode_gecode_among_seq_bool `, ` fzn_gecode_among_seq_bool ` | [checker-019](#family-019) | none |
@@ -9770,7 +9782,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2924"></a>D2924 / 35 | ` predicate gecode_table_bool(array[int] of var bool: x, array[int] of bool: t) ` | S outside profile; G direct | planned | [checker-021](#family-021) | none |
+| <a id="d2924"></a>D2924 / 35 | ` predicate gecode_table_bool(array[int] of var bool: x, array[int] of bool: t) ` | S outside profile; G direct | C (qualified) | [checker-021](#family-021) | none |
 | <a id="d2925"></a>D2925 / 38 | ` predicate fzn_table_bool(array[int] of var bool: x, array[int, int] of bool: t) ` | wrapper → ` array1d `, ` gecode_table_bool ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-833"></a>
@@ -9778,8 +9790,8 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2926"></a>D2926 / 35 | ` predicate gecode_table_bool_reif(array[int] of var bool: x, array[int] of bool: t, var bool: b) ` | S outside profile; G direct | planned | [checker-021](#family-021) | last Boolean (truth) |
-| <a id="d2927"></a>D2927 / 38 | ` predicate gecode_table_bool_imp(array[int] of var bool: x, array[int] of bool: t, var bool: b) ` | S outside profile; G direct | planned | [checker-021](#family-021) | none (guard) |
+| <a id="d2926"></a>D2926 / 35 | ` predicate gecode_table_bool_reif(array[int] of var bool: x, array[int] of bool: t, var bool: b) ` | S outside profile; G direct | C (qualified) | [checker-021](#family-021) | last Boolean (truth) |
+| <a id="d2927"></a>D2927 / 38 | ` predicate gecode_table_bool_imp(array[int] of var bool: x, array[int] of bool: t, var bool: b) ` | S outside profile; G direct | C (qualified) | [checker-021](#family-021) | none (guard) |
 | <a id="d2928"></a>D2928 / 41 | ` predicate fzn_table_bool_reif(array[int] of var bool: x, array[int, int] of bool: t, var bool: b) ` | wrapper → ` array1d `, ` gecode_table_bool_reif ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d2929"></a>D2929 / 45 | ` predicate fzn_table_bool_imp(array[int] of var bool: x, array[int, int] of bool: t, var bool: b) ` | wrapper → ` array1d `, ` gecode_table_bool_imp ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
@@ -9788,7 +9800,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2930"></a>D2930 / 35 | ` predicate gecode_table_int(array[int] of var int: x, array[int] of int: t) ` | S outside profile; G direct | planned | [checker-021](#family-021) | none |
+| <a id="d2930"></a>D2930 / 35 | ` predicate gecode_table_int(array[int] of var int: x, array[int] of int: t) ` | S outside profile; G direct | C (qualified) | [checker-021](#family-021) | none |
 | <a id="d2931"></a>D2931 / 38 | ` predicate fzn_table_int(array[int] of var int: x, array[int, int] of int: t) ` | wrapper → ` array1d `, ` gecode_table_int ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-835"></a>
@@ -9796,8 +9808,8 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2932"></a>D2932 / 35 | ` predicate gecode_table_int_reif(array[int] of var int: x, array[int] of int: t, var bool: b) ` | S outside profile; G direct | planned | [checker-021](#family-021) | last Boolean (truth) |
-| <a id="d2933"></a>D2933 / 38 | ` predicate gecode_table_int_imp(array[int] of var int: x, array[int] of int: t, var bool: b) ` | S outside profile; G direct | planned | [checker-021](#family-021) | none (guard) |
+| <a id="d2932"></a>D2932 / 35 | ` predicate gecode_table_int_reif(array[int] of var int: x, array[int] of int: t, var bool: b) ` | S outside profile; G direct | C (qualified) | [checker-021](#family-021) | last Boolean (truth) |
+| <a id="d2933"></a>D2933 / 38 | ` predicate gecode_table_int_imp(array[int] of var int: x, array[int] of int: t, var bool: b) ` | S outside profile; G direct | C (qualified) | [checker-021](#family-021) | none (guard) |
 | <a id="d2934"></a>D2934 / 41 | ` predicate fzn_table_int_reif(array[int] of var int: x, array[int, int] of int: t, var bool: b) ` | wrapper → ` array1d `, ` gecode_table_int_reif ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d2935"></a>D2935 / 45 | ` predicate fzn_table_int_imp(array[int] of var int: x, array[int, int] of int: t, var bool: b) ` | wrapper → ` array1d `, ` gecode_table_int_imp ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 

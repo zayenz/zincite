@@ -1,0 +1,12 @@
+% Direct table control with exact integers, metadata and scalar definition markers.
+var int: x;
+var bool: flag;
+var bool: member ::is_defined_var;
+var bool: bool_member ::is_defined_var;
+constraint gecode_table_int_reif([x,x],[9007199254740993,9007199254740993,2,2],member)::defines_var(member)::checker_constraint("integer_table",[9007199254740993]);
+constraint gecode_table_bool_reif([flag,flag],[true,true],bool_member)::defines_var(bool_member)::checker_constraint("boolean_table",[1]);
+constraint gecode_table_int([x],[9007199254740993,2])::checker_constraint("allowed",[9007199254740993]);
+constraint bool_eq(member,true);
+constraint bool_eq(bool_member,true);
+constraint gecode_table_int_imp([x],[],false);
+solve satisfy;

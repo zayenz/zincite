@@ -5,11 +5,11 @@ const { tmpdir } = require("node:os");
 const { resolve, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-assert.equal(process.argv.length, 14,
-    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json CANDIDATES.json NATIVE_CHECKER");
-const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, candidates, native] = process.argv.slice(2).map(path => resolve(path));
+assert.equal(process.argv.length, 15,
+    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json CANDIDATES.json NATIVE_CHECKER");
+const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, candidates, native] = process.argv.slice(2).map(path => resolve(path));
 const { PreparedModel } = require(glue);
-const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering };
+const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables };
 const defaults = {};
 const models = Object.fromEntries(Object.entries(paths).map(([name, path]) =>
     [name, new PreparedModel(readFileSync(path, "utf8"))]));
@@ -57,7 +57,7 @@ try {
     }
     assert.throws(() => models.floats.check('{"entries":[{"name":"x","value":{"kind":"scalar","value":{"kind":"float","value":1e999}}}]}'));
     for (const value of [NaN, Infinity, -1]) assert.throws(() => models.floats.setFloatTolerance(value, 0));
-    console.log(`Native/Wasm reports and errors agree across ${cases.length * 2} checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, global findings and input errors verified.`);
+    console.log(`Native/Wasm reports and errors agree across ${cases.length * 2} checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, global findings and input errors verified.`);
 } finally {
     for (const model of Object.values(models)) model.free();
     rmSync(directory, { recursive: true, force: true });
@@ -117,6 +117,25 @@ function decimal(value) {
 }
 
 function checkDetails(name, report) {
+    if (name === "tables-invalid") {
+        const finding = report.violations.find(item => item.details.kind === "table");
+        assert.equal(finding.details.table.kind, "integer");
+        assert.equal(finding.details.table.values[0], "9007199254740993");
+        assert.equal(finding.details.tuple[0].variable.name, "x");
+        assert.equal(finding.details.width, 2);
+        assert.equal(finding.details.membership, true);
+        assert.equal(finding.details.condition.result.value.value, false);
+        assert.deepEqual(finding.check.constraint.metadata.application, { id: "integer_table", entities: ["9007199254740993"] });
+    }
+    if (name === "tables-incomplete-invalid") {
+        const finding = report.violations.find(item => item.details.kind === "table");
+        assert.equal(finding.details.table.kind, "boolean");
+        assert.deepEqual(finding.details.table.values, [true, true]);
+        assert.equal(finding.details.membership, false);
+        assert.equal(finding.details.condition.result.value.value, true);
+        assert(report.violations.length > 0);
+        assert(report.completeness.blocked_checks.length > 0);
+    }
     if (name === "ordering-valid") assert.equal(report.objective.argument.value.value, "9007199254740994");
     if (name === "ordering-conflict") {
         const sort = report.violations.find(finding => finding.details.finding?.operation === "sort");

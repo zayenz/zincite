@@ -192,6 +192,36 @@ pub fn render_text(report: &CheckReport) -> String {
             check_text(&violation.check)
         );
         match &violation.details {
+            ViolationKind::Table {
+                tuple,
+                table,
+                width,
+                membership,
+                condition,
+            } => {
+                let entries = tuple
+                    .iter()
+                    .map(argument_text)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let fixed = match table {
+                    crate::TableData::Integer(values) => values
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    crate::TableData::Boolean(values) => values
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                };
+                let _ = writeln!(
+                    text,
+                    "  table membership {membership}: [{entries}] in rows of width {width} from [{fixed}]{}",
+                    condition_text(condition)
+                );
+            }
             ViolationKind::Ordering { finding } => {
                 let _ = writeln!(text, "  {}", ordering_text(finding));
             }

@@ -281,7 +281,9 @@ impl Source<'_> {
             ));
         }
         let parameters: Vec<_> = children[0].child_nodes().collect();
-        let expected = if let Some(ordering) = OrderingName::from_name(name) {
+        let expected = if let Some(table) = TableName::from_name(name) {
+            table.signature()
+        } else if let Some(ordering) = OrderingName::from_name(name) {
             ordering.signature()
         } else if let Some(counting) = CountingName::from_name(name) {
             counting.signature()
@@ -1162,11 +1164,14 @@ impl<'a> Lowerer<'a> {
         let args: Vec<_> = call.child_nodes().collect();
         let boolean = BooleanName::from_name(&name);
         let counting = CountingName::from_name(&name);
+        let table = TableName::from_name(&name);
         let ordering = OrderingName::from_name(&name);
         let float = FloatName::from_name(&name);
         let selection = SelectionName::from_name(&name);
         let set = SetName::from_name(&name);
-        let arity = if let Some(ordering) = ordering {
+        let arity = if let Some(table) = table {
+            table.signature().len()
+        } else if let Some(ordering) = ordering {
             ordering.signature().len()
         } else if let Some(counting) = counting {
             counting.signature().len()
@@ -1200,7 +1205,9 @@ impl<'a> Lowerer<'a> {
                 .source
                 .error(call, format!("'{name}' expects {arity} arguments")));
         }
-        let predicate = if let Some(ordering) = ordering {
+        let predicate = if let Some(table) = table {
+            self.table_predicate(call, table, &args)?
+        } else if let Some(ordering) = ordering {
             self.ordering_predicate(call, ordering, &args)?
         } else if let Some(counting) = counting {
             self.counting_predicate(call, counting, &args)?
@@ -1239,6 +1246,36 @@ impl<'a> Lowerer<'a> {
             predicate,
         });
         Ok(())
+    }
+
+    fn table_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: TableName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        let fixed = self.fixed_array(args[1], name.kind())?;
+        let table = Table {
+            tuple: self.array(args[0], name.kind())?,
+            table: if name.boolean {
+                TableData::Boolean(fixed.into_iter().map(|value| value.boolean()).collect())
+            } else {
+                TableData::Integer(fixed.into_iter().map(|value| value.integer()).collect())
+            },
+            condition: match name.mode {
+                RelationMode::Plain => RelationCondition::Plain,
+                RelationMode::Reified => RelationCondition::Reified {
+                    result: self.scalar(args[2], ValueType::Boolean)?,
+                },
+                RelationMode::Implied => RelationCondition::Implied {
+                    guard: self.scalar(args[2], ValueType::Boolean)?,
+                },
+            },
+        };
+        table
+            .validate_shape()
+            .map_err(|message| self.source.error(call, message))?;
+        Ok(Predicate::Table(table))
     }
 
     fn ordering_predicate(
