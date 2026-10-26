@@ -2,7 +2,7 @@
 //! Preparation is optional; checking performs no I/O and starts no external tools.
 
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 #[cfg(feature = "prepare")]
 mod prepare;
@@ -270,6 +270,15 @@ enum Operand {
     Variable(usize),
 }
 
+impl Operand {
+    fn value(self, values: &[Option<Value>]) -> Option<Value> {
+        match self {
+            Self::Literal(value) => Some(value),
+            Self::Variable(slot) => values[slot],
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Slot {
     #[cfg_attr(not(feature = "prepare"), allow(dead_code))]
@@ -315,14 +324,42 @@ struct Constraint {
     predicate: Predicate,
 }
 
+impl Constraint {
+    fn linear_overflow(&self) -> CheckError {
+        CheckError {
+            kind: ErrorKind::Execution,
+            diagnostics: vec![Diagnostic {
+                location: Some(self.reference.location.clone()),
+                message: "checked i64 overflow in linear constraint".into(),
+            }],
+        }
+    }
+}
+
+#[cfg_attr(not(feature = "prepare"), allow(dead_code))]
+#[derive(Clone, Copy, Debug)]
+enum DefinitionDirection {
+    Linear { term: usize },
+    ReifiedLessEqual,
+}
+
+#[derive(Debug)]
+struct Definition {
+    constraint: usize,
+    output: usize,
+    direction: DefinitionDirection,
+}
+
 /// An executable model. Its fields are private so checking uses validated inputs.
-/// Prepared-model serialization/loading and functional completion are later work.
+/// Prepared-model serialization and loading are later work.
 #[derive(Debug)]
 pub struct PreparedModel {
     slots: Vec<Slot>,
     bindings: HashMap<String, Binding>,
     variables: Vec<Variable>,
     constraints: Vec<Constraint>,
+    definitions: Vec<Definition>,
+    dependents: Vec<Vec<usize>>,
     objective: Option<(ObjectiveDirection, Operand)>,
 }
 
@@ -330,7 +367,8 @@ impl PreparedModel {
     /// Check every available domain and relation using fresh candidate values.
     /// Missing values produce a normal report, including any known violations.
     pub fn check(&self, assignment: &Assignment) -> Result<CheckReport, CheckError> {
-        let values = self.assign(assignment)?;
+        let mut values = self.assign(assignment)?;
+        self.complete(&mut values)?;
         let unresolved_variables: Vec<_> = self
             .variables
             .iter()
@@ -471,17 +509,100 @@ impl PreparedModel {
         Ok(values)
     }
 
-    fn argument(&self, operand: Operand, values: &[Option<Value>]) -> Option<ArgumentValue> {
-        match operand {
-            Operand::Literal(value) => Some(ArgumentValue {
-                variable: None,
-                value,
-            }),
-            Operand::Variable(slot) => values[slot].map(|value| ArgumentValue {
-                variable: Some(Box::new(self.slots[slot].reference.clone())),
-                value,
-            }),
+    fn complete(&self, values: &mut [Option<Value>]) -> Result<(), CheckError> {
+        let mut pending: VecDeque<_> = (0..self.definitions.len()).collect();
+        while let Some(index) = pending.pop_front() {
+            let definition = &self.definitions[index];
+            if values[definition.output].is_some() {
+                continue;
+            }
+            if let Some(value) = self.derive(definition, values)? {
+                values[definition.output] = Some(value);
+                pending.extend(self.dependents[definition.output].iter().copied());
+            }
         }
+        Ok(())
+    }
+
+    fn derive(
+        &self,
+        definition: &Definition,
+        values: &[Option<Value>],
+    ) -> Result<Option<Value>, CheckError> {
+        let constraint = &self.constraints[definition.constraint];
+        match (&constraint.predicate, definition.direction) {
+            (
+                Predicate::Linear {
+                    coefficients,
+                    terms,
+                    bound,
+                    ..
+                },
+                DefinitionDirection::Linear { term: output_term },
+            ) => {
+                if terms
+                    .iter()
+                    .enumerate()
+                    .any(|(index, operand)| index != output_term && operand.value(values).is_none())
+                {
+                    return Ok(None);
+                }
+                let mut sum = 0i64;
+                for (index, (&coefficient, operand)) in coefficients.iter().zip(terms).enumerate() {
+                    if index == output_term {
+                        continue;
+                    }
+                    let Value::Integer(value) = operand
+                        .value(values)
+                        .expect("definition inputs are available before calculation")
+                    else {
+                        unreachable!("preparation validates linear operands")
+                    };
+                    sum = coefficient
+                        .checked_mul(value)
+                        .and_then(|product| sum.checked_add(product))
+                        .ok_or_else(|| constraint.linear_overflow())?;
+                }
+                let numerator = bound
+                    .checked_sub(sum)
+                    .ok_or_else(|| constraint.linear_overflow())?;
+                let coefficient = coefficients[output_term];
+                let remainder = numerator
+                    .checked_rem(coefficient)
+                    .ok_or_else(|| constraint.linear_overflow())?;
+                if remainder != 0 {
+                    return Ok(None);
+                }
+                let value = numerator
+                    .checked_div(coefficient)
+                    .ok_or_else(|| constraint.linear_overflow())?;
+                Ok(Some(Value::Integer(value)))
+            }
+            (
+                Predicate::ReifiedLessEqual { left, right, .. },
+                DefinitionDirection::ReifiedLessEqual,
+            ) => {
+                let (Some(left), Some(right)) = (left.value(values), right.value(values)) else {
+                    return Ok(None);
+                };
+                let (Value::Integer(left), Value::Integer(right)) = (left, right) else {
+                    unreachable!("preparation validates reified operands")
+                };
+                Ok(Some(Value::Boolean(left <= right)))
+            }
+            _ => unreachable!("preparation selects supported definition directions"),
+        }
+    }
+
+    fn argument(&self, operand: Operand, values: &[Option<Value>]) -> Option<ArgumentValue> {
+        let value = operand.value(values)?;
+        Some(ArgumentValue {
+            variable: match operand {
+                Operand::Literal(_) => None,
+                Operand::Variable(slot) => Some(Box::new(self.slots[slot].reference.clone())),
+            },
+            value,
+        })
     }
 
     fn missing(&self, predicate: &Predicate, values: &[Option<Value>]) -> Vec<VariableRef> {
@@ -530,13 +651,7 @@ impl PreparedModel {
                     sum = coefficient
                         .checked_mul(value)
                         .and_then(|product| sum.checked_add(product))
-                        .ok_or_else(|| CheckError {
-                            kind: ErrorKind::Execution,
-                            diagnostics: vec![Diagnostic {
-                                location: Some(constraint.reference.location.clone()),
-                                message: "checked i64 overflow in linear constraint".into(),
-                            }],
-                        })?;
+                        .ok_or_else(|| constraint.linear_overflow())?;
                 }
                 let satisfied = if *equality {
                     sum == *bound

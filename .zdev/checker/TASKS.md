@@ -3,17 +3,17 @@
 # Tasks: checker
 
 - Total: 9
-- Ready: 1
-- Blocked: 6
-- Done: 2
+- Ready: 2
+- Blocked: 4
+- Done: 3
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
 | [checker-001](tasks/001-establish-the-checker-compilation-contract.md) | Establish the checker compilation contract | done | — |
 | [checker-002](tasks/002-check-complete-boolean-and-integer-candidates-through-both-c.md) | Check complete Boolean and integer candidates through both CLIs | done | checker-001 |
-| [checker-003](tasks/003-complete-candidates-through-supported-functional-definitions.md) | Complete candidates through supported functional definitions | ready | checker-002 |
-| [checker-004](tasks/004-package-the-checker-library-and-application-feedback-example.md) | Package the checker library and application feedback example | blocked | checker-003 |
-| [checker-005](tasks/005-export-and-load-prepared-models-without-reparsing-source.md) | Export and load prepared models without reparsing source | blocked | checker-003 |
+| [checker-003](tasks/003-complete-candidates-through-supported-functional-definitions.md) | Complete candidates through supported functional definitions | done | checker-002 |
+| [checker-004](tasks/004-package-the-checker-library-and-application-feedback-example.md) | Package the checker library and application feedback example | ready | checker-003 |
+| [checker-005](tasks/005-export-and-load-prepared-models-without-reparsing-source.md) | Export and load prepared models without reparsing source | ready | checker-003 |
 | [checker-006](tasks/006-expose-a-parser-free-webassembly-checking-api.md) | Expose a parser-free WebAssembly checking API | blocked | checker-005 |
 | [checker-007](tasks/007-demonstrate-interactive-graphical-edits-and-structured-feedb.md) | Demonstrate interactive graphical edits and structured feedback | blocked | checker-004, checker-006 |
 | [checker-008](tasks/008-support-finite-integer-sets-and-one-useful-global-predicate.md) | Support finite integer sets and one useful global predicate | blocked | checker-004, checker-005, checker-006 |

@@ -71,8 +71,9 @@ zincite-check [--format text|json] model.fzn candidate.dzn
 Reports go to stdout; input and execution errors go to stderr without partial
 stdout. The checker reads literal Boolean/integer assignments, checks every
 available domain and supported relation, and reports independent completeness.
-Supply auxiliary values until functional completion is implemented. It starts
-no compiler or solver. The [checker guide](../crates/zincite-check/README.md)
+Supported linear-equality and full-reification outputs are derived from known
+inputs before checking. It starts no compiler or solver.
+The [checker guide](../crates/zincite-check/README.md)
 defines the admitted syntax, three predicates, metadata and exact integer JSON
 encoding. These commands are available from the checkout, outside the published
 0.3.0 packages.

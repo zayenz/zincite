@@ -76,7 +76,7 @@ fn fail(message: &str) -> ExitCode {
 
 fn help(invocation: &str) -> String {
     format!(
-        "Usage: {invocation} [--format text|json] MODEL.fzn ASSIGNMENT.dzn\n\nCheck a candidate against the supported Boolean/integer FlatZinc subset.\nSupply auxiliary values too; functional completion is not implemented yet.\nNo compiler or solver runs. JSON mathematical integers are decimal strings.\n\nExit status: 0 valid, 1 invalid or incomplete, 2 input or execution error.\n"
+        "Usage: {invocation} [--format text|json] MODEL.fzn ASSIGNMENT.dzn\n\nCheck a candidate against the supported Boolean/integer FlatZinc subset.\nDerive supported linear-equality and full-reification outputs from supplied inputs.\nMissing inputs or unsupported directions produce an incomplete report.\nNo compiler or solver runs. JSON mathematical integers are decimal strings.\n\nExit status: 0 valid, 1 invalid or incomplete, 2 input or execution error.\n"
     )
 }
 

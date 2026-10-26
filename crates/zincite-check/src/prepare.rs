@@ -532,6 +532,8 @@ impl<'a> Lowerer<'a> {
                 bindings: HashMap::new(),
                 variables: Vec::new(),
                 constraints: Vec::new(),
+                definitions: Vec::new(),
+                dependents: Vec::new(),
                 objective: None,
             },
         })
@@ -559,7 +561,7 @@ impl<'a> Lowerer<'a> {
                 .source
                 .error(self.source.parsed.tree(), "expected exactly one solve item"));
         }
-        self.validate_definitions()?;
+        self.prepare_definitions()?;
         self.model.variables.sort_by_key(|variable| {
             (
                 variable.reference.location.start,
@@ -927,9 +929,10 @@ impl<'a> Lowerer<'a> {
         Ok(())
     }
 
-    fn validate_definitions(&self) -> Result<()> {
+    fn prepare_definitions(&mut self) -> Result<()> {
         let mut defined = HashSet::new();
-        for constraint in &self.model.constraints {
+        self.model.dependents = vec![Vec::new(); self.model.slots.len()];
+        for (constraint_index, constraint) in self.model.constraints.iter().enumerate() {
             let Some(name) = &constraint.reference.metadata.defines else {
                 continue;
             };
@@ -955,26 +958,29 @@ impl<'a> Lowerer<'a> {
             if !defined.insert(*slot) {
                 return Err(fail("a variable has multiple defines_var annotations"));
             }
-            let valid = match &constraint.predicate {
-                Predicate::Linear {
-                    coefficients,
-                    terms,
-                    equality: true,
-                    ..
-                } => {
-                    let occurrences: Vec<_> = terms.iter().zip(coefficients).filter(|(operand, _)| matches!(operand, Operand::Variable(candidate) if candidate == slot)).collect();
-                    occurrences.len() == 1 && *occurrences[0].1 != 0
+            let direction = definition_direction(constraint, *slot)?;
+            // A definition supplies its output even when an alias has a singleton domain.
+            self.model.slots[*slot].default = None;
+            if let Some(direction) = direction {
+                let inputs: &[Operand] = match &constraint.predicate {
+                    Predicate::Linear { terms, .. } => terms,
+                    Predicate::ReifiedLessEqual { left, right, .. } => &[*left, *right],
+                };
+                let definition_index = self.model.definitions.len();
+                let mut inputs_seen = HashSet::new();
+                for operand in inputs {
+                    if let Operand::Variable(input) = operand
+                        && input != slot
+                        && inputs_seen.insert(*input)
+                    {
+                        self.model.dependents[*input].push(definition_index);
+                    }
                 }
-                Predicate::ReifiedLessEqual {
-                    result: Operand::Variable(result),
-                    ..
-                } => result == slot,
-                _ => false,
-            };
-            if !valid {
-                return Err(fail(
-                    "defines_var does not identify a supported definition output",
-                ));
+                self.model.definitions.push(Definition {
+                    constraint: constraint_index,
+                    output: *slot,
+                    direction,
+                });
             }
         }
         for declaration in &self.declarations {
@@ -990,6 +996,51 @@ impl<'a> Lowerer<'a> {
             }
         }
         Ok(())
+    }
+}
+
+fn definition_direction(
+    constraint: &Constraint,
+    output: usize,
+) -> Result<Option<DefinitionDirection>> {
+    let absent = || Diagnostic {
+        location: Some(constraint.reference.location.clone()),
+        message: "defines_var target does not occur in its relation".into(),
+    };
+    match &constraint.predicate {
+        Predicate::Linear {
+            coefficients,
+            terms,
+            equality,
+            ..
+        } => {
+            let occurrences: Vec<_> = terms
+                .iter()
+                .enumerate()
+                .filter_map(|(index, operand)| {
+                    matches!(operand, Operand::Variable(slot) if *slot == output).then_some(index)
+                })
+                .collect();
+            let &term = occurrences.first().ok_or_else(absent)?;
+            Ok(
+                (*equality && occurrences.len() == 1 && coefficients[term] != 0)
+                    .then_some(DefinitionDirection::Linear { term }),
+            )
+        }
+        Predicate::ReifiedLessEqual {
+            left,
+            right,
+            result,
+        } => {
+            if ![left, right, result]
+                .iter()
+                .any(|operand| matches!(operand, Operand::Variable(slot) if *slot == output))
+            {
+                return Err(absent());
+            }
+            Ok(matches!(result, Operand::Variable(slot) if *slot == output)
+                .then_some(DefinitionDirection::ReifiedLessEqual))
+        }
     }
 }
 

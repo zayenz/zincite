@@ -3,7 +3,7 @@ schema_version = 1
 id = "checker-003"
 key = "functional-completion"
 area = "checker"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "high"
@@ -26,11 +26,22 @@ Read [the area brief](../brief.md), especially the Checking contract and Testing
 
 ## Done when
 
-- [ ] Aliases and supported definitions derive a complete candidate from the example's primary decisions. Linear definitions require a unique exact result; every defining relation is still checked, including when the caller supplies its output.
-- [ ] An infeasible derived value stays available to downstream checks; all evaluable violations are returned. Checked arithmetic and undefined operations follow documented MiniZinc semantics and cannot wrap or crash.
-- [ ] Missing inputs, unresolved cycles and unsupported derivation directions produce structured incomplete reports that include known violations. A fully supplied cycle can be checked, and repeated checks do not reuse prior derived values.
+- [x] Aliases and supported definitions derive a complete candidate from the example's primary decisions. Linear definitions require a unique exact result; every defining relation is still checked, including when the caller supplies its output.
+- [x] An infeasible derived value stays available to downstream checks; all evaluable violations are returned. Checked arithmetic and undefined operations follow documented MiniZinc semantics and cannot wrap or crash.
+- [x] Missing inputs, unresolved cycles and unsupported derivation directions produce structured incomplete reports that include known violations. A fully supplied cycle can be checked, and repeated checks do not reuse prior derived values.
 
 ## Validation
 
 - Add a few public scenarios for the derived valid/invalid example, a supplied derived-value conflict, an unresolved versus supplied cycle, and a changed/removed primary assignment.
 - Include one reification/half-reification distinction and one relevant arithmetic boundary; run the Rust workspace checks.
+
+## Result
+
+Implemented and independently verified linear-equality and full-reification completion with a direct dependency worklist, fresh per-check values and complete violation reporting.
+
+Validation:
+
+- All four archived primary-only candidates produced the expected complete/incomplete reports and exit statuses through both CLIs.
+- Focused public checks passed for reversed chains, singleton aliases, supplied-output conflicts, unresolved/supplied cycles, changed/removed inputs, exact/nonexact calculations, unsupported directions and checked arithmetic.
+- cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace passed.
+- No-default-features build and both zdev checks passed; independent verification snapshot: W175f53eefb928eab.

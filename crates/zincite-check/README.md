@@ -14,26 +14,20 @@ packages.
 From the repository root:
 
 ```sh
-cat > /tmp/check-complete.dzn <<'DATA'
-start = [1, 4];
-finish = [4, 6];
-starts_early = true;
-DATA
-cargo run -p zincite-check -- examples/checker-compilation/model.fzn /tmp/check-complete.dzn
-cargo run -p zincite -- check --format json examples/checker-compilation/model.fzn /tmp/check-complete.dzn
+cargo run -p zincite-check -- examples/checker-compilation/model.fzn examples/checker-compilation/candidates/feasible.dzn
+cargo run -p zincite -- check --format json examples/checker-compilation/model.fzn examples/checker-compilation/candidates/feasible.dzn
 ```
 
-Both commands report a valid, complete candidate. Changing the assignment to
-`start = [8,5]; finish = [11,7]; starts_early = false;` reports three violations:
+Both commands derive `finish = [4,6]` and `starts_early = true` from
+`start = [1,4]`, then report a valid, complete candidate. Changing the assignment
+to `start = [8,5];` reports three violations:
 the first finish domain, precedence and the start budget. Each finding includes
 its location and application metadata. Missing values produce an incomplete
 report, alongside any known violations.
 
-Supply auxiliary values such as `finish` and `starts_early` in this increment.
-Definition annotations are validated and recorded, but functional definition
-calculation is not implemented yet. The saved candidate fixtures in
-`examples/checker-compilation/candidates/` supply only primary decisions for
-that later capability. For the verified offline compilation recipe, read
+The four saved candidates in `examples/checker-compilation/candidates/` supply
+only primary decisions and cover feasible, infeasible and incomplete reports.
+For the verified offline compilation recipe, read
 [the compilation contract](../../.zdev/checker/background/compilation-contract.md).
 
 ## Library use
@@ -79,9 +73,10 @@ this increment provides no parser-free model constructor.
   `checker_constraint(string, literal_integer_array)` on constraints;
   `mzn_path(string)`, `mzn_constraint_name(string)`, `output_var`, and
   `output_array([1..n])` in their documented contexts. Definition annotations
-  require matching `is_defined_var` and a unique `defines_var` relation. Linear
-  outputs must occur once with a nonzero coefficient in an equality;
-  a reified definition must name the Boolean result.
+  require matching `is_defined_var` and a unique `defines_var` relation whose
+  target is a scalar variable in that relation. Supported completion directions
+  are described below. Other well-formed directions can be checked when their
+  values are supplied, but do not derive values.
 - Recognized solve search metadata: `int_search`, `bool_search` and nested
   `seq_search`. It does not change candidate checking.
 
@@ -94,15 +89,39 @@ available scalars; an array assignment must supply every element.
 Unknown names, duplicate entries, contradictory explicit assignments through
 aliases, wrong types and wrong array lengths are input errors. Assignments
 cannot change parameters. A correctly typed supplied value outside a domain is
-a violation. Fixed values and singleton domains establish unsupplied values;
-they never replace a supplied value. A supplied defined output is checked by
-its defining relation. No failed domain check suppresses a later relation.
+a violation. Fixed values and singleton domains establish unsupplied values,
+except on a definition's output slot, including its aliases. A definition with
+missing inputs or an unsupported direction does not fall back to a singleton
+domain. Explicitly supplied values take precedence over defaults and completion.
 
 Float/set values, user predicate declarations, includes, output expressions,
 computed initializers/objectives, additional predicates and unknown annotations
 are rejected explicitly. Syntax acceptance by the shared parser does not imply
 checker support. This is a direct checker for the documented subset, not a
 MiniZinc interpreter or a general FlatZinc solver.
+
+## Functional completion
+
+Before checking domains and relations, a dependency worklist calculates the
+supported `defines_var` outputs until no new values are available:
+
+- `int_lin_eq(a,x,c)` defines an integer output that occurs exactly once with
+  a nonzero coefficient. Its value is `(c - sum(other terms)) / coefficient`,
+  only when all other terms are known and the division is exact. Negative
+  coefficients and results are supported; nonexact division leaves the output
+  unresolved.
+- `int_le_reif(x,y,b)` defines only its Boolean result, calculating `x <= y`
+  when both integer operands are known. A false comparison derives `false`.
+
+The checker does not invert inequalities or reification, combine repeated
+output occurrences, or choose values for unresolved cycles. A cycle with
+enough supplied values can be checked. Each call starts completion afresh,
+including after changing or removing primary assignments.
+
+Every defining relation is also checked. A supplied output is used as written,
+so its defining relation can report a conflict. A derived value outside its
+domain feeds downstream definitions and checks; its domain violation does not
+suppress other findings.
 
 ## Reports, integers and command status
 
@@ -120,9 +139,11 @@ constraint checks with missing references. An incomplete report does not claim
 that a satisfying completion exists.
 
 All mathematical integers use `i64`. Linear products and accumulation use
-checked arithmetic in array order; overflow is a located execution error,
-including intermediate overflow. There is no division or remainder operation
-in this subset. JSON writes values, coefficients, sums, bounds, domain endpoints
+checked arithmetic in array order. Completion also checks subtraction and exact
+division. Overflow, including intermediate overflow and `i64::MIN / -1`, is a
+located execution error. A zero output coefficient is an unsupported direction,
+so completion does not divide by zero. This subset has no division or remainder
+predicate. JSON writes values, coefficients, sums, bounds, domain endpoints
 and application payload integers as decimal strings, so consumers do not round
 integers beyond 2^53. Booleans stay Boolean; source offsets, ordinals and array
 positions are ordinary JSON numbers. Report JSON is an output format, not a

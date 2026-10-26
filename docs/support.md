@@ -31,9 +31,10 @@ checks do not establish satisfiability.
 The checkout's candidate checker accepts the explicit FlatZinc subset in the
 [checker guide](../crates/zincite-check/README.md). It checks supplied Boolean
 and integer candidates, reports all available violations and identifies
-unresolved values and blocked checks. It needs supplied auxiliaries until
-functional completion is implemented. A complete valid report establishes
-feasibility of that supported compiled model, without claiming optimality.
+unresolved values and blocked checks. Supported linear-equality and
+full-reification definitions calculate auxiliary values from known inputs.
+A complete valid report establishes feasibility of that supported compiled
+model, without claiming optimality.
 Checking starts no compiler or solver; compilation is a separate offline step.
 
 ## Unknown facts and incomplete analysis

@@ -81,9 +81,9 @@ The checkout also provides `zincite check` and `zincite-check` for a documented
 Boolean/integer FlatZinc subset. Prepare once and check supplied candidates,
 including infeasible or incomplete ones, without running a compiler or solver.
 See the [checker guide](crates/zincite-check/README.md) for local installation,
-working commands, structured reports and exact coverage. Supply auxiliary
-values too; functional completion is a later increment. The checker is not part
-of the published 0.3.0 packages.
+working commands, structured reports and exact coverage. Supported linear
+equality and full reification definitions derive auxiliaries from primary decisions.
+The checker is not part of the published 0.3.0 packages.
 
 ## Exit codes
 

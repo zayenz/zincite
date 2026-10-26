@@ -6,6 +6,14 @@ use zincite_check::{
 };
 
 const SPECIMEN: &str = include_str!("../../../examples/checker-compilation/model.fzn");
+const FEASIBLE: &str =
+    include_str!("../../../examples/checker-compilation/candidates/feasible.dzn");
+const INFEASIBLE: &str =
+    include_str!("../../../examples/checker-compilation/candidates/infeasible.dzn");
+const INCOMPLETE: &str =
+    include_str!("../../../examples/checker-compilation/candidates/incomplete.dzn");
+const INCOMPLETE_INVALID: &str =
+    include_str!("../../../examples/checker-compilation/candidates/incomplete-invalid.dzn");
 
 fn assignment(text: &str) -> Assignment {
     parse_assignment("candidate.dzn", text).unwrap()
@@ -14,13 +22,19 @@ fn assignment(text: &str) -> Assignment {
 #[test]
 fn compiled_model_checks_repeated_complete_candidates_and_all_failures() {
     let model = prepare("model.fzn", SPECIMEN).unwrap();
-    let feasible = assignment("start=[1,4]; finish=[4,6]; starts_early=true;");
+    let feasible = assignment(FEASIBLE);
     assert_eq!(model.check(&feasible).unwrap().status, Status::Valid);
-    let infeasible = assignment("start=[8,5]; finish=[11,7]; starts_early=false;");
+    let infeasible = assignment(INFEASIBLE);
     let report = model.check(&infeasible).unwrap();
     assert_eq!(report.status, Status::Invalid);
     assert!(report.completeness.complete);
     assert_eq!(report.violations.len(), 3);
+    assert!(matches!(
+        report.violations[0].details,
+        ViolationKind::Domain {
+            value: Value::Integer(11)
+        }
+    ));
     assert!(
         report
             .violations
@@ -93,24 +107,37 @@ fn compiled_model_checks_repeated_complete_candidates_and_all_failures() {
 #[test]
 fn insufficient_input_is_independent_of_known_violations() {
     let model = prepare("model.fzn", SPECIMEN).unwrap();
-    for (start, finish, early, status, violations) in [
-        (1, 4, true, Status::Incomplete, 0),
-        (8, 11, false, Status::Invalid, 1),
+    assert_eq!(
+        model.check(&assignment(FEASIBLE)).unwrap().status,
+        Status::Valid
+    );
+    for (source, status, violations) in [
+        (INCOMPLETE, Status::Incomplete, 0),
+        (INCOMPLETE_INVALID, Status::Invalid, 1),
     ] {
-        let report = model
-            .check(&assignment(&format!(
-                "X_INTRODUCED_17_={start}; X_INTRODUCED_19_={finish}; starts_early={early};"
-            )))
-            .unwrap();
+        let report = model.check(&assignment(source)).unwrap();
         assert_eq!(report.status, status);
         assert_eq!(report.violations.len(), violations);
         assert!(!report.completeness.complete);
+        for name in ["start", "finish"] {
+            assert!(
+                report
+                    .completeness
+                    .unresolved_variables
+                    .iter()
+                    .any(|variable| { variable.name == name && variable.position == Some(2) })
+            );
+        }
         assert!(
-            report
+            !report
                 .completeness
                 .unresolved_variables
                 .iter()
-                .any(|variable| variable.name == "start" && variable.position == Some(2))
+                .any(|variable| {
+                    variable.name == "starts_early"
+                        || (matches!(variable.name.as_str(), "start" | "finish")
+                            && variable.position == Some(1))
+                })
         );
         let ordinals: Vec<_> = report
             .completeness
@@ -130,15 +157,139 @@ fn insufficient_input_is_independent_of_known_violations() {
                 .any(|blocked| matches!(&blocked.check, CheckRef::Domain { .. }))
         );
     }
-    let primary_only = model.check(&assignment("start=[1,4];")).unwrap();
-    assert_eq!(primary_only.status, Status::Incomplete);
-    assert!(
-        primary_only
+    let empty = model.check(&Assignment::default()).unwrap();
+    assert_eq!(empty.status, Status::Incomplete);
+    assert_eq!(
+        empty
             .completeness
-            .unresolved_variables
+            .blocked_checks
             .iter()
-            .any(|variable| variable.name == "starts_early")
+            .filter(|blocked| { matches!(blocked.check, CheckRef::Constraint { .. }) })
+            .count(),
+        5
     );
+}
+
+#[test]
+fn definition_chains_use_computed_values_despite_singleton_aliases() {
+    let first = "constraint int_lin_eq([1,-1],[middle,input],1)::defines_var(middle);";
+    let second = "constraint int_lin_eq([1,-1],[total,narrow],1)::defines_var(total);";
+    for definitions in [format!("{first}{second}"), format!("{second}{first}")] {
+        let source = format!(
+            "var int:input; var int:middle::is_defined_var; var 0..0:narrow=middle;
+             var int:total::is_defined_var; {definitions}
+             constraint int_lin_le([1],[total],1); solve minimize total;"
+        );
+        let model = prepare("chain.fzn", &source).unwrap();
+        let report = model.check(&assignment("input=1;")).unwrap();
+        assert_eq!(report.status, Status::Invalid);
+        assert!(report.completeness.complete);
+        assert_eq!(report.objective.unwrap().argument.value, Value::Integer(3));
+        assert_eq!(report.violations.len(), 2);
+        assert!(matches!(
+            report.violations[0].details,
+            ViolationKind::Domain {
+                value: Value::Integer(2)
+            }
+        ));
+        assert!(matches!(
+            report.violations[1].details,
+            ViolationKind::Linear { sum: 3, .. }
+        ));
+
+        let supplied = model.check(&assignment("input=1;narrow=0;")).unwrap();
+        assert!(supplied.completeness.complete);
+        assert_eq!(
+            supplied.objective.unwrap().argument.value,
+            Value::Integer(1)
+        );
+        assert_eq!(supplied.violations.len(), 1);
+        let CheckRef::Constraint { constraint } = &supplied.violations[0].check else {
+            panic!("expected the supplied output's defining relation")
+        };
+        assert_eq!(constraint.metadata.defines.as_deref(), Some("middle"));
+
+        let missing = model.check(&Assignment::default()).unwrap();
+        assert_eq!(missing.status, Status::Incomplete);
+        assert!(missing.objective.is_none());
+        assert!(
+            missing
+                .completeness
+                .unresolved_variables
+                .iter()
+                .any(|variable| variable.name == "middle")
+        );
+    }
+}
+
+#[test]
+fn cycles_need_supplied_values_and_do_not_hide_known_violations() {
+    let model = prepare(
+        "cycle.fzn",
+        "var int:x::is_defined_var; var int:y::is_defined_var; var 0..1:flag;
+        constraint int_lin_eq([1,-1],[x,y],0)::defines_var(x);
+        constraint int_lin_eq([1,-1],[y,x],0)::defines_var(y);
+        constraint int_lin_le([1],[flag],0); solve minimize y;",
+    )
+    .unwrap();
+    let partial = model.check(&assignment("flag=1;")).unwrap();
+    assert_eq!(partial.status, Status::Invalid);
+    assert!(!partial.completeness.complete);
+    assert_eq!(partial.violations.len(), 1);
+    assert_eq!(partial.completeness.unresolved_variables.len(), 2);
+    let supplied = model.check(&assignment("x=2;y=2;flag=0;")).unwrap();
+    assert_eq!(supplied.status, Status::Valid);
+    let changed = model.check(&assignment("x=3;flag=0;")).unwrap();
+    assert_eq!(changed.status, Status::Valid);
+    assert_eq!(changed.objective.unwrap().argument.value, Value::Integer(3));
+    let removed = model.check(&assignment("flag=0;")).unwrap();
+    assert_eq!(removed.status, Status::Incomplete);
+    assert_eq!(removed.completeness.unresolved_variables.len(), 2);
+    assert!(removed.objective.is_none());
+}
+
+#[test]
+fn linear_completion_requires_a_supported_exact_output() {
+    let model = prepare(
+        "signed.fzn",
+        "var int:input; var int:derived::is_defined_var;
+        constraint int_lin_eq([-2,3],[derived,input],3)::defines_var(derived);
+        solve minimize derived;",
+    )
+    .unwrap();
+    let exact = model.check(&assignment("input=-1;")).unwrap();
+    assert_eq!(exact.status, Status::Valid);
+    assert_eq!(exact.objective.unwrap().argument.value, Value::Integer(-3));
+    let nonexact = model.check(&assignment("input=0;")).unwrap();
+    assert_eq!(nonexact.status, Status::Incomplete);
+    assert_eq!(
+        nonexact.completeness.unresolved_variables[0].name,
+        "derived"
+    );
+    assert!(nonexact.objective.is_none());
+    let supplied = model.check(&assignment("input=0;derived=-1;")).unwrap();
+    assert_eq!(supplied.status, Status::Invalid);
+    assert!(supplied.completeness.complete);
+
+    for relation in [
+        "int_lin_le([1],[derived],0)",
+        "int_lin_eq([0],[derived],0)",
+        "int_lin_eq([1,1],[derived,derived],0)",
+        "int_le_reif(derived,0,true)",
+    ] {
+        let source = format!(
+            "var 0..0:derived::is_defined_var; constraint {relation}::defines_var(derived); solve satisfy;"
+        );
+        let model = prepare("unsupported-direction.fzn", &source).unwrap();
+        let missing = model.check(&Assignment::default()).unwrap();
+        assert_eq!(missing.status, Status::Incomplete, "{relation}");
+        assert_eq!(missing.completeness.unresolved_variables[0].name, "derived");
+        assert_eq!(
+            model.check(&assignment("derived=0;")).unwrap().status,
+            Status::Valid,
+            "{relation}"
+        );
+    }
 }
 
 #[test]
@@ -211,7 +362,12 @@ fn unsupported_forms_fail_preparation_and_arithmetic_is_checked() {
         "array[1..2] of int:x=[1]; solve satisfy;",
         "var int:x::mystery; solve satisfy;",
         "var int:x; constraint int_lin_eq([1],[x],0)::defines_var(x); solve satisfy;",
-        "var int:x::is_defined_var; constraint int_lin_le([1],[x],0)::defines_var(x); solve satisfy;",
+        "var int:x::is_defined_var; solve satisfy;",
+        "var int:x::is_defined_var; constraint int_lin_eq([1],[x],0)::defines_var(missing); solve satisfy;",
+        "var int:x::is_defined_var; var int:y; constraint int_lin_eq([1],[y],0)::defines_var(x); solve satisfy;",
+        "int:p=0; constraint int_lin_eq([1],[p],0)::defines_var(p); solve satisfy;",
+        "var int:x::is_defined_var; var int:y::is_defined_var=x; constraint int_lin_eq([1],[x],0)::defines_var(x); constraint int_lin_eq([1],[y],0)::defines_var(y); solve satisfy;",
+        "var int:x; var bool:b::is_defined_var; constraint int_le_imp(x,1,b)::defines_var(b); solve satisfy;",
         "var int:x; var int:y=x+1; solve satisfy;",
         "var int:x; solve minimize x+1;",
         "var int:x; constraint int_lin_eq([1],[x],0)::checker_constraint(1,[2]); solve satisfy;",
@@ -261,4 +417,32 @@ fn unsupported_forms_fail_preparation_and_arithmetic_is_checked() {
             .status,
         Status::Valid
     );
+    for bound in [i64::MIN, i64::MAX] {
+        let source = format!(
+            "var int:x::is_defined_var; constraint int_lin_eq([1],[x],{bound})::defines_var(x); solve minimize x;"
+        );
+        let model = prepare("boundary.fzn", &source).unwrap();
+        let report = model.check(&Assignment::default()).unwrap();
+        assert_eq!(report.status, Status::Valid);
+        assert_eq!(
+            report.objective.unwrap().argument.value,
+            Value::Integer(bound)
+        );
+    }
+    for relation in [
+        "int_lin_eq([1,2],[x,9223372036854775807],0)",
+        "int_lin_eq([1,1,1],[x,9223372036854775807,1],0)",
+        "int_lin_eq([1,-1],[x,1],9223372036854775807)",
+        "int_lin_eq([-1],[x],-9223372036854775808)",
+    ] {
+        let source = format!(
+            "var int:x::is_defined_var; constraint {relation}::defines_var(x); solve satisfy;"
+        );
+        let model = prepare("definition-overflow.fzn", &source).unwrap();
+        let error = model.check(&Assignment::default()).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Execution, "{relation}");
+        let location = error.diagnostics[0].location.as_ref().unwrap();
+        assert_eq!(location.source, "definition-overflow.fzn");
+        assert!(source[location.start..location.end].starts_with("constraint"));
+    }
 }

@@ -24,24 +24,29 @@ fn text_and_json_reports_cover_completeness_statuses_metadata_and_errors() {
     };
     for (source, status, complete, exit) in [
         (
-            "start=[1,4];finish=[4,6];starts_early=true;",
+            include_str!("../../../examples/checker-compilation/candidates/feasible.dzn"),
             "valid",
             true,
             0,
         ),
         (
-            "start=[8,5];finish=[11,7];starts_early=false;",
+            include_str!("../../../examples/checker-compilation/candidates/infeasible.dzn"),
             "invalid",
             true,
             1,
         ),
         (
-            "X_INTRODUCED_17_=8;X_INTRODUCED_19_=11;starts_early=false;",
+            include_str!("../../../examples/checker-compilation/candidates/incomplete-invalid.dzn"),
             "invalid",
             false,
             1,
         ),
-        ("start=[1,4];", "incomplete", false, 1),
+        (
+            include_str!("../../../examples/checker-compilation/candidates/incomplete.dzn"),
+            "incomplete",
+            false,
+            1,
+        ),
     ] {
         std::fs::write(&data, source).unwrap();
         let json = run("json");
