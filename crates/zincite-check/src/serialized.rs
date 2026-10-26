@@ -68,7 +68,7 @@ impl PreparedModel {
         let seeds = self.validate_variables()?;
         self.validate_slots(&seeds)?;
         self.validate_constraints()?;
-        if let Some((_, operand)) = self.objective {
+        if let Some((_, operand)) = &self.objective {
             self.validate_operand(operand, ValueType::Integer)?;
         }
         Ok(())
@@ -79,7 +79,7 @@ impl PreparedModel {
             if name.is_empty() || (!binding.is_array && binding.elements.len() != 1) {
                 return Err(invalid("invalid binding name or scalar shape"));
             }
-            for &operand in &binding.elements {
+            for operand in &binding.elements {
                 self.validate_operand(operand, binding.kind)?;
                 if binding.assignable != matches!(operand, Operand::Variable(_)) {
                     return Err(invalid(
@@ -106,6 +106,7 @@ impl PreparedModel {
             for domain in &variable.domains {
                 let kind = match domain {
                     Domain::Boolean => ValueType::Boolean,
+                    Domain::IntegerSet { .. } => ValueType::IntegerSet,
                     Domain::Fixed { value } => value.value_type(),
                     _ => ValueType::Integer,
                 };
@@ -162,9 +163,9 @@ impl PreparedModel {
                     return Err(invalid("a defined slot cannot have a default"));
                 }
             } else {
-                match slot.default {
+                match &slot.default {
                     Some(value)
-                        if value.value_type() == slot.kind && seeds[index].contains(&value) => {}
+                        if value.value_type() == slot.kind && seeds[index].contains(value) => {}
                     None if seeds[index].is_empty() => {}
                     _ => {
                         return Err(invalid(
@@ -184,6 +185,56 @@ impl PreparedModel {
                 return Err(invalid("constraint ordinals must follow executable order"));
             }
             let predicate_name = match &constraint.predicate {
+                Predicate::SetIn { element, set } => {
+                    self.validate_operand(element, ValueType::Integer)?;
+                    self.validate_operand(set, ValueType::IntegerSet)?;
+                    "set_in"
+                }
+                Predicate::SetEqual { left, right } | Predicate::SetSubset { left, right } => {
+                    self.validate_operand(left, ValueType::IntegerSet)?;
+                    self.validate_operand(right, ValueType::IntegerSet)?;
+                    if matches!(constraint.predicate, Predicate::SetEqual { .. }) {
+                        "set_eq"
+                    } else {
+                        "set_subset"
+                    }
+                }
+                Predicate::SetCardinality { set, cardinality } => {
+                    self.validate_operand(set, ValueType::IntegerSet)?;
+                    self.validate_operand(cardinality, ValueType::Integer)?;
+                    "set_card"
+                }
+                Predicate::SetUnion {
+                    left,
+                    right,
+                    result,
+                }
+                | Predicate::SetIntersection {
+                    left,
+                    right,
+                    result,
+                } => {
+                    for operand in [left, right, result] {
+                        self.validate_operand(operand, ValueType::IntegerSet)?;
+                    }
+                    if matches!(constraint.predicate, Predicate::SetUnion { .. }) {
+                        "set_union"
+                    } else {
+                        "set_intersect"
+                    }
+                }
+                Predicate::DisjunctiveStrict { starts, durations } => {
+                    if starts.len() != durations.len() {
+                        return Err(invalid("strict disjunctive arrays must have equal lengths"));
+                    }
+                    for operand in starts.iter().chain(durations) {
+                        self.validate_operand(operand, ValueType::Integer)?;
+                    }
+                    if !durations.iter().all(|operand| matches!(operand, Operand::Literal(Value::Integer(value)) if *value >= 0)) {
+                        return Err(invalid("strict disjunctive durations must be fixed nonnegative integers"));
+                    }
+                    "fzn_disjunctive_strict"
+                }
                 Predicate::Linear {
                     coefficients,
                     terms,
@@ -195,7 +246,7 @@ impl PreparedModel {
                             "linear coefficient and term arrays must have equal lengths",
                         ));
                     }
-                    for &term in terms {
+                    for term in terms {
                         self.validate_operand(term, ValueType::Integer)?;
                     }
                     if *equality {
@@ -209,9 +260,9 @@ impl PreparedModel {
                     right,
                     result,
                 } => {
-                    self.validate_operand(*left, ValueType::Integer)?;
-                    self.validate_operand(*right, ValueType::Integer)?;
-                    self.validate_operand(*result, ValueType::Boolean)?;
+                    self.validate_operand(left, ValueType::Integer)?;
+                    self.validate_operand(right, ValueType::Integer)?;
+                    self.validate_operand(result, ValueType::Boolean)?;
                     "int_le_reif"
                 }
             };
@@ -224,12 +275,12 @@ impl PreparedModel {
         Ok(())
     }
 
-    fn validate_operand(&self, operand: Operand, expected: ValueType) -> Result<(), Diagnostic> {
+    fn validate_operand(&self, operand: &Operand, expected: ValueType) -> Result<(), Diagnostic> {
         let kind = match operand {
             Operand::Literal(value) => value.value_type(),
             Operand::Variable(slot) => {
                 self.slots
-                    .get(slot)
+                    .get(*slot)
                     .ok_or_else(|| invalid("operand refers to an unknown slot"))?
                     .kind
             }

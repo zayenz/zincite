@@ -73,14 +73,16 @@ zincite-check --load [--format text|json] prepared.json candidate.dzn
 `--export` prepares the source and creates a new JSON file, refusing existing
 paths. `--load` validates that artifact and checks without parsing FlatZinc.
 Both entry points support both options. Reports go to stdout; input and
-execution errors go to stderr without partial stdout. The checker reads literal Boolean/integer assignments, checks every
-available domain and supported relation, and reports independent completeness.
-Supported linear-equality and full-reification outputs are derived from known
-inputs before checking. It starts no compiler or solver.
+execution errors go to stderr without partial stdout. The checker reads literal
+Boolean, integer and finite integer set assignments, checks every available domain
+and supported relation, and reports independent completeness. Supported linear,
+full-reification and set definitions derive outputs from known inputs before
+checking. The admitted relations include one strict disjunctive global with fixed
+nonnegative durations. Checking starts no compiler or solver.
 The [checker guide](../crates/zincite-check/README.md)
-defines the admitted syntax, three predicates, metadata and exact integer JSON
-encoding. These commands are available from the checkout, outside the published
-0.3.0 packages.
+defines the admitted syntax, predicate coverage, metadata and exact integer JSON
+encoding, including set endpoints. These commands are available from the checkout,
+outside the published 0.3.0 packages.
 
 ## Explicit writes
 

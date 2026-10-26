@@ -16,7 +16,7 @@ pub fn prepare(name: &str, source: &str) -> std::result::Result<PreparedModel, V
         .map_err(|error| vec![error])
 }
 
-/// Accept only Boolean/signed-decimal-integer literals and one-dimensional arrays.
+/// Accept Boolean, signed-decimal integer and finite integer set literals, and arrays.
 pub fn parse_assignment(
     name: &str,
     text: &str,
@@ -151,7 +151,72 @@ impl Source<'_> {
                 _ => {}
             }
         }
+        if matches!(
+            node.kind(),
+            NodeKind::SetLiteral | NodeKind::RangeExpression
+        ) {
+            return self.integer_set(node).map(Value::IntegerSet);
+        }
         self.integer(node).map(Value::Integer)
+    }
+
+    fn integer_set(&self, node: &SyntaxNode) -> Result<IntegerSet> {
+        if node.kind() == NodeKind::SetLiteral {
+            let values = node
+                .child_nodes()
+                .map(|value| self.integer(value))
+                .collect::<Result<Vec<_>>>()?;
+            Ok(IntegerSet::from_values(values))
+        } else {
+            let (lower, upper) = self.interval(node)?;
+            Ok(IntegerSet::interval(lower, upper))
+        }
+    }
+
+    fn validate_global_declaration(&self, node: &SyntaxNode) -> Result<()> {
+        let tokens: Vec<_> = self
+            .parsed
+            .tokens()
+            .iter()
+            .filter(|token| {
+                node.range().contains(&token.range.start)
+                    && !matches!(
+                        token.kind,
+                        TokenKind::Whitespace | TokenKind::LineComment | TokenKind::BlockComment
+                    )
+            })
+            .map(|token| &self.parsed.source()[token.range.clone()])
+            .collect();
+        let expected = [
+            "predicate",
+            "fzn_disjunctive_strict",
+            "(",
+            "array",
+            "[",
+            "int",
+            "]",
+            "of",
+            "var",
+            "int",
+            ":",
+            "start",
+            ",",
+            "array",
+            "[",
+            "int",
+            "]",
+            "of",
+            "var",
+            "int",
+            ":",
+            "duration",
+            ")",
+            ";",
+        ];
+        if tokens != expected {
+            return Err(self.error(node, "only the bodyless fzn_disjunctive_strict(array[int] of var int: start, array[int] of var int: duration) declaration is supported"));
+        }
+        Ok(())
     }
 
     fn integer(&self, node: &SyntaxNode) -> Result<i64> {
@@ -171,10 +236,13 @@ impl Source<'_> {
             (false, node)
         };
         if atom.kind() != NodeKind::Expression {
-            return Err(self.error(node, "expected a Boolean or signed decimal integer literal; computed expressions are unsupported"));
+            return Err(self.error(
+                node,
+                "expected a signed decimal integer literal; computed expressions are unsupported",
+            ));
         }
         let Some((TokenKind::IntegerLiteral, text)) = self.tokens(atom).next() else {
-            return Err(self.error(node, "expected a Boolean or signed decimal integer literal"));
+            return Err(self.error(node, "expected a signed decimal integer literal"));
         };
         if !text.bytes().all(|byte| byte.is_ascii_digit()) {
             return Err(self.error(node, "only decimal integer spelling is supported"));
@@ -268,6 +336,26 @@ impl Source<'_> {
             NodeKind::ScalarType if tokens.contains(&TokenKind::Bool) => {
                 (ValueType::Boolean, Domain::Boolean)
             }
+            NodeKind::SetType => {
+                let element = node
+                    .child_nodes()
+                    .next()
+                    .ok_or_else(|| self.error(node, "expected an integer set type"))?;
+                let upper = if element.kind() == NodeKind::ScalarType
+                    && self.tokens(element).any(|(kind, _)| kind == TokenKind::Int)
+                {
+                    None
+                } else if element.kind() == NodeKind::DomainType {
+                    let expression = element
+                        .child_nodes()
+                        .next()
+                        .ok_or_else(|| self.error(element, "expected an upper set domain"))?;
+                    Some(self.integer_set(expression)?)
+                } else {
+                    return Err(self.error(node, "only finite integer sets are supported"));
+                };
+                (ValueType::IntegerSet, Domain::IntegerSet { upper })
+            }
             NodeKind::DomainType => {
                 let expression = node
                     .child_nodes()
@@ -288,9 +376,10 @@ impl Source<'_> {
                 (ValueType::Integer, domain)
             }
             _ => {
-                return Err(
-                    self.error(node, "unsupported type; expected Boolean or integer values")
-                );
+                return Err(self.error(
+                    node,
+                    "unsupported type; expected Boolean, integer or finite integer set values",
+                ));
             }
         };
         Ok(TypeSpec {
@@ -465,12 +554,26 @@ struct Lowerer<'a> {
     resolved: Vec<Option<Binding>>,
     resolving: HashSet<usize>,
     model: PreparedModel,
+    has_global_declaration: bool,
 }
 
 impl<'a> Lowerer<'a> {
     fn new(source: &'a Source<'a>) -> Result<Self> {
         let mut declarations = Vec::new();
         let mut names = HashMap::new();
+        let mut has_global_declaration = false;
+        for node in source
+            .parsed
+            .tree()
+            .child_nodes()
+            .filter(|node| node.kind() == NodeKind::PredicateDeclaration)
+        {
+            source.validate_global_declaration(node)?;
+            if has_global_declaration {
+                return Err(source.error(node, "duplicate fzn_disjunctive_strict declaration"));
+            }
+            has_global_declaration = true;
+        }
         for node in source
             .parsed
             .tree()
@@ -512,6 +615,7 @@ impl<'a> Lowerer<'a> {
         let resolved = vec![None; declarations.len()];
         Ok(Self {
             source,
+            has_global_declaration,
             declarations,
             names,
             resolved,
@@ -535,7 +639,7 @@ impl<'a> Lowerer<'a> {
         let mut solve = false;
         for node in self.source.parsed.tree().child_nodes() {
             match node.kind() {
-                NodeKind::Declaration => {}
+                NodeKind::Declaration | NodeKind::PredicateDeclaration => {}
                 NodeKind::Constraint => self.constraint(node)?,
                 NodeKind::Solve | NodeKind::SolveMinimize | NodeKind::SolveMaximize => {
                     if solve { return Err(self.source.error(node, "expected exactly one solve item")); }
@@ -637,7 +741,7 @@ impl<'a> Lowerer<'a> {
                     .source
                     .error(node, "a parameter cannot refer to a variable"));
             };
-            if !ty.domain.contains(*value) {
+            if !ty.domain.contains(value) {
                 return Err(self
                     .source
                     .error(node, "parameter value is outside its declared domain"));
@@ -660,23 +764,25 @@ impl<'a> Lowerer<'a> {
         for (position, operand) in elements.iter_mut().enumerate() {
             let reference = self.variable_ref(index, ty.length.map(|_| position + 1));
             let mut domains = vec![ty.domain.clone()];
-            let slot = match *operand {
+            let slot = match operand {
                 Operand::Literal(value) => {
-                    domains.push(Domain::Fixed { value });
+                    domains.push(Domain::Fixed {
+                        value: value.clone(),
+                    });
                     let slot = self.model.slots.len();
                     self.model.slots.push(Slot {
                         kind: ty.kind,
-                        default: Some(value),
+                        default: Some(value.clone()),
                         reference: reference.clone(),
                     });
                     *operand = Operand::Variable(slot);
                     slot
                 }
                 Operand::Variable(slot) => {
-                    if self.model.slots[slot].default.is_none() {
-                        self.model.slots[slot].default = ty.domain.singleton();
+                    if self.model.slots[*slot].default.is_none() {
+                        self.model.slots[*slot].default = ty.domain.singleton();
                     }
-                    slot
+                    *slot
                 }
             };
             self.model.variables.push(Variable {
@@ -722,13 +828,13 @@ impl<'a> Lowerer<'a> {
                     "reference type or shape does not match scalar argument",
                 ));
             }
-            binding.elements[0]
+            binding.elements[0].clone()
         } else {
             Operand::Literal(self.source.literal(node)?)
         };
-        let actual = match operand {
+        let actual = match &operand {
             Operand::Literal(value) => value.value_type(),
-            Operand::Variable(slot) => self.model.slots[slot].kind,
+            Operand::Variable(slot) => self.model.slots[*slot].kind,
         };
         if actual != kind {
             return Err(self.source.error(node, "scalar value has the wrong type"));
@@ -780,12 +886,48 @@ impl<'a> Lowerer<'a> {
         }
         let name = self.source.name(call)?;
         let args: Vec<_> = call.child_nodes().collect();
-        if args.len() != 3 {
+        let arity = match name.as_str() {
+            "set_in" | "set_eq" | "set_subset" | "set_card" | "fzn_disjunctive_strict" => 2,
+            "int_lin_eq" | "int_lin_le" | "int_le_reif" | "set_union" | "set_intersect" => 3,
+            _ => {
+                return Err(self
+                    .source
+                    .error(call, format!("unsupported predicate '{name}'")));
+            }
+        };
+        if args.len() != arity {
             return Err(self
                 .source
-                .error(call, format!("'{name}' expects three arguments")));
+                .error(call, format!("'{name}' expects {arity} arguments")));
         }
         let predicate = match name.as_str() {
+            "set_in" => Predicate::SetIn {
+                element: self.scalar(args[0], ValueType::Integer)?,
+                set: self.scalar(args[1], ValueType::IntegerSet)?,
+            },
+            "set_eq" => Predicate::SetEqual {
+                left: self.scalar(args[0], ValueType::IntegerSet)?,
+                right: self.scalar(args[1], ValueType::IntegerSet)?,
+            },
+            "set_subset" => Predicate::SetSubset {
+                left: self.scalar(args[0], ValueType::IntegerSet)?,
+                right: self.scalar(args[1], ValueType::IntegerSet)?,
+            },
+            "set_card" => Predicate::SetCardinality {
+                set: self.scalar(args[0], ValueType::IntegerSet)?,
+                cardinality: self.scalar(args[1], ValueType::Integer)?,
+            },
+            "set_union" => Predicate::SetUnion {
+                left: self.scalar(args[0], ValueType::IntegerSet)?,
+                right: self.scalar(args[1], ValueType::IntegerSet)?,
+                result: self.scalar(args[2], ValueType::IntegerSet)?,
+            },
+            "set_intersect" => Predicate::SetIntersection {
+                left: self.scalar(args[0], ValueType::IntegerSet)?,
+                right: self.scalar(args[1], ValueType::IntegerSet)?,
+                result: self.scalar(args[2], ValueType::IntegerSet)?,
+            },
+            "fzn_disjunctive_strict" => self.strict_disjunctive(call, &args)?,
             "int_lin_eq" | "int_lin_le" => {
                 let coefficients = self
                     .array(args[0], ValueType::Integer)?
@@ -838,6 +980,31 @@ impl<'a> Lowerer<'a> {
             predicate,
         });
         Ok(())
+    }
+
+    fn strict_disjunctive(&mut self, call: &SyntaxNode, args: &[&SyntaxNode]) -> Result<Predicate> {
+        if !self.has_global_declaration {
+            return Err(self.source.error(
+                call,
+                "fzn_disjunctive_strict requires its bodyless declaration",
+            ));
+        }
+        let starts = self.array(args[0], ValueType::Integer)?;
+        let durations = self.array(args[1], ValueType::Integer)?;
+        if starts.len() != durations.len() {
+            return Err(self
+                .source
+                .error(call, "strict disjunctive arrays must have equal lengths"));
+        }
+        if !durations.iter().all(
+            |operand| matches!(operand, Operand::Literal(Value::Integer(value)) if *value >= 0),
+        ) {
+            return Err(self.source.error(
+                args[1],
+                "strict disjunctive durations must be fixed nonnegative integers",
+            ));
+        }
+        Ok(Predicate::DisjunctiveStrict { starts, durations })
     }
 
     fn solve(&mut self, node: &SyntaxNode) -> Result<()> {

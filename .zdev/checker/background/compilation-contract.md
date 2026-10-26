@@ -20,9 +20,9 @@ minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --globals-dir cra
 
 The driver requires an explicit solver selection for `--compile` in this
 installation. That flag compiles without starting Gecode. `--globals-dir`
-selects `crates/zincite-check/minizinc/`, packaged with the checker crate. Its
-only file declares the two application annotations. No builtin override or
-solver configuration file is needed for this example. No candidate file is passed to the compiler: compile once, then
+selects `crates/zincite-check/minizinc/`, packaged with the checker crate. The annotation file declares the two application annotations. The library also
+contains the strict disjunctive override described below; the original two-job
+example needs no builtin override or solver configuration file. No candidate file is passed to the compiler: compile once, then
 inspect candidates against that same artifact. The `.paths` sidecar goes to
 `/tmp`; the inspected contract uses the annotations already in `model.fzn`.
 
@@ -96,9 +96,9 @@ including when a caller supplies its result. Do not invert inequalities or
 choose missing starts from finish bounds. A derived finish of 11 is available
 to precedence even though it fails its domain. The runtime uses checked `i64`
 products, sums, subtraction and exact division for these definitions. Overflow is a located execution error; nonexact division
-leaves an output unresolved. Half reification, division/remainder predicates,
-globals and partial expressions are outside this dialect.
-The runtime admits exactly the three predicates above; `int_lin_le` has no
+leaves an output unresolved. Half reification, division/remainder predicates and partial expressions are
+outside this dialect. The shared-bench extension below admits one global.
+This original specimen emits exactly the three predicates above; `int_lin_le` has no
 completion direction. The crate README documents declaration, annotation,
 assignment and arithmetic boundaries.
 
@@ -283,9 +283,157 @@ false. Use `true` when the application's edits allow either representative.
 The main scheduling model contains no symmetry breaker; its documented command
 sets this choice explicitly. This does not test other symmetry formulations.
 
+## Finite sets and the shared bench
+
+The separate `shared-bench.mzn` model describes two independent workshop jobs
+that need exclusive access to one bench. Their durations are `[3,2]`; the
+application supplies starts, tool selections and a lead tool. The original
+scheduling/browser model and its candidates are unchanged.
+
+The source calls standard `disjunctive_strict`. The packaged override keeps its
+one resource relation intact so an application receives typed job arguments and
+all conflicting position pairs. This is a concrete feedback benefit; no
+performance improvement was measured or claimed. The override is exactly:
+
+```minizinc
+predicate fzn_disjunctive_strict(array[int] of var int: start, array[int] of var int: duration);
+```
+
+The checker validates this known bodyless declaration, including parameter
+names, before accepting its calls. Predicate bodies, duplicate declarations,
+mismatched signatures and other user declarations fail preparation. This is
+one implemented global, without a generic predicate interpreter.
+
+### Repeat the compile-only check
+
+With MiniZinc 2.10.1 build 33348285743:
+
+```sh
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --globals-dir crates/zincite-check/minizinc --no-output-ozn -D mzn_ignore_symmetry_breaking_constraints=true --output-paths-to-file /tmp/zincite-checker008-shared-bench.paths --output-fzn-to-file examples/checker-compilation/shared-bench.fzn examples/checker-compilation/shared-bench.mzn
+cargo run -p zincite-check -- examples/checker-compilation/shared-bench.fzn examples/checker-compilation/candidates/shared-bench-feasible.dzn
+cargo run -p zincite-check -- --format json examples/checker-compilation/shared-bench.fzn examples/checker-compilation/candidates/shared-bench-infeasible.dzn
+```
+
+The compilation succeeded without warnings and started no solver. Source,
+packaged override and literal candidates pass Zincite's formatter check and
+default linting with the installed standard library and packaged include path.
+The archived FlatZinc is the exact compiler output, including its command-header
+whitespace. The paths sidecar is temporary.
+
+### Actual declarations and metadata
+
+The compiled model declares starts `X_INTRODUCED_17_` and `X_INTRODUCED_18_`
+with domains `0..8`. The `start` array aliases them in that order. Set scalars
+`X_INTRODUCED_19_` and `X_INTRODUCED_20_` have upper domains `1..3` and `1..4`;
+the `tools` array aliases them as `array[1..2] of var set of int`. Both arrays
+carry output and `checker_value` annotations. Array positions and scalar aliases
+let callers name supplied values and associate domain findings with jobs.
+
+The source declares both tool upper bounds as `1..4`. Its labelled
+`tools[1] subset {1,2,3}` restriction becomes the narrower first upper domain.
+The `permitted_tools` constraint ID and label disappear. That failure is
+reported through the `tools/[1,2]` variable metadata and alias position 1. The
+checker checks the emitted domain and does not reconstruct the lost label.
+
+`all_tools` and `shared_tools` have upper domain `1..4` and their matching
+`is_defined_var`/`defines_var` annotations. `n_tools` has domain `0..4` and its
+matching cardinality definition. The source uses explicit `set_union`,
+`set_intersect` and `set_card` calls. High-level set equations can introduce
+auxiliary sets without supported output annotations; the recipe depends on the
+inspected explicit primitive form. The lead tool domain is `1..4`.
+
+These are all five emitted constraints, in actual FlatZinc order. Each carries
+its source label and `mzn_path`; entity payloads use exact integer strings when
+exported.
+
+| Ordinal | Predicate and direction | Application ID/entities | Label |
+| --- | --- | --- | --- |
+| 1 | `fzn_disjunctive_strict(start,[3,2])`; no completion | `shared_bench/[1,2]` | One job at a time at the shared bench |
+| 2 | `set_union(tools[1],tools[2],all_tools)` defines `all_tools` | `all_tools/[1,2]` | Total tools |
+| 3 | `set_intersect(tools[1],tools[2],shared_tools)` defines `shared_tools` | `shared_tools/[1,2]` | Shared tools |
+| 4 | `set_card(all_tools,n_tools)` defines `n_tools` | `n_tools/[1,2]` | Tool count |
+| 5 | `set_in(lead_tool,tools[1])`; no completion | `lead_tool/[1]` | Lead tool is available |
+
+### Admitted set and global operations
+
+The Boolean/integer table above still applies. These are the complete additions:
+
+| Predicate | Direct relation | Deterministic `defines_var` output |
+| --- | --- | --- |
+| `set_in(x,s)` | `x` belongs to `s` | None |
+| `set_eq(s,t)` | Equal sets | Either set argument if it occurs once |
+| `set_subset(s,t)` | Every member of `s` belongs to `t` | None |
+| `set_card(s,n)` | `card(s) = n` | Integer second argument |
+| `set_union(s,t,r)` | `r = s union t` | Third argument if absent from both inputs |
+| `set_intersect(s,t,r)` | `r = s intersect t` | Third argument if absent from both inputs |
+| `fzn_disjunctive_strict(start,duration)` | Every pair satisfies `start[i]+duration[i] <= start[j]` or the reverse | None |
+
+Integer sets use sorted, disjoint, nonadjacent inclusive i64 ranges, without
+expanding interval members. Reversed literal intervals denote the empty set.
+A set upper domain restricts allowed members; it requires none of them. Only
+an empty upper bound supplies a unique default. Fixed set initializers supply
+their exact set, and definitions withhold defaults as for integer/Boolean
+outputs. Set arithmetic and comparisons borrow values; assignments, computed
+outputs and findings own their values. Unsupported set operations fail
+preparation explicitly. Cardinality above i64::MAX is a located execution
+error, including while checking a supplied cardinality result.
+
+The global requires equally long arrays and fixed nonnegative durations. Empty
+arrays pass. Every start-plus-duration endpoint uses checked i64 addition, even
+for a one-task array. A zero-duration task inside another task's occupied
+interval conflicts; placement at either endpoint passes. Two zero-duration
+tasks at the same start pass. A single finding carries typed `tasks` with
+one-based `position`, `start` and `duration`, and all conflicting pairs as
+`{first, second}` positions. The entity payload maps positions to application
+jobs, independently of generated variable names.
+
+Prepared JSON stays at format version 1 with additive `integer_set` values,
+`integer_set` upper domains, six executable set operations and the strict global
+operation. Existing Boolean/integer shapes are unchanged. A set value contains
+`{"ranges":[{"lower":"1","upper":"3"}]}`; the empty set has an empty list.
+All endpoints, cardinalities, start/duration values and application entity
+integers use exact decimal strings. Loading rejects noncanonical ranges, wrong
+operand types, invalid defaults, invalid duration parameters, unequal global
+array lengths and mismatched report predicate names before rebuilding aliases
+and definitions. Assignment JSON validates the same private set storage.
+
+### Direct candidate calculations
+
+For `shared-bench-feasible.dzn`, starts `[1,4]` give endpoints `[4,6]`. The
+first job ends at the second job's start, so the strict pair passes. Tools
+`[{1,2},{2,3}]` give union `{1,2,3}`, intersection `{2}` and count 3. Both
+selected sets and derived sets fit their upper domains; lead tool 1 belongs to
+the first selection. All five relations pass and every value is resolved.
+
+For `shared-bench-infeasible.dzn`, starts `[1,2]` give endpoints `[4,4]`.
+Neither `4 <= 2` nor `4 <= 1` holds, so positions 1 and 2 conflict. Tools
+`[{1,5},{2,3,4}]` give union `{1,2,3,4,5}`, empty intersection and count 5.
+The first selection exceeds upper domain `1..3`, the union exceeds `1..4`,
+and count 5 exceeds `0..4`. Lead tool 4 is in its own integer domain but does
+not belong to the first selection. These are five complete findings: three
+domains, one resource conflict and one membership failure. All three definition
+relations pass, so the domain failures do not block cardinality or membership.
+
+Supplying only `start=[1,2];lead_tool=1;` establishes the same resource conflict
+while both selections and all three derived values are unresolved. The report
+is invalid and incomplete, with blocked set/domain checks. Omitting every input
+produces an incomplete report with no established violation. Rechecking the
+feasible assignment on the same prepared model passes; no prior edit supplies
+values to a later check.
+
+Native source and loaded checks agree on these candidates. The established
+Node smoke loads this same prepared workshop artifact and compares its complete
+and incomplete reports with native checks twice. Its separate exact-value
+artifact compares integer and set endpoint 9007199254740993 against
+9007199254740992, without JavaScript Number conversion. The parser-free Wasm
+build excludes `zincite-syntax`. The native suite covers the wider set/global
+evaluator cases, including strict zero-duration boundaries and checked
+cardinality overflow. No solver ran and no performance benchmark was part of
+this extension.
+
 ## Validation and sources
 
-The packaged recipe succeeded and emitted only the three admitted predicates,
+The original packaged specimen succeeded and emitted only its three predicates,
 with five constraint IDs, labels, paths and the documented definition directions.
 Native CLI runs of all four literal fixtures agreed with their source equations
 and all five FlatZinc constraints. The application example reported the expected

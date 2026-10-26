@@ -78,12 +78,15 @@ offers additional examples and background.
 ## Checking candidates from a checkout
 
 The checkout also provides `zincite check` and `zincite-check` for a documented
-Boolean/integer FlatZinc subset. Prepare once and check supplied candidates,
-including infeasible or incomplete ones, without running a compiler or solver.
+Boolean, integer and finite integer set FlatZinc subset. Prepare once and check
+supplied candidates, including infeasible or incomplete ones, without running a
+compiler or solver.
 Export a prepared model to versioned JSON and load it for checking without
 parsing the FlatZinc again. See the [checker guide](crates/zincite-check/README.md)
-for local installation, working commands, structured reports and exact coverage. Supported linear
-equality and full reification definitions derive auxiliaries from primary decisions.
+for local installation, working commands, structured reports and exact coverage.
+Supported linear equality, full reification and set definitions derive auxiliaries
+from primary decisions. A strict disjunctive global reports conflicting job pairs
+with fixed nonnegative durations.
 Parser-free WebAssembly bindings load the same prepared artifacts and check typed
 assignment JSON. The [Wasm example](examples/checker-wasm/README.md) includes
 Node.js and browser builds and an executable comparison with native reports.

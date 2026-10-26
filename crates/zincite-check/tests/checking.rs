@@ -193,10 +193,10 @@ fn shared_finish_metadata_identifies_both_job_positions() {
                 .unwrap()
                 .position
                 .unwrap();
-            let ViolationKind::Domain { value } = violation.details else {
+            let ViolationKind::Domain { value } = &violation.details else {
                 panic!("expected a domain value")
             };
-            Some((position, application.entities[position - 1], value))
+            Some((position, application.entities[position - 1], value.clone()))
         })
         .collect();
     assert_eq!(
@@ -380,7 +380,6 @@ fn aliases_domains_fixed_values_and_input_validation_work_together() {
 fn unsupported_forms_fail_preparation_and_arithmetic_is_checked() {
     for text in [
         "var float: x; solve satisfy;",
-        "var set of int: x; solve satisfy;",
         "var int:x; constraint int_plus(x,1,x); solve satisfy;",
         "var int:x; constraint int_lin_eq^-1([1],[x],0); solve satisfy;",
         "var int:x; constraint int_lin_eq⁻¹([1],[x],0); solve satisfy;",
@@ -479,5 +478,281 @@ fn unsupported_forms_fail_preparation_and_arithmetic_is_checked() {
         let location = error.diagnostics[0].location.as_ref().unwrap();
         assert_eq!(location.source, "definition-overflow.fzn");
         assert!(source[location.start..location.end].starts_with("constraint"));
+    }
+}
+
+const BENCH: &str = include_str!("../../../examples/checker-compilation/shared-bench.fzn");
+const BENCH_FEASIBLE: &str =
+    include_str!("../../../examples/checker-compilation/candidates/shared-bench-feasible.dzn");
+const BENCH_INFEASIBLE: &str =
+    include_str!("../../../examples/checker-compilation/candidates/shared-bench-infeasible.dzn");
+
+#[test]
+fn workshop_sets_complete_and_report_independent_resource_and_domain_failures() {
+    let model = prepare("bench.fzn", BENCH).unwrap();
+    assert_eq!(
+        model.check(&assignment(BENCH_FEASIBLE)).unwrap().status,
+        Status::Valid
+    );
+    let report = model.check(&assignment(BENCH_INFEASIBLE)).unwrap();
+    assert!(report.completeness.complete);
+    assert_eq!(report.violations.len(), 5);
+    assert!(matches!(
+        report.violations[2].details,
+        ViolationKind::Domain {
+            value: Value::Integer(5)
+        }
+    ));
+    let ViolationKind::DisjunctiveStrict { tasks, conflicts } = &report.violations[3].details
+    else {
+        panic!("expected the bench finding")
+    };
+    assert_eq!(
+        conflicts,
+        &[zincite_check::ConflictingPair {
+            first: 1,
+            second: 2
+        }]
+    );
+    assert_eq!(tasks[0].start.value, Value::Integer(1));
+    assert_eq!(tasks[1].duration.value, Value::Integer(2));
+    let CheckRef::Constraint { constraint } = &report.violations[3].check else {
+        panic!("expected constraint metadata")
+    };
+    assert_eq!(
+        constraint.metadata.application.as_ref().unwrap().id,
+        "shared_bench"
+    );
+    assert_eq!(
+        constraint.metadata.application.as_ref().unwrap().entities,
+        [1, 2]
+    );
+    assert!(constraint.metadata.label.is_some() && !constraint.metadata.paths.is_empty());
+    assert!(matches!(
+        report.violations[4].details,
+        ViolationKind::SetIn { .. }
+    ));
+    let wrong = model
+        .check(&assignment(&format!(
+            "{BENCH_FEASIBLE} all_tools={{1}}; shared_tools={{}}; n_tools=2;"
+        )))
+        .unwrap();
+    assert!(wrong.completeness.complete);
+    assert!(
+        wrong
+            .violations
+            .iter()
+            .any(|finding| matches!(finding.details, ViolationKind::SetUnion { .. }))
+    );
+    assert!(
+        wrong
+            .violations
+            .iter()
+            .any(|finding| matches!(finding.details, ViolationKind::SetIntersection { .. }))
+    );
+    assert!(
+        wrong
+            .violations
+            .iter()
+            .any(|finding| matches!(finding.details, ViolationKind::SetCardinality { .. }))
+    );
+    let missing = model
+        .check(&assignment("start=[1,2];lead_tool=1;"))
+        .unwrap();
+    assert_eq!(missing.status, Status::Invalid);
+    assert!(!missing.completeness.complete);
+    assert_eq!(missing.violations.len(), 1);
+    assert!(
+        missing
+            .completeness
+            .unresolved_variables
+            .iter()
+            .any(|variable| variable.name == "n_tools")
+    );
+    assert_eq!(
+        model.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
+    assert_eq!(
+        model.check(&assignment(BENCH_FEASIBLE)).unwrap().status,
+        Status::Valid
+    );
+}
+
+#[test]
+fn set_aliases_defaults_and_definition_directions_do_not_choose_members() {
+    let model = prepare(
+        "sets.fzn",
+        "
+        var set of 1..5:a; var set of 1..5:b::is_defined_var;
+        var set of int:c::is_defined_var; var set of {}:narrow=c;
+        var set of 1..1:choice; var set of {}:empty;
+        var set of int:fixed={3,2,2};
+        array[1..2] of var set of int:sets=[a,b];
+        array[1..2] of var set of int:alias=sets;
+        constraint set_eq(a,b)::defines_var(b);
+        constraint set_eq(c,b)::defines_var(c);
+        constraint set_subset(c,{1,2});
+        constraint set_card(fixed,2);
+        solve satisfy;",
+    )
+    .unwrap();
+    let missing = model.check(&assignment("a={2,3};")).unwrap();
+    assert_eq!(missing.status, Status::Invalid);
+    assert!(!missing.completeness.complete);
+    assert_eq!(missing.completeness.unresolved_variables.len(), 1);
+    assert_eq!(missing.completeness.unresolved_variables[0].name, "choice");
+    assert_eq!(missing.violations.len(), 2); // Empty alias upper bound and subset both check the derived set.
+    assert!(matches!(
+        missing.violations[1].details,
+        ViolationKind::SetSubset { .. }
+    ));
+    let supplied = model
+        .check(&assignment("alias=[{2,3},{1}];choice={};"))
+        .unwrap();
+    assert!(supplied.completeness.complete);
+    assert!(
+        supplied
+            .violations
+            .iter()
+            .any(|finding| matches!(finding.details, ViolationKind::SetEqual { .. }))
+    );
+    assert_eq!(
+        model.check(&assignment("a={};choice={1};")).unwrap().status,
+        Status::Valid
+    );
+    assert!(model.check(&assignment("a={};alias=[{1},{}];")).is_err());
+    assert!(model.check(&assignment("a=1;")).is_err());
+
+    // Repeated output occurrences are checkable but cannot establish a value.
+    let cyclic = prepare("self.fzn", "var set of {}:s::is_defined_var;constraint set_union(s,{},s)::defines_var(s);solve satisfy;").unwrap();
+    assert_eq!(
+        cyclic.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
+    assert_eq!(
+        cyclic.check(&assignment("s={};")).unwrap().status,
+        Status::Valid
+    );
+}
+
+#[test]
+fn compact_intervals_and_cardinality_use_target_independent_checked_integers() {
+    use zincite_check::IntegerSet;
+    let max_cardinality = IntegerSet::interval(1, i64::MAX);
+    assert_eq!(max_cardinality.cardinality(), Some(i64::MAX));
+    let whole = IntegerSet::interval(i64::MIN, i64::MAX);
+    assert_eq!(whole.cardinality(), None);
+    assert!(whole.contains(i64::MIN) && whole.contains(i64::MAX));
+    assert_eq!(whole.intersection(&max_cardinality), max_cardinality);
+    assert_eq!(whole.union(&max_cardinality), whole);
+    let encoded = serde_json::to_string(&whole).unwrap();
+    assert!(encoded.len() < 100);
+    assert_eq!(serde_json::from_str::<IntegerSet>(&encoded).unwrap(), whole);
+    assert!(IntegerSet::interval(2, 1).is_empty());
+    assert_eq!(
+        IntegerSet::from_values([i64::MAX, i64::MAX - 1, i64::MIN, i64::MIN]),
+        IntegerSet::interval(i64::MIN, i64::MIN)
+            .union(&IntegerSet::interval(i64::MAX - 1, i64::MAX))
+    );
+    for (bounds, valid) in [
+        ("1..9223372036854775807", true),
+        ("0..9223372036854775807", false),
+    ] {
+        let source = format!(
+            "set of int:s={bounds};var int:n::is_defined_var;constraint set_card(s,n)::defines_var(n);solve minimize n;"
+        );
+        let model = prepare("cardinality.fzn", &source).unwrap();
+        if valid {
+            assert_eq!(
+                model
+                    .check(&Assignment::default())
+                    .unwrap()
+                    .objective
+                    .unwrap()
+                    .argument
+                    .value,
+                Value::Integer(i64::MAX)
+            );
+        } else {
+            for candidate in ["", "n=0;"] {
+                let error = model.check(&assignment(candidate)).unwrap_err();
+                assert_eq!(error.kind, ErrorKind::Execution);
+                let location = error.diagnostics[0].location.as_ref().unwrap();
+                assert!(source[location.start..location.end].starts_with("constraint"));
+            }
+        }
+    }
+}
+
+const STRICT_DECLARATION: &str =
+    "predicate fzn_disjunctive_strict(array[int] of var int:start,array[int] of var int:duration);";
+
+#[test]
+fn strict_disjunctive_handles_empty_zero_length_and_all_conflicting_pairs() {
+    for (starts, durations, conflicts) in [
+        ("[]", "[]", 0),
+        ("[0,0,0]", "[2,2,2]", 3),
+        ("[0,1]", "[3,0]", 1),
+        ("[0,0]", "[3,0]", 0),
+        ("[0,3]", "[3,0]", 0),
+        ("[0,0]", "[0,0]", 0),
+    ] {
+        let source = format!(
+            "{STRICT_DECLARATION} constraint fzn_disjunctive_strict({starts},{durations});solve satisfy;"
+        );
+        let report = prepare("strict.fzn", &source)
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap();
+        assert!(report.completeness.complete);
+        if conflicts == 0 {
+            assert_eq!(report.status, Status::Valid, "{starts},{durations}");
+        } else {
+            let ViolationKind::DisjunctiveStrict {
+                conflicts: pairs, ..
+            } = &report.violations[0].details
+            else {
+                panic!("expected strict disjunctive finding")
+            };
+            assert_eq!(pairs.len(), conflicts);
+        }
+    }
+    let source = format!(
+        "{STRICT_DECLARATION}constraint fzn_disjunctive_strict([9223372036854775807],[1]);solve satisfy;"
+    );
+    let error = prepare("end.fzn", &source)
+        .unwrap()
+        .check(&Assignment::default())
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(
+        error.diagnostics[0].location.as_ref().unwrap().source,
+        "end.fzn"
+    );
+}
+
+#[test]
+fn unsupported_set_operations_and_malformed_global_declarations_are_located() {
+    for source in [
+        "var set of int:s;constraint set_diff(s,{},s);solve satisfy;".into(),
+        "var set of int:s;constraint set_in_reif(1,s,true);solve satisfy;".into(),
+        "var set of bool:s;solve satisfy;".into(),
+        "var set of int:s;constraint set_in(s,1);solve satisfy;".into(),
+        "constraint set_union({},{});solve satisfy;".into(),
+        "constraint fzn_disjunctive_strict([],[]);solve satisfy;".into(),
+        format!("{STRICT_DECLARATION}{STRICT_DECLARATION}solve satisfy;"),
+        format!("{}=true;solve satisfy;", STRICT_DECLARATION.trim_end_matches(';')),
+        STRICT_DECLARATION.replace("var int:duration", "int:duration") + "solve satisfy;",
+        "predicate mystery(array[int] of var int:start,array[int] of var int:duration);solve satisfy;".into(),
+        format!("{STRICT_DECLARATION}constraint fzn_disjunctive_strict([1],[]);solve satisfy;"),
+        format!("{STRICT_DECLARATION}constraint fzn_disjunctive_strict([1],[-1]);solve satisfy;"),
+        format!("{STRICT_DECLARATION}var 1..1:d;constraint fzn_disjunctive_strict([1],[d]);solve satisfy;"),
+    ] {
+        let errors = prepare("bad-sets.fzn", &source).unwrap_err();
+        assert!(errors[0].location.is_some(), "{source}");
+    }
+    for candidate in ["s={1+1};", "s=1..(1+1);", "s={true};"] {
+        assert!(parse_assignment("bad.dzn", candidate).is_err());
     }
 }

@@ -5,11 +5,11 @@ const { tmpdir } = require("node:os");
 const { resolve, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-assert.equal(process.argv.length, 7,
-    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json CANDIDATES.json NATIVE_CHECKER");
-const [glue, schedule, exact, candidates, native] = process.argv.slice(2).map(path => resolve(path));
+assert.equal(process.argv.length, 8,
+    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json CANDIDATES.json NATIVE_CHECKER");
+const [glue, schedule, exact, bench, candidates, native] = process.argv.slice(2).map(path => resolve(path));
 const { PreparedModel } = require(glue);
-const paths = { schedule, exact };
+const paths = { schedule, exact, bench };
 const models = Object.fromEntries(Object.entries(paths).map(([name, path]) =>
     [name, new PreparedModel(readFileSync(path, "utf8"))]));
 const cases = JSON.parse(readFileSync(candidates, "utf8"));
@@ -34,7 +34,7 @@ try {
     assert.throws(() => models.exact.check(JSON.stringify({ entries: [{
         name: "missing", value: { kind: "scalar", value: { kind: "integer", value: "1" } }
     }] })), error => JSON.parse(error).kind === "assignment");
-    console.log("Native/Wasm reports agree across 12 checks; exact integers and input errors verified.");
+    console.log(`Native/Wasm reports agree across ${cases.length * 2} checks; exact integers, sets, global findings and input errors verified.`);
 } finally {
     for (const model of Object.values(models)) model.free();
     rmSync(directory, { recursive: true, force: true });
@@ -61,10 +61,24 @@ function literal(value) {
         assert.equal(typeof value.value, "boolean");
         return String(value.value);
     }
+    if (value.kind === "integer_set") {
+        assert(Array.isArray(value.value.ranges));
+        // A union of ranges has no literal FlatZinc spelling; these focused inputs use one interval or singleton ranges.
+        const ranges = value.value.ranges;
+        if (ranges.length === 1 && ranges[0].lower !== ranges[0].upper) {
+            return `${decimal(ranges[0].lower)}..${decimal(ranges[0].upper)}`;
+        }
+        assert(ranges.every(range => range.lower === range.upper));
+        return `{${ranges.map(range => decimal(range.lower)).join(",")}}`;
+    }
     assert.equal(value.kind, "integer");
-    assert.equal(typeof value.value, "string");
-    assert.match(value.value, /^-?\d+$/);
-    return value.value;
+    return decimal(value.value);
+}
+
+function decimal(value) {
+    assert.equal(typeof value, "string");
+    assert.match(value, /^-?\d+$/);
+    return value;
 }
 
 function checkDetails(name, report) {
@@ -81,8 +95,21 @@ function checkDetails(name, report) {
     if (name === "exact-valid") {
         assert.equal(report.objective.argument.value.value, "9007199254740993");
     }
+    if (name === "bench-invalid") {
+        assert.equal(report.violations.length, 5);
+        const finding = report.violations.find(finding => finding.details.kind === "disjunctive_strict");
+        assert.deepEqual(finding.details.conflicts, [{ first: 1, second: 2 }]);
+        assert.deepEqual(finding.check.constraint.metadata.application, { id: "shared_bench", entities: ["1", "2"] });
+    }
+    if (name === "bench-incomplete") {
+        assert.equal(report.violations[0].details.kind, "disjunctive_strict");
+        assert(report.completeness.blocked_checks.length > 0);
+    }
     if (name === "exact-invalid") {
         const finding = report.violations[0];
+        const setFinding = report.violations.find(finding => finding.details.kind === "set_equal");
+        assert.deepEqual(setFinding.details.left.value.value.ranges, [{ lower: "9007199254740992", upper: "9007199254740992" }]);
+        assert.deepEqual(setFinding.details.right.value.value.ranges, [{ lower: "9007199254740993", upper: "9007199254740993" }]);
         assert.equal(finding.details.sum, "9007199254740992");
         assert.equal(finding.details.bound, "9007199254740993");
         assert.deepEqual(finding.check.constraint.metadata.application,

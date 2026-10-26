@@ -61,7 +61,12 @@ The same instance supports repeated edits, including removed assignments.
 Assignments have an `entries` array, including `[]` for no supplied values. Each
 entry has a `name` and a `value`. Array values use the shape above; scalars use
 `{ kind: "scalar", value: { kind: "integer", value: "9007199254740993" } }`
-or `{ kind: "scalar", value: { kind: "boolean", value: true } }`. The optional
+or `{ kind: "scalar", value: { kind: "boolean", value: true } }`. Integer sets use
+`{ kind: "scalar", value: { kind: "integer_set", value: { ranges:
+[{ lower: "9007199254740993", upper: "9007199254740993" }] } } }`.
+Empty sets have `ranges: []`. Ranges must be sorted, disjoint, nonadjacent and
+nonempty; the loader and assignment reader reject other representations.
+Array entries can use these same set values. The optional
 entry `location` accepts the shared location record or `null`; ordinary callers
 omit it. Entries preserve order and duplicates for the checker's validation.
 
@@ -95,17 +100,18 @@ edits and job feedback using these bindings and the saved compiled model.
 
 ## Execute the native/Wasm comparison
 
-Build the bindings above, then export two artifacts with the native CLI. This
-setup uses the saved compiled scheduling model and a tiny handwritten FlatZinc
-integer model; it does not run MiniZinc:
+Build the bindings above, then export three artifacts with the native CLI. This
+setup uses both saved compiled workshop models and a tiny handwritten FlatZinc
+integer/set model; it does not run MiniZinc:
 
 ```sh
 cargo build --locked -p zincite-check --bin zincite-check
 checker_run=$(mktemp -d "$PWD/target/checker-wasm/run.XXXXXX")
 target/debug/zincite-check --export "$checker_run/schedule.json" examples/checker-compilation/model.fzn
-printf '%s\n' 'var int: x;' 'constraint int_lin_eq([1],[x],9007199254740993)::checker_constraint("exact",[9007199254740993]);' 'solve minimize x;' > "$checker_run/exact.fzn"
+printf '%s\n' 'var int: x;' 'constraint int_lin_eq([1],[x],9007199254740993)::checker_constraint("exact",[9007199254740993]);' 'var set of int: exact_tools;' 'constraint set_eq(exact_tools,{9007199254740993});' 'solve minimize x;' > "$checker_run/exact.fzn"
 target/debug/zincite-check --export "$checker_run/exact.json" "$checker_run/exact.fzn"
-node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" examples/checker-wasm/candidates.json target/debug/zincite-check
+target/debug/zincite-check --export "$checker_run/bench.json" examples/checker-compilation/shared-bench.fzn
+node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" examples/checker-wasm/candidates.json target/debug/zincite-check
 ```
 
 `smoke.cjs` reads only built bindings, prepared artifacts and typed assignment
@@ -114,10 +120,12 @@ compares every observable report with the native CLI's `--load` path. The CLI
 receives literal `.dzn` assignments made from the same typed values in a temporary
 directory. The consumer removes those temporary assignments when finished.
 
-The six named cases cover valid, invalid, incomplete and invalid-with-incomplete
-reports, application metadata, Boolean and array input, and the distinct integers
-9007199254740992 and 9007199254740993. A second pass exercises reuse after changing
-and removing inputs. Small boundary checks also reject a malformed artifact, a
-JSON number supplied as an integer and an unknown assignment name. Expected
-output ends with `Native/Wasm reports agree across 12 checks; exact integers and
-input errors verified.` The native suite owns the wider evaluator coverage.
+The nine named cases cover valid, invalid, incomplete and invalid-with-incomplete
+reports, application metadata, Boolean and array input, set definitions and domain
+failures, strict resource conflicts, and the distinct integers 9007199254740992
+and 9007199254740993 as both integers and set endpoints. A second pass exercises
+reuse after changing and removing inputs. Small boundary checks also reject a
+malformed artifact, a JSON number supplied as an integer and an unknown assignment
+name. Expected output ends with `Native/Wasm reports agree across 18 checks; exact
+integers, sets, global findings and input errors verified.` The native suite owns
+the wider evaluator coverage.

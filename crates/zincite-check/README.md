@@ -44,13 +44,17 @@ FlatZinc again. Both entry points support these options; the source-checking
 invocation above also works.
 
 The artifact has `format_version: 1` and an executable `model`: typed slots
-and seed defaults, name/array bindings, declaration domains, the three supported
+and seed defaults, name/array bindings, declaration domains, the supported
 operations, an optional objective, and report references with application
 metadata. It carries no source text or CST. All mathematical integers are
 decimal strings, including domain bounds, coefficients, defaults and entity
-payloads. Loading rejects incompatible versions, bad references, wrong types
-and invalid definition annotations before exposing a checkable model. It
-rebuilds aliases, definition directions and dependencies from validated
+payloads. Integer sets use `{ "kind": "integer_set", "value": { "ranges":
+[{ "lower": "1", "upper": "3" }] } }`; an empty set has `ranges: []`. Loading
+rejects reversed, unordered, overlapping or adjacent ranges. The format stays
+at version 1 with additive set value/domain, set operation and strict global
+records; Boolean and integer records keep their existing shapes. Loading rejects
+incompatible versions, bad references, wrong types and invalid definition
+annotations before exposing a checkable model. It rebuilds aliases, definition directions and dependencies from validated
 operations rather than accepting serialized execution caches. A slot's seed
 must come from a fixed or singleton declaration; other alias domains can still
 report violations against that value.
@@ -60,8 +64,9 @@ report violations against that value.
 The package includes `minizinc/checker_annotations.mzn`. It declares
 `checker_constraint(string: id, array[int] of int: entities)` for constraints and
 `checker_value` with the same arguments for variables. Application developers
-choose these IDs and integer entity payloads. This example needs no builtin
-override or separate solver configuration file.
+choose these IDs and integer entity payloads. The original scheduling example
+needs no builtin override or separate solver configuration file. The shared-bench
+example below uses the packaged `fzn_disjunctive_strict.mzn` override.
 
 From the repository root, using MiniZinc 2.10.1:
 
@@ -120,6 +125,52 @@ these source forms, not equivalence for arbitrary MiniZinc models. The detailed
 control sources and observations are in the repository's
 [compilation contract](../../.zdev/checker/background/compilation-contract.md).
 
+## Shared-bench workshop example
+
+Two independent jobs need exclusive access to one bench. The application edits
+their starts and tool selections. Standard `disjunctive_strict(start, duration)`
+compiles to one resource check with the packaged declaration:
+
+```minizinc
+predicate fzn_disjunctive_strict(array[int] of var int: start, array[int] of var int: duration);
+```
+
+The checker validates that declaration's name, parameter names/types and absence
+of a body before accepting calls. Both arrays must have equal lengths, including
+zero. Durations are fixed nonnegative integer parameters. For every `i < j`, the
+check evaluates the pairwise relation in the coverage table with checked endpoint
+additions. A zero-duration job inside another job's occupied interval conflicts;
+at either boundary it passes. The checker does not derive starts or durations.
+
+```sh
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --globals-dir crates/zincite-check/minizinc --no-output-ozn -D mzn_ignore_symmetry_breaking_constraints=true --output-paths-to-file /tmp/zincite-shared-bench.paths --output-fzn-to-file /tmp/zincite-shared-bench.fzn examples/checker-compilation/shared-bench.mzn
+cargo run -p zincite-check -- /tmp/zincite-shared-bench.fzn examples/checker-compilation/candidates/shared-bench-feasible.dzn
+cargo run -p zincite-check -- --format json /tmp/zincite-shared-bench.fzn examples/checker-compilation/candidates/shared-bench-infeasible.dzn
+```
+
+The saved `shared-bench.fzn` is the inspected compiler output. The feasible edit
+uses starts `[1,4]`, tools `[{1,2},{2,3}]` and lead tool 1. It derives union
+`{1,2,3}`, intersection `{2}` and count 3. The jobs touch at hour 4 and pass.
+The infeasible edit uses starts `[1,2]`, tools `[{1,5},{2,3,4}]` and lead tool 4.
+It derives union `{1,2,3,4,5}`, empty intersection and count 5. It reports five
+findings: the first tool domain, the union domain, the count domain, the bench
+conflict and the missing lead tool. The three definitions pass despite those
+domain failures. Supplying only starts `[1,2]` and lead tool 1 gives an incomplete
+invalid report with the established bench conflict and blocked set checks.
+
+`DisjunctiveStrict` findings carry typed `tasks` with one-based `position`,
+`start` and `duration`, and every conflicting pair as `{first, second}` positions.
+The constraint's `shared_bench/[1,2]` entity payload maps those positions to jobs.
+Keeping the global intact gives the application one resource finding with
+explicit conflicting jobs. No performance improvement is claimed.
+
+This compiler output uses the global and `set_union`, `set_intersect`, `set_card`
+and `set_in`. Explicit primitive calls preserve the three set definition
+annotations. The source restriction `tools[1] subset {1,2,3}` narrows its emitted
+upper domain to `1..3` and loses its constraint ID and label; feedback uses that
+variable's `tools/[1,2]` metadata and alias position. High-level set expressions
+and arbitrary compiler rewrites need their own inspected compilation contract.
+
 ## Library use
 
 ```rust
@@ -160,13 +211,16 @@ or a MiniZinc installation.
 
 ## Accepted model and assignment forms
 
-- Scalar Boolean and signed 64-bit integer parameters and variables. Integer
-  domains can be literal inclusive intervals or literal enumerations. Every
-  variable declaration's domain is checked, including restrictions on aliases.
+- Scalar Boolean, signed 64-bit integer and finite integer set parameters and
+  variables. Integer domains can be literal inclusive intervals or literal
+  enumerations. Every variable declaration's domain is checked, including restrictions on aliases.
+  Set literals are enumerations or inclusive integer intervals. A set domain is
+  an upper bound: `var set of 1..3` allows every subset, including the empty set.
+  `var set of int` admits any finite set of i64 values.
 - Fixed literal initializers, scalar aliases, one-dimensional literal arrays
   indexed by `1..n` (including `1..0`), and same-shape array aliases. Parameters
   must be fixed. Arrays need a literal initializer or array alias.
-- Exactly the three predicates in the coverage table below. Linear coefficients
+- Exactly the predicates in the coverage table below. Linear coefficients
   and bounds are fixed integers; coefficient and operand arrays have equal lengths.
 - One solve item: `satisfy`, or `minimize`/`maximize` of a scalar integer literal
   or reference. An available objective value appears in the report; the checker
@@ -182,8 +236,10 @@ or a MiniZinc installation.
 - Recognized solve search metadata: `int_search`, `bool_search` and nested
   `seq_search`. It does not change candidate checking.
 
-Names are unquoted FlatZinc identifiers. `.dzn` assignments contain only Boolean
-or signed decimal integer literals, or one-dimensional arrays of those literals.
+Names are unquoted FlatZinc identifiers. `.dzn` assignments contain Boolean,
+signed decimal integer or integer set literals, or one-dimensional arrays of
+those literals. Set enumerations can repeat or reorder members; preparation
+normalizes them. A reversed interval denotes the empty set.
 No missing-value placeholders, expressions, indexed assignment targets or solver
 solution streams are accepted. Native CLI assignment input uses `.dzn`; the
 Wasm API accepts typed assignment JSON. A partial candidate names the
@@ -192,27 +248,38 @@ available scalars; an array assignment must supply every element.
 Unknown names, duplicate entries, contradictory explicit assignments through
 aliases, wrong types and wrong array lengths are input errors. Assignments
 cannot change parameters. A correctly typed supplied value outside a domain is
-a violation. Fixed values and singleton domains establish unsupplied values,
-except on a definition's output slot, including its aliases. A definition with
-missing inputs or an unsupported direction does not fall back to a singleton
+a violation. Fixed values and singleton integer domains establish unsupplied
+values. An empty set upper bound establishes the empty set; a singleton set upper
+bound permits both the empty set and its one-member subset, so it supplies no default. Fixed
+set initializers establish their exact set. These defaults apply except on a
+definition's output slot, including its aliases. A definition with missing inputs or an unsupported direction does not fall back to a singleton
 domain. Explicitly supplied values take precedence over defaults and completion.
 
-Float/set values, user predicate declarations, includes, output expressions,
-computed initializers/objectives, additional predicates and unknown annotations
-are rejected explicitly. Syntax acceptance by the shared parser does not imply
-checker support. This is a direct checker for the documented subset, not a
-MiniZinc interpreter or a general FlatZinc solver.
+Floats, other set operations, includes, output expressions, computed
+initializers/objectives, additional predicates and unknown annotations are
+rejected explicitly. The only admitted predicate declaration is the exact
+bodyless two-array `fzn_disjunctive_strict` declaration shown above; bodies,
+duplicates and other signatures are errors. Syntax acceptance by the shared
+parser does not imply checker support. This is a direct checker for the documented
+subset, not a MiniZinc interpreter or a general FlatZinc solver.
 
 ## Functional completion
 
-This is the complete predicate coverage, including the five constraints emitted
-by the application model:
+This is the complete predicate coverage, including the constraints emitted
+by both application models:
 
 | Predicate | Direct check | Completion through matching `defines_var` |
 | --- | --- | --- |
 | `int_lin_eq(a,x,c)` | `sum(a[i]*x[i]) = c` | One integer output occurring once with a nonzero coefficient; all other terms known and exact division |
 | `int_lin_le(a,x,c)` | `sum(a[i]*x[i]) <= c` | None |
 | `int_le_reif(x,y,b)` | `b <-> (x <= y)`, including `b=false` | Boolean result `b` from known integer operands `x` and `y` |
+| `set_in(x,s)` | Integer membership | None |
+| `set_eq(s,t)` | Set equality | Either set output when it occurs once |
+| `set_subset(s,t)` | Subset inclusion | None |
+| `set_card(s,n)` | Set cardinality equals integer `n` | Integer output `n` |
+| `set_union(s,t,r)` | `r = s union t` | Third argument `r`, absent from inputs |
+| `set_intersect(s,t,r)` | `r = s intersect t` | Third argument `r`, absent from inputs |
+| `fzn_disjunctive_strict(start,duration)` | Every pair satisfies `start[i]+duration[i] <= start[j]` or the reverse | None; durations must be fixed nonnegative integers |
 
 Before checking domains and relations, a dependency worklist calculates the
 supported `defines_var` outputs until no new values are available:
@@ -228,7 +295,8 @@ supported `defines_var` outputs until no new values are available:
 The checker does not invert inequalities or reification, combine repeated
 output occurrences, or choose values for unresolved cycles. A cycle with
 enough supplied values can be checked. Each call starts completion afresh,
-including after changing or removing primary assignments.
+including after changing or removing primary assignments. Set definitions use
+the directions in the table; membership and subset checks do not select members.
 
 Every defining relation is also checked. A supplied output is used as written,
 so its defining relation can report a conflict. A derived value outside its
@@ -252,10 +320,13 @@ that a satisfying completion exists.
 
 All mathematical integers use `i64`. Linear products and accumulation use
 checked arithmetic in array order. Completion also checks subtraction and exact
-division. Overflow, including intermediate overflow and `i64::MIN / -1`, is a
+division. Set cardinality and strict disjunctive endpoints also use checked i64
+results. Overflow, including intermediate overflow and `i64::MIN / -1`, is a
 located execution error. A zero output coefficient is an unsupported direction,
 so completion does not divide by zero. This subset has no division or remainder
-predicate. JSON writes values, coefficients, sums, bounds, domain endpoints
+predicate. Integer sets use compact sorted, disjoint, nonadjacent inclusive ranges; large
+intervals are never expanded just to store a value. Cardinality above i64::MAX is
+a located execution error. JSON writes values, coefficients, sums, bounds, domain endpoints
 and application payload integers as decimal strings, so consumers do not round
 integers beyond 2^53. Booleans stay Boolean; source offsets, ordinals and array
 positions are ordinary JSON numbers. Report JSON is an output format, not a

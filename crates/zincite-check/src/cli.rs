@@ -124,7 +124,7 @@ fn fail(message: &str) -> ExitCode {
 
 fn help(invocation: &str) -> String {
     format!(
-        "Usage: {invocation} [--format text|json] MODEL.fzn ASSIGNMENT.dzn\n       {invocation} --export MODEL.json MODEL.fzn\n       {invocation} --load [--format text|json] MODEL.json ASSIGNMENT.dzn\n\nCheck a candidate against the supported Boolean/integer FlatZinc subset.\nDerive supported linear-equality and full-reification outputs from supplied inputs.\nMissing inputs or unsupported directions produce an incomplete report.\nNo compiler or solver runs. JSON mathematical integers are decimal strings.\nExport prepares the model and creates a new JSON file, refusing existing paths.\nLoad validates the executable JSON without parsing FlatZinc source.\n\nExit status: 0 valid or exported, 1 invalid or incomplete, 2 input or execution error.\n"
+        "Usage: {invocation} [--format text|json] MODEL.fzn ASSIGNMENT.dzn\n       {invocation} --export MODEL.json MODEL.fzn\n       {invocation} --load [--format text|json] MODEL.json ASSIGNMENT.dzn\n\nCheck a candidate against the supported Boolean, integer and finite integer set FlatZinc subset.\nDerive supported linear-equality, full-reification and set outputs from supplied inputs.\nStrict disjunctive checks accept fixed nonnegative durations.\nMissing inputs or unsupported directions produce an incomplete report.\nNo compiler or solver runs. JSON mathematical integers are decimal strings.\nExport prepares the model and creates a new JSON file, refusing existing paths.\nLoad validates the executable JSON without parsing FlatZinc source.\n\nExit status: 0 valid or exported, 1 invalid or incomplete, 2 input or execution error.\n"
     )
 }
 
@@ -166,6 +166,76 @@ pub fn render_text(report: &CheckReport) -> String {
             check_text(&violation.check)
         );
         match &violation.details {
+            ViolationKind::SetIn { element, set } => {
+                let _ = writeln!(
+                    text,
+                    "  ({}) in ({})",
+                    argument_text(element),
+                    argument_text(set)
+                );
+            }
+            ViolationKind::SetEqual { left, right } | ViolationKind::SetSubset { left, right } => {
+                let relation = if matches!(violation.details, ViolationKind::SetEqual { .. }) {
+                    "="
+                } else {
+                    "subset"
+                };
+                let _ = writeln!(
+                    text,
+                    "  ({}) {relation} ({})",
+                    argument_text(left),
+                    argument_text(right)
+                );
+            }
+            ViolationKind::SetCardinality { set, cardinality } => {
+                let _ = writeln!(
+                    text,
+                    "  card({}) = ({})",
+                    argument_text(set),
+                    argument_text(cardinality)
+                );
+            }
+            ViolationKind::SetUnion {
+                left,
+                right,
+                result,
+            }
+            | ViolationKind::SetIntersection {
+                left,
+                right,
+                result,
+            } => {
+                let operation = if matches!(violation.details, ViolationKind::SetUnion { .. }) {
+                    "union"
+                } else {
+                    "intersect"
+                };
+                let _ = writeln!(
+                    text,
+                    "  ({}) {operation} ({}) = ({})",
+                    argument_text(left),
+                    argument_text(right),
+                    argument_text(result)
+                );
+            }
+            ViolationKind::DisjunctiveStrict { tasks, conflicts } => {
+                for task in tasks {
+                    let _ = writeln!(
+                        text,
+                        "  task {}: start ({}); duration ({})",
+                        task.position,
+                        argument_text(&task.start),
+                        argument_text(&task.duration)
+                    );
+                }
+                for pair in conflicts {
+                    let _ = writeln!(
+                        text,
+                        "  conflicting positions: {}, {}",
+                        pair.first, pair.second
+                    );
+                }
+            }
             ViolationKind::Domain { value } => {
                 let _ = writeln!(text, "  value = {value}");
             }
@@ -292,6 +362,8 @@ fn check_text(check: &CheckRef) -> String {
 fn domain_text(domain: &Domain) -> String {
     match domain {
         Domain::Boolean => "bool".into(),
+        Domain::IntegerSet { upper: Some(upper) } => format!("set of {upper}"),
+        Domain::IntegerSet { upper: None } => "set of int".into(),
         Domain::Integer => "int".into(),
         Domain::Interval { lower, upper } => format!("{lower}..{upper}"),
         Domain::Enumeration { values } => format!(

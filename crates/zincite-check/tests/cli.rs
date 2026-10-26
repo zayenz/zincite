@@ -88,6 +88,38 @@ fn text_and_json_reports_cover_completeness_statuses_metadata_and_errors() {
             assert!(text.contains("unresolved:") && text.contains("blocked:"));
         }
     }
+    std::fs::write(
+        &model,
+        include_str!("../../../examples/checker-compilation/shared-bench.fzn"),
+    )
+    .unwrap();
+    std::fs::write(
+        &data,
+        include_str!(
+            "../../../examples/checker-compilation/candidates/shared-bench-infeasible.dzn"
+        ),
+    )
+    .unwrap();
+    let output = run("json");
+    assert_eq!(output.status.code(), Some(1));
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["violations"].as_array().unwrap().len(), 5);
+    assert_eq!(
+        report["violations"][0]["details"]["value"]["kind"],
+        "integer_set"
+    );
+    assert_eq!(
+        report["violations"][0]["details"]["value"]["value"]["ranges"][1]["lower"],
+        "5"
+    );
+    assert_eq!(
+        report["violations"][3]["details"]["conflicts"],
+        serde_json::json!([{"first":1,"second":2}])
+    );
+    let output = run("text");
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("conflicting positions: 1, 2") && text.contains("value = {1..5}"));
+    assert!(text.contains("id=\"shared_bench\""));
     std::fs::write(&data, "missing=1;").unwrap();
     let error = run("json");
     assert_eq!(error.status.code(), Some(2));

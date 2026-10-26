@@ -1,10 +1,12 @@
-//! Check repeated candidates against a prepared Boolean/integer FlatZinc model.
+//! Check repeated candidates against a prepared FlatZinc model.
 //! Preparation is optional; checking performs no I/O and starts no external tools.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
 mod serialized;
+mod sets;
+pub use sets::IntegerSet;
 
 #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 mod wasm;
@@ -17,9 +19,10 @@ pub use prepare::{parse_assignment, prepare};
 pub mod cli;
 
 /// Mathematical integers use checked i64 arithmetic. JSON writes decimal strings.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Value {
+    IntegerSet(IntegerSet),
     Boolean(bool),
     Integer(
         #[serde(
@@ -30,11 +33,28 @@ pub enum Value {
     ),
 }
 
+impl Value {
+    fn integer(&self) -> i64 {
+        let Self::Integer(value) = self else {
+            unreachable!("preparation validates integer operands")
+        };
+        *value
+    }
+
+    fn set(&self) -> &IntegerSet {
+        let Self::IntegerSet(value) = self else {
+            unreachable!("preparation validates set operands")
+        };
+        value
+    }
+}
+
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Boolean(value) => value.fmt(f),
             Self::Integer(value) => value.fmt(f),
+            Self::IntegerSet(value) => value.fmt(f),
         }
     }
 }
@@ -42,15 +62,17 @@ impl std::fmt::Display for Value {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum ValueType {
+    IntegerSet,
     Boolean,
     Integer,
 }
 
 impl Value {
-    fn value_type(self) -> ValueType {
+    fn value_type(&self) -> ValueType {
         match self {
             Self::Boolean(_) => ValueType::Boolean,
             Self::Integer(_) => ValueType::Integer,
+            Self::IntegerSet(_) => ValueType::IntegerSet,
         }
     }
 }
@@ -117,6 +139,9 @@ pub struct ConstraintRef {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Domain {
+    IntegerSet {
+        upper: Option<IntegerSet>,
+    },
     Boolean,
     Integer,
     Interval {
@@ -144,14 +169,17 @@ pub enum Domain {
 }
 
 impl Domain {
-    fn contains(&self, value: Value) -> bool {
+    fn contains(&self, value: &Value) -> bool {
         match (self, value) {
             (Self::Boolean, Value::Boolean(_)) | (Self::Integer, Value::Integer(_)) => true,
             (Self::Interval { lower, upper }, Value::Integer(value)) => {
-                (*lower..=*upper).contains(&value)
+                (*lower..=*upper).contains(value)
             }
-            (Self::Enumeration { values }, Value::Integer(value)) => values.contains(&value),
-            (Self::Fixed { value: fixed }, value) => *fixed == value,
+            (Self::Enumeration { values }, Value::Integer(value)) => values.contains(value),
+            (Self::Fixed { value: fixed }, value) => fixed == value,
+            (Self::IntegerSet { upper }, Value::IntegerSet(value)) => {
+                upper.as_ref().is_none_or(|upper| value.is_subset(upper))
+            }
             _ => false,
         }
     }
@@ -217,6 +245,36 @@ pub struct ArgumentValue {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViolationKind {
+    SetIn {
+        element: ArgumentValue,
+        set: ArgumentValue,
+    },
+    SetEqual {
+        left: ArgumentValue,
+        right: ArgumentValue,
+    },
+    SetSubset {
+        left: ArgumentValue,
+        right: ArgumentValue,
+    },
+    SetCardinality {
+        set: ArgumentValue,
+        cardinality: ArgumentValue,
+    },
+    SetUnion {
+        left: ArgumentValue,
+        right: ArgumentValue,
+        result: ArgumentValue,
+    },
+    SetIntersection {
+        left: ArgumentValue,
+        right: ArgumentValue,
+        result: ArgumentValue,
+    },
+    DisjunctiveStrict {
+        tasks: Vec<TaskArguments>,
+        conflicts: Vec<ConflictingPair>,
+    },
     Domain {
         value: Value,
     },
@@ -234,6 +292,20 @@ pub enum ViolationKind {
         right: ArgumentValue,
         result: ArgumentValue,
     },
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub struct TaskArguments {
+    /// One-based position in the global's arrays.
+    pub position: usize,
+    pub start: ArgumentValue,
+    pub duration: ArgumentValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ConflictingPair {
+    pub first: usize,
+    pub second: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -289,17 +361,17 @@ pub struct CheckError {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 enum Operand {
     Literal(Value),
     Variable(usize),
 }
 
 impl Operand {
-    fn value(self, values: &[Option<Value>]) -> Option<Value> {
+    fn value<'a>(&'a self, values: &'a [Option<Value>]) -> Option<&'a Value> {
         match self {
             Self::Literal(value) => Some(value),
-            Self::Variable(slot) => values[slot],
+            Self::Variable(slot) => values[*slot].as_ref(),
         }
     }
 }
@@ -328,6 +400,36 @@ struct Variable {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Predicate {
+    SetIn {
+        element: Operand,
+        set: Operand,
+    },
+    SetEqual {
+        left: Operand,
+        right: Operand,
+    },
+    SetSubset {
+        left: Operand,
+        right: Operand,
+    },
+    SetCardinality {
+        set: Operand,
+        cardinality: Operand,
+    },
+    SetUnion {
+        left: Operand,
+        right: Operand,
+        result: Operand,
+    },
+    SetIntersection {
+        left: Operand,
+        right: Operand,
+        result: Operand,
+    },
+    DisjunctiveStrict {
+        starts: Vec<Operand>,
+        durations: Vec<Operand>,
+    },
     Linear {
         #[serde(
             serialize_with = "serialize_integers",
@@ -349,6 +451,35 @@ enum Predicate {
     },
 }
 
+impl Predicate {
+    fn operands(&self) -> Vec<&Operand> {
+        match self {
+            Self::Linear { terms, .. } => terms.iter().collect(),
+            Self::ReifiedLessEqual {
+                left,
+                right,
+                result,
+            }
+            | Self::SetUnion {
+                left,
+                right,
+                result,
+            }
+            | Self::SetIntersection {
+                left,
+                right,
+                result,
+            } => vec![left, right, result],
+            Self::SetIn { element, set } => vec![element, set],
+            Self::SetEqual { left, right } | Self::SetSubset { left, right } => vec![left, right],
+            Self::SetCardinality { set, cardinality } => vec![set, cardinality],
+            Self::DisjunctiveStrict { starts, durations } => {
+                starts.iter().chain(durations).collect()
+            }
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct Constraint {
     reference: ConstraintRef,
@@ -356,6 +487,15 @@ struct Constraint {
 }
 
 impl Constraint {
+    fn execution_error(&self, message: &str) -> CheckError {
+        CheckError {
+            kind: ErrorKind::Execution,
+            diagnostics: vec![Diagnostic {
+                location: Some(self.reference.location.clone()),
+                message: message.into(),
+            }],
+        }
+    }
     fn linear_overflow(&self) -> CheckError {
         CheckError {
             kind: ErrorKind::Execution,
@@ -371,6 +511,10 @@ impl Constraint {
 enum DefinitionDirection {
     Linear { term: usize },
     ReifiedLessEqual,
+    SetEqual { input: usize },
+    SetCardinality,
+    SetUnion,
+    SetIntersection,
 }
 
 #[derive(Debug)]
@@ -415,10 +559,12 @@ impl PreparedModel {
                     variable: variable.reference.clone(),
                     domain: domain.clone(),
                 };
-                match values[variable.slot] {
+                match &values[variable.slot] {
                     Some(value) if !domain.contains(value) => violations.push(Violation {
                         check,
-                        details: ViolationKind::Domain { value },
+                        details: ViolationKind::Domain {
+                            value: value.clone(),
+                        },
                     }),
                     None => blocked_checks.push(BlockedCheck {
                         check,
@@ -451,10 +597,10 @@ impl PreparedModel {
         } else {
             Status::Valid
         };
-        let objective = self.objective.and_then(|(direction, operand)| {
+        let objective = self.objective.as_ref().and_then(|(direction, operand)| {
             self.argument(operand, &values)
                 .map(|argument| ObjectiveValue {
-                    direction,
+                    direction: *direction,
                     argument,
                 })
         });
@@ -512,7 +658,7 @@ impl PreparedModel {
                     supplied.len()
                 )));
             }
-            for (&operand, &value) in binding.elements.iter().zip(supplied) {
+            for (operand, value) in binding.elements.iter().zip(supplied) {
                 if value.value_type() != binding.kind {
                     return Err(fail(format!(
                         "assignment type does not match '{}'",
@@ -521,13 +667,16 @@ impl PreparedModel {
                 }
                 match operand {
                     Operand::Variable(slot) => {
-                        if values[slot].is_some_and(|previous| previous != value) {
+                        if values[*slot]
+                            .as_ref()
+                            .is_some_and(|previous| previous != value)
+                        {
                             return Err(fail(format!(
                                 "contradictory assignments through alias '{}'",
                                 entry.name
                             )));
                         }
-                        values[slot] = Some(value);
+                        values[*slot] = Some(value.clone());
                     }
                     Operand::Literal(_) => unreachable!("variable bindings contain value slots"),
                 }
@@ -535,7 +684,7 @@ impl PreparedModel {
         }
         for (value, slot) in values.iter_mut().zip(&self.slots) {
             if value.is_none() {
-                *value = slot.default;
+                *value = slot.default.clone();
             }
         }
         Ok(values)
@@ -591,7 +740,7 @@ impl PreparedModel {
                         unreachable!("preparation validates linear operands")
                     };
                     sum = coefficient
-                        .checked_mul(value)
+                        .checked_mul(*value)
                         .and_then(|product| sum.checked_add(product))
                         .ok_or_else(|| constraint.linear_overflow())?;
                 }
@@ -622,30 +771,53 @@ impl PreparedModel {
                 };
                 Ok(Some(Value::Boolean(left <= right)))
             }
+            (Predicate::SetEqual { left, right }, DefinitionDirection::SetEqual { input }) => {
+                Ok([left, right][input].value(values).cloned())
+            }
+            (Predicate::SetCardinality { set, .. }, DefinitionDirection::SetCardinality) => set
+                .value(values)
+                .map(|value| {
+                    value
+                        .set()
+                        .cardinality()
+                        .map(Value::Integer)
+                        .ok_or_else(|| {
+                            constraint.execution_error("checked i64 overflow in set cardinality")
+                        })
+                })
+                .transpose(),
+            (Predicate::SetUnion { left, right, .. }, DefinitionDirection::SetUnion)
+            | (
+                Predicate::SetIntersection { left, right, .. },
+                DefinitionDirection::SetIntersection,
+            ) => {
+                let (Some(left), Some(right)) = (left.value(values), right.value(values)) else {
+                    return Ok(None);
+                };
+                let set = if matches!(definition.direction, DefinitionDirection::SetUnion) {
+                    left.set().union(right.set())
+                } else {
+                    left.set().intersection(right.set())
+                };
+                Ok(Some(Value::IntegerSet(set)))
+            }
             _ => unreachable!("preparation selects supported definition directions"),
         }
     }
 
-    fn argument(&self, operand: Operand, values: &[Option<Value>]) -> Option<ArgumentValue> {
+    fn argument(&self, operand: &Operand, values: &[Option<Value>]) -> Option<ArgumentValue> {
         let value = operand.value(values)?;
         Some(ArgumentValue {
             variable: match operand {
                 Operand::Literal(_) => None,
-                Operand::Variable(slot) => Some(Box::new(self.slots[slot].reference.clone())),
+                Operand::Variable(slot) => Some(Box::new(self.slots[*slot].reference.clone())),
             },
-            value,
+            value: value.clone(),
         })
     }
 
     fn missing(&self, predicate: &Predicate, values: &[Option<Value>]) -> Vec<VariableRef> {
-        let operands: &[Operand] = match predicate {
-            Predicate::Linear { terms, .. } => terms,
-            Predicate::ReifiedLessEqual {
-                left,
-                right,
-                result,
-            } => &[*left, *right, *result],
-        };
+        let operands = predicate.operands();
         let mut slots = HashSet::new();
         operands
             .iter()
@@ -658,6 +830,61 @@ impl PreparedModel {
             .collect()
     }
 
+    fn evaluate_disjunctive(
+        &self,
+        constraint: &Constraint,
+        starts: &[Operand],
+        durations: &[Operand],
+        values: &[Option<Value>],
+    ) -> Result<Option<ViolationKind>, CheckError> {
+        let integer = |operand: &Operand| {
+            operand
+                .value(values)
+                .expect("available global operand")
+                .integer()
+        };
+        let ends: Vec<_> = starts
+            .iter()
+            .zip(durations)
+            .map(|(start, duration)| {
+                integer(start)
+                    .checked_add(integer(duration))
+                    .ok_or_else(|| {
+                        constraint
+                            .execution_error("checked i64 overflow in strict disjunctive endpoint")
+                    })
+            })
+            .collect::<Result<_, _>>()?;
+        let mut conflicts = Vec::new();
+        for (first, a) in starts.iter().enumerate() {
+            for (second, b) in starts.iter().enumerate().skip(first + 1) {
+                if ends[first] > integer(b) && ends[second] > integer(a) {
+                    conflicts.push(ConflictingPair {
+                        first: first + 1,
+                        second: second + 1,
+                    });
+                }
+            }
+        }
+        Ok((!conflicts.is_empty()).then(|| {
+            let tasks = starts
+                .iter()
+                .zip(durations)
+                .enumerate()
+                .map(|(index, (start, duration))| TaskArguments {
+                    position: index + 1,
+                    start: self
+                        .argument(start, values)
+                        .expect("available global start"),
+                    duration: self
+                        .argument(duration, values)
+                        .expect("available global duration"),
+                })
+                .collect();
+            ViolationKind::DisjunctiveStrict { tasks, conflicts }
+        }))
+    }
+
     fn evaluate(
         &self,
         constraint: &Constraint,
@@ -668,20 +895,109 @@ impl PreparedModel {
                 .expect("blocked constraints are excluded before evaluation")
         };
         match &constraint.predicate {
+            Predicate::SetIn { element, set } => {
+                let element_value = element.value(values).expect("available operand").integer();
+                let set_value = set.value(values).expect("available operand").set();
+                Ok(
+                    (!set_value.contains(element_value)).then(|| ViolationKind::SetIn {
+                        element: argument(element),
+                        set: argument(set),
+                    }),
+                )
+            }
+            Predicate::SetEqual { left, right } | Predicate::SetSubset { left, right } => {
+                let left_value = left.value(values).expect("available operand").set();
+                let right_value = right.value(values).expect("available operand").set();
+                let equal = matches!(constraint.predicate, Predicate::SetEqual { .. });
+                let satisfied = if equal {
+                    left_value == right_value
+                } else {
+                    left_value.is_subset(right_value)
+                };
+                Ok((!satisfied).then(|| {
+                    if equal {
+                        ViolationKind::SetEqual {
+                            left: argument(left),
+                            right: argument(right),
+                        }
+                    } else {
+                        ViolationKind::SetSubset {
+                            left: argument(left),
+                            right: argument(right),
+                        }
+                    }
+                }))
+            }
+            Predicate::SetCardinality { set, cardinality } => {
+                let size = set
+                    .value(values)
+                    .expect("available operand")
+                    .set()
+                    .cardinality()
+                    .ok_or_else(|| {
+                        constraint.execution_error("checked i64 overflow in set cardinality")
+                    })?;
+                let expected = cardinality
+                    .value(values)
+                    .expect("available operand")
+                    .integer();
+                Ok((size != expected).then(|| ViolationKind::SetCardinality {
+                    set: argument(set),
+                    cardinality: argument(cardinality),
+                }))
+            }
+            Predicate::SetUnion {
+                left,
+                right,
+                result,
+            }
+            | Predicate::SetIntersection {
+                left,
+                right,
+                result,
+            } => {
+                let left_value = left.value(values).expect("available operand").set();
+                let right_value = right.value(values).expect("available operand").set();
+                let union = matches!(constraint.predicate, Predicate::SetUnion { .. });
+                let expected = if union {
+                    left_value.union(right_value)
+                } else {
+                    left_value.intersection(right_value)
+                };
+                let actual = result.value(values).expect("available operand").set();
+                Ok((expected != *actual).then(|| {
+                    if union {
+                        ViolationKind::SetUnion {
+                            left: argument(left),
+                            right: argument(right),
+                            result: argument(result),
+                        }
+                    } else {
+                        ViolationKind::SetIntersection {
+                            left: argument(left),
+                            right: argument(right),
+                            result: argument(result),
+                        }
+                    }
+                }))
+            }
+            Predicate::DisjunctiveStrict { starts, durations } => {
+                self.evaluate_disjunctive(constraint, starts, durations, values)
+            }
             Predicate::Linear {
                 coefficients,
                 terms,
                 bound,
                 equality,
             } => {
-                let terms: Vec<_> = terms.iter().map(|&operand| argument(operand)).collect();
+                let terms: Vec<_> = terms.iter().map(argument).collect();
                 let mut sum = 0i64;
                 for (&coefficient, term) in coefficients.iter().zip(&terms) {
-                    let Value::Integer(value) = term.value else {
+                    let Value::Integer(value) = &term.value else {
                         unreachable!("preparation validates linear operands")
                     };
                     sum = coefficient
-                        .checked_mul(value)
+                        .checked_mul(*value)
                         .and_then(|product| sum.checked_add(product))
                         .ok_or_else(|| constraint.linear_overflow())?;
                 }
@@ -702,13 +1018,13 @@ impl PreparedModel {
                 right,
                 result,
             } => {
-                let (left, right, result) = (argument(*left), argument(*right), argument(*result));
+                let (left, right, result) = (argument(left), argument(right), argument(result));
                 let (Value::Integer(x), Value::Integer(y), Value::Boolean(b)) =
-                    (left.value, right.value, result.value)
+                    (&left.value, &right.value, &result.value)
                 else {
                     unreachable!("preparation validates reified operands")
                 };
-                Ok(((x <= y) != b).then_some(ViolationKind::ReifiedLessEqual {
+                Ok(((x <= y) != *b).then_some(ViolationKind::ReifiedLessEqual {
                     left,
                     right,
                     result,
@@ -809,10 +1125,7 @@ impl PreparedModel {
             // A definition supplies its output even when an alias has a singleton domain.
             self.slots[*slot].default = None;
             if let Some(direction) = direction {
-                let inputs: &[Operand] = match &constraint.predicate {
-                    Predicate::Linear { terms, .. } => terms,
-                    Predicate::ReifiedLessEqual { left, right, .. } => &[*left, *right],
-                };
+                let inputs = constraint.predicate.operands();
                 let definition_index = self.definitions.len();
                 let mut inputs_seen = HashSet::new();
                 for operand in inputs {
@@ -850,37 +1163,49 @@ fn definition_direction(
         location: Some(constraint.reference.location.clone()),
         message: "defines_var target does not occur in its relation".into(),
     };
+    let operands = constraint.predicate.operands();
+    let occurrences: Vec<_> = operands
+        .iter()
+        .enumerate()
+        .filter_map(|(index, operand)| {
+            matches!(operand, Operand::Variable(slot) if *slot == output).then_some(index)
+        })
+        .collect();
+    if occurrences.is_empty() {
+        return Err(absent());
+    }
     match &constraint.predicate {
+        Predicate::SetEqual { .. } => {
+            Ok(
+                (occurrences.len() == 1).then(|| DefinitionDirection::SetEqual {
+                    input: 1 - occurrences[0],
+                }),
+            )
+        }
+        Predicate::SetCardinality { .. } => {
+            Ok((occurrences.as_slice() == [1]).then_some(DefinitionDirection::SetCardinality))
+        }
+        Predicate::SetUnion { .. } => {
+            Ok((occurrences.as_slice() == [2]).then_some(DefinitionDirection::SetUnion))
+        }
+        Predicate::SetIntersection { .. } => {
+            Ok((occurrences.as_slice() == [2]).then_some(DefinitionDirection::SetIntersection))
+        }
+        Predicate::SetIn { .. }
+        | Predicate::SetSubset { .. }
+        | Predicate::DisjunctiveStrict { .. } => Ok(None),
         Predicate::Linear {
             coefficients,
-            terms,
             equality,
             ..
         } => {
-            let occurrences: Vec<_> = terms
-                .iter()
-                .enumerate()
-                .filter_map(|(index, operand)| {
-                    matches!(operand, Operand::Variable(slot) if *slot == output).then_some(index)
-                })
-                .collect();
-            let &term = occurrences.first().ok_or_else(absent)?;
+            let term = occurrences[0];
             Ok(
                 (*equality && occurrences.len() == 1 && coefficients[term] != 0)
                     .then_some(DefinitionDirection::Linear { term }),
             )
         }
-        Predicate::ReifiedLessEqual {
-            left,
-            right,
-            result,
-        } => {
-            if ![left, right, result]
-                .iter()
-                .any(|operand| matches!(operand, Operand::Variable(slot) if *slot == output))
-            {
-                return Err(absent());
-            }
+        Predicate::ReifiedLessEqual { result, .. } => {
             Ok(matches!(result, Operand::Variable(slot) if *slot == output)
                 .then_some(DefinitionDirection::ReifiedLessEqual))
         }
@@ -892,7 +1217,10 @@ impl Domain {
         match self {
             Self::Interval { lower, upper } if lower == upper => Some(Value::Integer(*lower)),
             Self::Enumeration { values } if values.len() == 1 => Some(Value::Integer(values[0])),
-            Self::Fixed { value } => Some(*value),
+            Self::Fixed { value } => Some(value.clone()),
+            Self::IntegerSet { upper: Some(upper) } if upper.is_empty() => {
+                Some(Value::IntegerSet(IntegerSet::empty()))
+            }
             _ => None,
         }
     }

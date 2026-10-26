@@ -156,7 +156,7 @@ fn feedback_message(violation: &Violation) -> Result<String, &'static str> {
             },
         ) => {
             let (Value::Integer(start), Value::Integer(threshold), Value::Boolean(early)) =
-                (left.value, right.value, result.value)
+                (&left.value, &right.value, &result.value)
             else {
                 return Err("unexpected early-start value types");
             };
