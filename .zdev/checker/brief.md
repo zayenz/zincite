@@ -109,6 +109,13 @@ unsupplied values. A functional result outside its domain is still available
 for downstream checks; report its domain violation without clipping the value
 or abandoning the rest of the candidate.
 
+MiniZinc's `computed_domain` marks a domain computed for solver convenience,
+which does not impose a problem constraint. Handle this known semantic annotation
+explicitly: its marked domain supplies neither a violation nor a singleton
+default. Logical domains on other aliases still apply, and fixed initializers
+keep their existing meaning. Preserve this distinction through preparation and
+validated loading; no general propagation or annotation interpreter is needed.
+
 Derive a value only through a supported deterministic definition, initially
 aliases and verified `defines_var` directions. For example, known `x` and `y`
 can define `z` through `int_plus(x, y, z)`. A definition annotation is not

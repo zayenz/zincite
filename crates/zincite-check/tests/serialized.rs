@@ -149,7 +149,7 @@ fn round_trips_preserve_reports_metadata_and_incomplete_findings() {
     // Seed defaults can conflict with another alias domain and still produce a report.
     for source in [
         "var 0..3:x=5;solve satisfy;",
-        "var 2..2:a=b;var 3..3:b=c;var int:c;solve minimize c;",
+        "var int:c;var 3..3:b=c;var 2..2:a=b;solve minimize c;",
         "var int:x::is_defined_var;var 0..0:narrow=x;constraint int_lin_eq([1],[x],1)::defines_var(x);solve minimize x;",
         "var 0..0:x::is_defined_var;constraint int_lin_le([1],[x],0)::defines_var(x);solve satisfy;",
     ] {

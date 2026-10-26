@@ -108,7 +108,7 @@ integer/set model; it does not run MiniZinc:
 cargo build --locked -p zincite-check --bin zincite-check
 checker_run=$(mktemp -d "$PWD/target/checker-wasm/run.XXXXXX")
 target/debug/zincite-check --export "$checker_run/schedule.json" examples/checker-compilation/model.fzn
-printf '%s\n' 'var int: x;' 'constraint int_lin_eq([1],[x],9007199254740993)::checker_constraint("exact",[9007199254740993]);' 'var set of int: exact_tools;' 'constraint set_eq(exact_tools,{9007199254740993});' 'solve minimize x;' > "$checker_run/exact.fzn"
+printf '%s\n' 'var int: x;' 'var set of int: exact_tools;' 'constraint int_lin_eq([1],[x],9007199254740993)::checker_constraint("exact",[9007199254740993]);' 'constraint set_eq(exact_tools,{9007199254740993});' 'solve minimize x;' > "$checker_run/exact.fzn"
 target/debug/zincite-check --export "$checker_run/exact.json" "$checker_run/exact.fzn"
 target/debug/zincite-check --export "$checker_run/bench.json" examples/checker-compilation/shared-bench.fzn
 node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" examples/checker-wasm/candidates.json target/debug/zincite-check

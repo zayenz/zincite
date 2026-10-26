@@ -70,6 +70,22 @@ pub fn parse_with_mode(source: impl Into<String>, mode: FileMode) -> ParsedFile 
     parse_lexed(lex(source), mode)
 }
 
+/// Parse FlatZinc text with its broader variable names and string escapes.
+/// The shared CST supplies syntax; callers validate the FlatZinc item grammar.
+/// Model parsing continues to treat `_` as an anonymous variable.
+pub fn parse_flatzinc(source: impl Into<String>, mode: FileMode) -> ParsedFile {
+    let source = source.into();
+    let (tokens, diagnostics) = lexer::scan_flatzinc(&source);
+    parse_lexed(
+        LexedSource {
+            source,
+            tokens,
+            diagnostics,
+        },
+        mode,
+    )
+}
+
 fn parse_lexed(mut lexed: LexedSource, mode: FileMode) -> ParsedFile {
     // Finish large token buffers before constructing the CST. Small files keep
     // their existing allocation path; token indices and owned source stay exact.

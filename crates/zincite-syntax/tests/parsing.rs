@@ -1636,3 +1636,40 @@ fn compiler_source_extensions_retain_nodes_tokens_and_reject_nearby_invalid_form
             .is_empty()
     );
 }
+
+#[test]
+fn flatzinc_names_and_escapes_use_the_shared_lossless_tree() {
+    use zincite_syntax::{FileMode, TokenKind, parse_flatzinc};
+    let source = "var int:__x;var int:_1=__x;var int:_; % names\r\nconstraint int_le(_1,1)::name(\"a\\r\\101\\x41\");solve satisfy;";
+    let parsed = parse_flatzinc(source, FileMode::Model);
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:?}",
+        parsed.diagnostics()
+    );
+    assert_eq!(parsed.source(), source);
+    let mut leaves = Vec::new();
+    collect_leaves(parsed.tree(), &parsed, &mut leaves);
+    assert_eq!(leaves, (0..parsed.tokens().len()).collect::<Vec<_>>());
+    for name in ["__x", "_1", "_"] {
+        assert!(parsed.tokens().iter().any(
+            |token| token.kind == TokenKind::Identifier && &source[token.range.clone()] == name
+        ));
+    }
+    let ordinary = parse("var int:x=_;var int:_hidden;");
+    assert!(ordinary.diagnostics().is_empty());
+    assert!(
+        ordinary
+            .tokens()
+            .iter()
+            .any(|token| token.kind == TokenKind::Anonymous)
+    );
+    assert!(
+        ordinary
+            .tokens()
+            .iter()
+            .any(|token| token.kind == TokenKind::Identifier
+                && &ordinary.source()[token.range.clone()] == "_hidden")
+    );
+    assert!(!parse("var int:__x;").diagnostics().is_empty());
+}

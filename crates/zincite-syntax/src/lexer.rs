@@ -3,13 +3,13 @@ use std::ops::Range;
 
 pub(super) fn scan(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
     let mut tokens = Vec::new();
-    let diagnostics = scan_with(source, |token| tokens.push(token));
+    let diagnostics = scan_with(source, false, |token| tokens.push(token));
     (tokens, diagnostics)
 }
 
 pub(super) fn protected_ranges(source: &str) -> Result<Vec<Range<usize>>, Vec<Diagnostic>> {
     let mut ranges = Vec::new();
-    let diagnostics = scan_with(source, |token| {
+    let diagnostics = scan_with(source, false, |token| {
         if matches!(
             token.kind,
             TokenKind::LineComment
@@ -29,13 +29,20 @@ pub(super) fn protected_ranges(source: &str) -> Result<Vec<Range<usize>>, Vec<Di
     }
 }
 
-fn scan_with(source: &str, mut emit: impl FnMut(Token)) -> Vec<Diagnostic> {
+pub(super) fn scan_flatzinc(source: &str) -> (Vec<Token>, Vec<Diagnostic>) {
+    let mut tokens = Vec::new();
+    let diagnostics = scan_with(source, true, |token| tokens.push(token));
+    (tokens, diagnostics)
+}
+
+fn scan_with(source: &str, flatzinc: bool, mut emit: impl FnMut(Token)) -> Vec<Diagnostic> {
     let mut scanner = Scanner {
         source,
         position: 0,
         diagnostics: Vec::new(),
         interpolations: Vec::new(),
         after_field_dot: false,
+        flatzinc,
     };
     while scanner.position < source.len() {
         let start = scanner.position;
@@ -67,6 +74,7 @@ struct Scanner<'a> {
     diagnostics: Vec<Diagnostic>,
     interpolations: Vec<Interpolation>,
     after_field_dot: bool,
+    flatzinc: bool,
 }
 
 impl Scanner<'_> {
@@ -104,7 +112,8 @@ impl Scanner<'_> {
             return self.type_inst_variable();
         }
         if character.is_ascii_alphabetic()
-            || (character == '_' && self.following().is_some_and(|c| c.is_ascii_alphabetic()))
+            || (character == '_'
+                && (self.flatzinc || self.following().is_some_and(|c| c.is_ascii_alphabetic())))
         {
             let start = self.position;
             self.consume_while(is_identifier_continue);
@@ -411,7 +420,7 @@ impl Scanner<'_> {
                     }
                     self.advance();
                 }
-                if digits == self.position {
+                if digits == self.position && !self.flatzinc {
                     self.diagnose(
                         start..self.position,
                         "expected one or two hexadecimal escape digits",
@@ -423,7 +432,9 @@ impl Scanner<'_> {
             }
             Some(_) => {
                 self.advance();
-                self.diagnose(start..self.position, "invalid string escape");
+                if !self.flatzinc {
+                    self.diagnose(start..self.position, "invalid string escape");
+                }
             }
         }
     }

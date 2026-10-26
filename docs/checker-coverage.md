@@ -69,9 +69,10 @@ git -C target/checker-upstream/gecode-main checkout --detach FETCH_HEAD
 
 ## Current support
 
-`C` means the exact call spelling and admitted argument types work at baseline
-`b99987b582afe1a935c49433442a77eae1b3498a`. It does not admit an entire upstream
-source file or its predicate declarations. Fixed arguments can fill variable
+`C` means the exact call spelling and admitted argument types work. Text
+preparation also accepts matching bodyless declarations with arbitrary formal
+names, fixed/open array shapes and literal domain restrictions. It does not
+admit entire upstream source files. Fixed arguments can fill variable
 slots. Arrays use the current one-dimensional `1..n` model representation.
 All unmarked mathematical calls and all generated aliases are planned work.
 
@@ -86,15 +87,15 @@ All unmarked mathematical calls and all generated aliases are planned work.
 | `set_card(s,n)` | Checked i64 cardinality | `n` |
 | `set_union(s,t,r)` | Compact finite integer sets | `r`, absent from the inputs |
 | `set_intersect(s,t,r)` | Compact finite integer sets | `r`, absent from the inputs |
-| `fzn_disjunctive_strict(start,duration)` | Equal array lengths; fixed nonnegative durations; exact bodyless declaration with formal names `start`, `duration` | None |
+| `fzn_disjunctive_strict(start,duration)` | Equal array lengths; fixed nonnegative durations; matching bodyless declaration; formal names can vary | None |
 
-The last declaration is the packaged checker override, not the general upstream
-body. Every other source predicate declaration is rejected today. The nine
-`Predicate` cases cover these ten names. Current evidence is
-[`Lowerer::constraint` and `strict_disjunctive`](../crates/zincite-check/src/prepare.rs#L875),
-[`Source::metadata`](../crates/zincite-check/src/prepare.rs#L414),
-[`Predicate`](../crates/zincite-check/src/lib.rs#L402),
-[`definition_direction`](../crates/zincite-check/src/lib.rs#L1158), and
+The last declaration is required for this external call; the other names are
+builtins. All ten declarations validate signatures, roles and shapes, with call
+checks for declared domains and lengths. The nine `Predicate` cases cover these
+ten names. Current evidence is
+[`Lowerer::constraint` and `strict_disjunctive`](../crates/zincite-check/src/prepare.rs),
+[annotation validation](../crates/zincite-check/src/prepare/annotations.rs),
+[`Predicate` and `definition_direction`](../crates/zincite-check/src/lib.rs), and
 [serialized operand validation](../crates/zincite-check/src/serialized.rs).
 Preparation, execution and loading must all support an operation before its row
 can change to `C`; an enum case alone is insufficient.
@@ -370,18 +371,18 @@ its `_reif`, float and set fallbacks are absent on these legacy paths.
 
 | Boundary | Target and owner | Working subset today |
 | --- | --- | --- |
-| Text items | checker-011: predicate declarations, fixed parameters, scalar/array variables, aliases, literal initializers, constraints and one satisfy/minimize/maximize solve item; validate type, arity, array shape and declaration order | Boolean, i64 and finite integer sets; one exact external declaration; integer objective |
-| Literals and names | checker-011/015: signed decimal, hexadecimal and octal integers; decimal/exponent floats; Boolean and set literals; flat arrays and references. The grammar separates letter-led predicate identifiers from variable/parameter names that can start with `_`; annotation strings support escapes | Unquoted identifiers; signed decimal integers; integer set enumerations/intervals; one-dimensional `1..n` arrays |
-| Annotation expressions | checker-011: nested annotation calls, literals, references and arrays; strings occur in annotations, not mathematical argument slots | Only the guide's context-checked annotations and `int_search`/`bool_search`/`seq_search` |
+| Text items | checker-011: predicate declarations, fixed parameters, scalar/array variables, aliases, literal initializers, constraints and one satisfy/minimize/maximize solve item; validate type, arity, array shape and declaration order | Boolean, i64 and finite integer sets; signature-checked declarations for the ten current names; ordered items and integer objectives |
+| Literals and names | checker-011/015: signed decimal, hexadecimal and octal integers; decimal/exponent floats; Boolean and set literals; flat arrays and references. The grammar separates letter-led predicate identifiers from variable/parameter names that can start with `_`; annotation strings support escapes | Letter/underscore variable names; decimal/hex/octal i64 literals; escaped UTF-8 metadata strings; integer sets; flat `1..n` arrays and earlier references/aliases |
+| Annotation expressions | checker-011: nested annotation calls, literals, references and arrays; strings occur in annotations, not mathematical argument slots | Context/role-checked standard/Gecode metadata, nested searches and warm-start arrays; mathematical floats await checker-015 |
 | Definitions | checker-011 and each family: validate `is_defined_var`/`defines_var`, aliases and unique directions; check supplied results instead of overwriting | Directions in the current table above |
-| Metadata | checker-011: application `checker_value`/`checker_constraint`, `mzn_path`, `mzn_constraint_name`, introduced/defined flags and source fallback; preserve typed IDs/payloads | Application ID, exact integer entity payloads, labels/paths and locations |
-| Search/propagation | checker-011/031: search, restart strategy, variable/value selection, consistency strength and Gecode propagation choices are metadata when they preserve the relation. Unknown semantic annotations diagnose | Narrow current search recognition; other annotations reject |
-| Output selection | checker-011: `output_var`, `output_array`, output sections and introduced flags are metadata; rendering/protocol/search/optimality execution is outside checking | Current scalar/one-dimensional output markers |
+| Metadata | checker-011: application `checker_value`/`checker_constraint`, `mzn_path`, `mzn_constraint_name`, introduced/defined flags and source fallback; preserve typed IDs/payloads | Application ID, exact integer entity payloads, labels/paths and locations; introduced flags; `computed_domain` excludes its convenience domain from violations/defaults |
+| Search/propagation | checker-011/031: search, restart strategy, variable/value selection, consistency strength and Gecode propagation choices are metadata when they preserve the relation. Unknown semantic annotations diagnose | Standard/Gecode variable/value strategies, searches, restarts, warm starts and propagation choices validate without changing feasibility; unknown semantics/hooks diagnose |
+| Output selection | checker-011: `output_var`, `output_array`, output sections and introduced flags are metadata; rendering/protocol/search/optimality execution is outside checking | Scalar markers and integer-set dimensions with matching flat cardinality, including non-1-based/multidimensional/empty descriptions; output sections diagnose outside MiniZinc output items |
 | Official JSON | checker-032: top-level `version`, `variables`, `arrays`, `constraints`, `output`, `solve`; typed variables, interval domains/sets, literal/reference arrays, annotation call objects and `defines`. Read integer tokens exactly rather than through binary64 | Not accepted |
 | Prepared JSON | Existing versioned executable artifact with validated references, shapes, metadata and family operands; values and i64 payloads use exact decimal strings | Accepted through `PreparedModel::from_json`; separate from official FlatZinc-JSON |
 | Integers/sets | Each family: checked i64 for values and intermediate arithmetic; compact sorted disjoint integer ranges; explicit division/modulus/overflow errors and domain findings | Working for current operations; no scalar arithmetic wraparound |
 | Gecode universes | checker-017/027/028/029: respect explicit extension universes and offsets. `Int::Limits::max=INT_MAX-1`, min its negation; `Set::Limits::max=(Int::Limits::max/2)-1`, min its negation, cardinality `max-min+1` | Current generic set operations use finite i64 sets; wider Gecode extension semantics are planned |
-| Floats | checker-015/018: finite binary64 with explicit configurable absolute/relative tolerances and a zero-tolerance strict setting; settle formula/defaults, strict comparisons, domain checks, rounding/conversion and nonfinite/undefined behavior before admission | Floats reject |
+| Floats | checker-015/018: finite binary64 with explicit configurable absolute/relative tolerances and a zero-tolerance strict setting; settle formula/defaults, strict comparisons, domain checks, rounding/conversion and nonfinite/undefined behavior before admission | Mathematical floats reject; finite float literals work only in `restart_geometric` metadata |
 
 On Gecode's 32-bit `int` convention, the explicit integer bounds are
 `-2147483646..2147483646` and the set universe is

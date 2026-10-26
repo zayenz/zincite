@@ -117,7 +117,7 @@ controls show these limits:
 | Source form | Observed MiniZinc output and checking behavior |
 | --- | --- |
 | Explicit finish equations with `defines_var` | Named arrays survive; the runtime derives both finishes and checks every relation |
-| Finish and unused Boolean initializers | Named finish array and Boolean disappear; precedence uses starts directly; generated annotations cause an explicit preparation error |
+| Finish and unused Boolean initializers | Named finish array and Boolean disappear; precedence uses starts directly, so callers cannot edit the removed values |
 | Labelled `start <= 2` for a `var 0..8` scalar | Domain becomes `0..2`; the source constraint ID and label disappear; `start=8` gives a domain finding with variable metadata |
 | The model's `forall` finish equations | Two `int_lin_eq` constraints share a label and carry distinct `[1]` and `[2]` entity payloads |
 | Optional order symmetry breaker | With the recipe's ignore flag, `[8,1]` passes the control; with the flag false, its emitted `int_lin_le` fails with `job_order/[1,2]` |
@@ -139,8 +139,9 @@ compiles to one resource check with the packaged declaration:
 predicate fzn_disjunctive_strict(array[int] of var int: start, array[int] of var int: duration);
 ```
 
-The checker validates that declaration's name, parameter names/types and absence
-of a body before accepting calls. Both arrays must have equal lengths, including
+The checker validates that declaration's name, argument types, variable roles
+and array shapes before accepting calls. Formal parameter names can vary;
+bodies, annotations and duplicate declarations diagnose. Both arrays must have equal lengths, including
 zero. Durations are fixed nonnegative integer parameters. For every `i < j`, the
 check evaluates the pairwise relation in the coverage table with checked endpoint
 additions. A zero-duration job inside another job's occupied interval conflicts;
@@ -224,56 +225,84 @@ or a MiniZinc installation.
 ## Accepted model and assignment forms
 
 - Scalar Boolean, signed 64-bit integer and finite integer set parameters and
-  variables. Integer domains can be literal inclusive intervals or literal
-  enumerations. Every variable declaration's domain is checked, including restrictions on aliases.
-  Set literals are enumerations or inclusive integer intervals. A set domain is
-  an upper bound: `var set of 1..3` allows every subset, including the empty set.
-  `var set of int` admits any finite set of i64 values.
-- Fixed literal initializers, scalar aliases, one-dimensional literal arrays
-  indexed by `1..n` (including `1..0`), and same-shape array aliases. Parameters
-  must be fixed. Arrays need a literal initializer or array alias.
-- Exactly the predicates in the coverage table below. Linear coefficients
+  variables. Integers use decimal, `0x` hexadecimal or `0o` octal spelling, with
+  an optional minus sign. Integer domains use literal inclusive intervals or
+  enumerations. A set domain is an upper bound: `var set of 1..3` allows every
+  subset, including the empty set. `var set of int` admits finite i64 sets.
+- Parameters require literal initialization and have no annotations. Variables
+  accept fixed literals, earlier scalar references, literal arrays indexed by
+  `1..n` (including `1..0`), and earlier same-shape array aliases. Literal array
+  access such as `values[2]` selects a scalar; bounds and types are checked.
+- Items follow predicate, parameter, variable, constraint, solve order. There
+  is exactly one final solve item: `satisfy`, or `minimize`/`maximize` of a scalar
+  integer literal or reference. An available objective value appears in reports;
+  the checker makes no optimality claim.
+- Exactly the ten predicates in the coverage table below. Linear coefficients
   and bounds are fixed integers; coefficient and operand arrays have equal lengths.
-- One solve item: `satisfy`, or `minimize`/`maximize` of a scalar integer literal
-  or reference. An available objective value appears in the report; the checker
-  makes no optimality claim.
-- `checker_value(string, literal_integer_array)` on declarations and
-  `checker_constraint(string, literal_integer_array)` on constraints;
-  `mzn_path(string)`, `mzn_constraint_name(string)`, `output_var`, and
-  `output_array([1..n])` in their documented contexts. Definition annotations
-  require matching `is_defined_var` and a unique `defines_var` relation whose
-  target is a scalar variable in that relation. Supported completion directions
-  are described below. Other well-formed directions can be checked when their
-  values are supplied, but do not derive values.
-- Recognized solve search metadata: `int_search`, `bool_search` and nested
-  `seq_search`. It does not change candidate checking.
+  Bodyless declarations for these names validate types, fixed/variable roles and
+  scalar/array shapes independently of formal spelling. A declared fixed length
+  or restricted domain also constrains calls. `fzn_disjunctive_strict` requires
+  its declaration; the other nine names are builtins. Unknown, duplicate,
+  mismatched, annotated and body-bearing declarations diagnose.
+- Application annotations `checker_value(string, literal_integer_array)` on
+  variables and `checker_constraint(string, literal_integer_array)` on constraints
+  preserve IDs and exact integer entity payloads. Equal repeated annotations are
+  accepted; conflicting application metadata diagnoses. Strings support C escapes,
+  including octal and hexadecimal bytes, and decode to UTF-8. `mzn_path(string)`
+  and `mzn_path(int)` supply paths; `mzn_constraint_name(string)`,
+  `constraint_name(string)` and direct string annotations supply constraint labels.
+  Expression names and documentation strings are accepted as metadata.
+- `is_defined_var` and `defines_var` must match a scalar variable in a unique
+  defining relation. Supported completion directions appear below; other
+  well-formed directions can be checked with supplied values.
+- Variable output markers `output_var` and `output_array` are metadata.
+  `output_array` accepts integer-set dimensions, including enumerations,
+  non-1-based dimensions, multiple dimensions and empty dimensions. Their
+  cardinality product must equal the flat array length. Assignment positions
+  still use `1..n`; no output renderer is provided. MiniZinc output-section
+  annotations belong to output items, which are outside FlatZinc preparation.
+- Standard/Gecode search metadata includes `int_search`, `bool_search`,
+  `set_search`, nested `seq_search`, `warm_start`/`warm_start_array`, `int_assign`,
+  integer/Boolean/set/float default searches, restart strategies and
+  `relax_and_reconstruct`. Referenced arrays, fixed values, lengths and strategy
+  roles are validated recursively. `restart_geometric` accepts a finite float
+  literal base greater than one and a positive integer scale; this annotation
+  constant does not introduce mathematical float values.
+- Propagation metadata on constraints includes `domain`, `bounds`,
+  `domain_propagation`, `bounds_propagation`, `value_propagation`, and Gecode's
+  basic, advanced, full and decomposed propagation choices. Introduced-variable,
+  checking and compiler context flags are recognized in their contexts. Search,
+  propagation and output selection do not change candidate feasibility.
 
-Names are unquoted FlatZinc identifiers. `.dzn` assignments contain Boolean,
-signed decimal integer or integer set literals, or one-dimensional arrays of
-those literals. Set enumerations can repeat or reorder members; preparation
-normalizes them. A reversed interval denotes the empty set.
+Unquoted variable and parameter names may start with a letter or underscore;
+predicate and annotation names start with a letter. `.dzn` assignments accept
+the literal values above and flat arrays of them. Set enumerations may repeat
+or reorder members; preparation normalizes them. A reversed interval is empty.
 No missing-value placeholders, expressions, indexed assignment targets or solver
-solution streams are accepted. Native CLI assignment input uses `.dzn`; the
-Wasm API accepts typed assignment JSON. A partial candidate names the
-available scalars; an array assignment must supply every element.
+solution streams are accepted. Native CLI input uses `.dzn`; the Wasm API uses
+typed assignment JSON. A partial candidate may name available scalars; an array
+assignment must supply every element.
 
 Unknown names, duplicate entries, contradictory explicit assignments through
 aliases, wrong types and wrong array lengths are input errors. Assignments
-cannot change parameters. A correctly typed supplied value outside a domain is
-a violation. Fixed values and singleton integer domains establish unsupplied
-values. An empty set upper bound establishes the empty set; a singleton set upper
-bound permits both the empty set and its one-member subset, so it supplies no default. Fixed
-set initializers establish their exact set. These defaults apply except on a
-definition's output slot, including its aliases. A definition with missing inputs or an unsupported direction does not fall back to a singleton
-domain. Explicitly supplied values take precedence over defaults and completion.
+cannot change parameters. A correctly typed value outside a logical domain is a
+violation. Fixed values, singleton integer domains and empty set upper bounds
+establish defaults. A singleton set upper bound allows two subsets and supplies
+no default. A definition's output slot, including aliases, does not fall back
+to a domain default when inputs are missing. Supplied values take precedence.
 
-Floats, other set operations, includes, output expressions, computed
-initializers/objectives, additional predicates and unknown annotations are
-rejected explicitly. The only admitted predicate declaration is the exact
-bodyless two-array `fzn_disjunctive_strict` declaration shown above; bodies,
-duplicates and other signatures are errors. Syntax acceptance by the shared
-parser does not imply checker support. This is a direct checker for the documented
-subset, not a MiniZinc interpreter or a general FlatZinc solver.
+`computed_domain` explicitly marks a convenience domain rather than a problem
+restriction. Preparation converts it to an unbounded domain of the same type:
+it supplies neither a domain violation nor a singleton default. Logical domains
+on other aliases still apply; fixed initializers still supply their exact value.
+The existing executable format expresses this distinction without extra fields,
+so validated loading and parser-free Wasm checking use the same rules.
+
+Mathematical floats, other set operations, includes, output expressions, computed
+initializers/objectives, additional predicates and unknown semantic annotations
+are rejected explicitly. External executable/DLL callbacks and restart-history
+hooks also diagnose; the checker does not execute search or external code.
+Syntax acceptance by the shared parser does not imply checker support.
 
 ## Functional completion
 

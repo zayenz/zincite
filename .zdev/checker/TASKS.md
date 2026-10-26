@@ -3,9 +3,9 @@
 # Tasks: checker
 
 - Total: 33
-- Ready: 1
-- Blocked: 22
-- Done: 10
+- Ready: 2
+- Blocked: 20
+- Done: 11
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -19,9 +19,9 @@
 | [checker-008](tasks/008-support-finite-integer-sets-and-one-useful-global-predicate.md) | Support finite integer sets and one useful global predicate | done | checker-004, checker-005, checker-006 |
 | [checker-009](tasks/009-measure-interactive-checking-and-document-the-supported-work.md) | Measure interactive checking and document the supported workflow | done | checker-007, checker-008 |
 | [checker-010](tasks/010-inventory-complete-standard-and-gecode-flatzinc-coverage.md) | Inventory complete standard and Gecode FlatZinc coverage | done | checker-009 |
-| [checker-011](tasks/011-accept-the-full-flatzinc-text-structure-and-annotations.md) | Accept the full FlatZinc text structure and annotations | ready | checker-010 |
-| [checker-012](tasks/012-check-standard-integer-arithmetic-and-derive-its-outputs.md) | Check standard integer arithmetic and derive its outputs | blocked | checker-011 |
-| [checker-013](tasks/013-complete-integer-comparisons-and-linear-reification.md) | Complete integer comparisons and linear reification | blocked | checker-011 |
+| [checker-011](tasks/011-accept-the-full-flatzinc-text-structure-and-annotations.md) | Accept the full FlatZinc text structure and annotations | done | checker-010 |
+| [checker-012](tasks/012-check-standard-integer-arithmetic-and-derive-its-outputs.md) | Check standard integer arithmetic and derive its outputs | ready | checker-011 |
+| [checker-013](tasks/013-complete-integer-comparisons-and-linear-reification.md) | Complete integer comparisons and linear reification | ready | checker-011 |
 | [checker-014](tasks/014-complete-boolean-logic-clauses-and-boolean-linear-constraint.md) | Complete Boolean logic, clauses and Boolean linear constraints | blocked | checker-011, checker-013 |
 | [checker-015](tasks/015-add-finite-floats-configurable-tolerance-and-core-float-pred.md) | Add finite floats, configurable tolerance and core float predicates | blocked | checker-011, checker-013, checker-014 |
 | [checker-016](tasks/016-support-elements-offsets-and-conditionals-for-every-value-ty.md) | Support elements, offsets and conditionals for every value type | blocked | checker-014, checker-015 |
