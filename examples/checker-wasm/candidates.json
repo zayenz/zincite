@@ -974,5 +974,125 @@
         },
         "status": "invalid",
         "complete": false
+    },
+    {
+        "name": "automata-valid",
+        "model": "automata",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                },
+                {
+                    "name": "y",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "1"
+                        }
+                    }
+                },
+                {
+                    "name": "a",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "-1"
+                        }
+                    }
+                },
+                {
+                    "name": "b",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "valid",
+        "complete": true
+    },
+    {
+        "name": "automata-invalid",
+        "model": "automata",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740992"
+                        }
+                    }
+                },
+                {
+                    "name": "y",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "2"
+                        }
+                    }
+                },
+                {
+                    "name": "a",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "-1"
+                        }
+                    }
+                },
+                {
+                    "name": "b",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "-1"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "automata-incomplete-invalid",
+        "model": "automata",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "y",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "2"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": false
     }
 ]

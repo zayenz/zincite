@@ -4072,3 +4072,252 @@ fn table_reports_round_trip_with_metadata_and_fresh_assignments() {
         }
     }
 }
+
+#[test]
+fn automaton_names_signatures_and_fixed_validation() {
+    let forms = [
+        (
+            "gecode_regular",
+            "array[int] of var int: a,int: b,int: c,array[int] of int: d,int: e,set of int: f",
+            "[],1,1,[1],1,{1}",
+        ),
+        (
+            "gecode_regular_set",
+            "array[int] of var int: a,int: b,int: c,int: d,array[int] of int: e,int: f,set of int: g",
+            "[],1,-1,0,[1,1],1,{1}",
+        ),
+        (
+            "gecode_regular_nfa_int_fzn",
+            "array[int] of var int: a,int: b,int: c,int: d,array[int] of set of int: e,int: f,set of int: g",
+            "[],1,-1,2,[{1},{1}],1,{1}",
+        ),
+    ];
+    for (base, signature, args) in forms {
+        for prefix in ["", "gecode_", "fzn_"] {
+            let name = format!("{prefix}{base}");
+            let source =
+                format!("predicate {name}({signature}); constraint {name}({args}); solve satisfy;");
+            assert_eq!(
+                prepare(&name, &source)
+                    .unwrap()
+                    .check(&Assignment::default())
+                    .unwrap()
+                    .status,
+                Status::Valid
+            );
+            let wrong = source.replace("array[int] of var int: a", "array[int] of var bool: a");
+            assert!(prepare("wrong-signature", &wrong).is_err(), "{wrong}");
+        }
+    }
+    for call in [
+        "regular([],1,1,[1],1,{1})",
+        "regular_set([],1,1,1,[1],1,{1})",
+        "regular_nfa([],1,1,1,[{1}],1,{1})",
+        "fzn_regular([],1,1,[1],1,{1})",
+        "gecode_regular_reif([],1,1,[1],1,{1},true)",
+        "fzn_fzn_gecode_regular([],1,1,[1],1,{1})",
+        "gecode_regular([],1,1,[1],1)",
+        "gecode_regular([true],1,1,[1],1,{1})",
+        "gecode_regular([],q,1,[1],1,{1})",
+        "gecode_regular([],1,q,[1],1,{1})",
+        "gecode_regular([],1,1,[q],1,{1})",
+        "gecode_regular([],1,1,[1],q,{1})",
+        "gecode_regular([],1,1,[1],1,finals)",
+        "gecode_regular([],0,1,[],1,{})",
+        "gecode_regular([],1,0,[],1,{})",
+        "gecode_regular([],1,1,[],1,{})",
+        "gecode_regular([],1,1,[1,1],1,{})",
+        "gecode_regular([],1,1,[-1],1,{})",
+        "gecode_regular([],1,1,[2],1,{})",
+        "gecode_regular([],1,1,[0],0,{})",
+        "gecode_regular([],1,1,[0],1,{0})",
+        "gecode_regular([],1,1,[0],1,{2})",
+        "gecode_regular([],9223372036854775807,9223372036854775807,[],1,{})",
+        "gecode_regular_set([],1,1,0,[],1,{})",
+        "gecode_regular_set([],1,-9223372036854775808,9223372036854775807,[],1,{})",
+        "gecode_regular_nfa_int_fzn([],1,1,0,[],1,{})",
+        "gecode_regular_nfa_int_fzn([],1,1,1,[{0}],1,{})",
+        "gecode_regular_nfa_int_fzn([],1,1,1,[{2}],1,{})",
+        "gecode_regular_nfa_int_fzn([],1,1,1,[targets],1,{})",
+        "gecode_regular_nfa_int_fzn([],1,-2147483647,1,[{}],1,{})",
+        "gecode_regular_nfa_int_fzn([],1,2147483646,2,[{},{}],1,{})",
+        "gecode_regular_nfa_int_fzn([],1,9223372036854775807,2,[],1,{})",
+    ] {
+        let source = format!(
+            "var int: q;var set of int: finals;var set of int: targets;constraint {call};solve satisfy;"
+        );
+        let errors = prepare("bad-automaton", &source).unwrap_err();
+        assert!(
+            errors.iter().all(|error| error.location.is_some()),
+            "{call}"
+        );
+    }
+}
+
+#[test]
+fn concrete_automata_distinguish_layout_alphabets_and_empty_words() {
+    for (call, status, rejection) in [
+        (
+            "gecode_regular([1,2],2,2,[2,0,2,1],1,{1})",
+            Status::Valid,
+            "",
+        ),
+        (
+            "gecode_regular([1,1],2,2,[2,0,2,1],1,{1})",
+            Status::Invalid,
+            "nonaccepting_end",
+        ),
+        (
+            "gecode_regular([2],2,2,[2,0,2,1],1,{1})",
+            Status::Invalid,
+            "dead_path",
+        ),
+        (
+            "gecode_regular([0],1,1,[1],1,{1})",
+            Status::Invalid,
+            "out_of_alphabet",
+        ),
+        (
+            "gecode_regular_set([-2,-1],2,-2,-1,[2,0,0,1],1,{1})",
+            Status::Valid,
+            "",
+        ),
+        ("gecode_regular_set([5],1,5,5,[1],1,{1})", Status::Valid, ""),
+        (
+            "gecode_regular_set([6],1,5,5,[1],1,{1})",
+            Status::Invalid,
+            "out_of_alphabet",
+        ),
+        (
+            "gecode_regular_nfa_int_fzn([-1,0],3,-1,2,[{1,2},{},{},{3},{},{3}],1,{3})",
+            Status::Valid,
+            "",
+        ),
+        (
+            "gecode_regular_nfa_int_fzn([-1,-1],3,-1,2,[{1,2},{},{},{3},{},{3}],1,{3})",
+            Status::Invalid,
+            "nonaccepting_end",
+        ),
+        (
+            "gecode_regular_nfa_int_fzn([0],1,0,1,[{}],1,{1})",
+            Status::Invalid,
+            "dead_path",
+        ),
+        (
+            "gecode_regular_nfa_int_fzn([-2147483646],1,-2147483646,1,[{1}],1,{1})",
+            Status::Valid,
+            "",
+        ),
+        (
+            "gecode_regular_nfa_int_fzn([2147483646],1,2147483646,1,[{1}],1,{1})",
+            Status::Valid,
+            "",
+        ),
+        ("gecode_regular([],1,1,[0],1,{1})", Status::Valid, ""),
+        (
+            "gecode_regular([],1,1,[0],1,{})",
+            Status::Invalid,
+            "nonaccepting_end",
+        ),
+        (
+            "gecode_regular_nfa_int_fzn([],1,0,1,[{}],1,{1})",
+            Status::Valid,
+            "",
+        ),
+        (
+            "gecode_regular_nfa_int_fzn([],1,0,1,[{}],1,{})",
+            Status::Invalid,
+            "nonaccepting_end",
+        ),
+    ] {
+        let model = prepare("word", &format!("constraint {call};solve satisfy;")).unwrap();
+        let report = model.check(&Assignment::default()).unwrap();
+        assert_eq!(report.status, status, "{call}");
+        if status == Status::Invalid {
+            assert_eq!(
+                serde_json::to_value(report).unwrap()["violations"][0]["details"]["finding"]["rejection"]
+                    ["kind"],
+                rejection,
+                "{call}"
+            );
+        }
+    }
+    let alias = prepare("alias", "var int: x;var int: alias=x;constraint gecode_regular([x,alias],1,1,[1],1,{1});solve satisfy;").unwrap();
+    assert_eq!(
+        alias.check(&assignment("x=1;")).unwrap().status,
+        Status::Valid
+    );
+    for call in [
+        "gecode_regular([x],1,1,[0],1,{})",
+        "gecode_regular_nfa_int_fzn([x],1,1,1,[{}],1,{})",
+    ] {
+        let model = prepare(
+            "missing",
+            &format!("var int:x::is_defined_var;constraint {call}::defines_var(x);solve satisfy;"),
+        )
+        .unwrap();
+        let report = model.check(&Assignment::default()).unwrap();
+        assert_eq!(report.status, Status::Incomplete);
+        assert!(report.violations.is_empty());
+        assert!(
+            report
+                .completeness
+                .blocked_checks
+                .iter()
+                .any(|blocked| matches!(blocked.check, CheckRef::Constraint { .. }))
+        );
+    }
+}
+
+#[test]
+fn automaton_reports_round_trip_and_start_fresh() {
+    let model = prepare(
+        "automata.fzn",
+        include_str!("../../../examples/checker-compilation/automata.fzn"),
+    )
+    .unwrap();
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for (candidate, status, complete) in [
+        ("x=9007199254740993;y=1;a=-1;b=0;", Status::Valid, true),
+        ("x=9007199254740992;y=2;a=-1;b=-1;", Status::Invalid, true),
+        ("", Status::Incomplete, false),
+        ("x=9007199254740993;y=1;a=0;b=0;", Status::Invalid, true),
+        ("y=2;", Status::Invalid, false),
+        ("x=9007199254740993;y=1;a=-1;b=0;", Status::Valid, true),
+    ] {
+        let input = assignment(candidate);
+        let report = model.check(&input).unwrap();
+        assert_eq!(report.status, status);
+        assert_eq!(report.completeness.complete, complete);
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(
+            json,
+            serde_json::to_value(loaded.check(&input).unwrap()).unwrap()
+        );
+        if candidate.contains("9007199254740992") {
+            assert_eq!(report.violations.len(), 3);
+            let finding = &json["violations"][0];
+            assert_eq!(
+                finding["details"]["finding"]["minimum_symbol"],
+                "9007199254740993"
+            );
+            assert_eq!(
+                finding["details"]["finding"]["word"][0]["variable"]["name"],
+                "x"
+            );
+            assert_eq!(finding["details"]["finding"]["rejection"]["position"], 1);
+            assert_eq!(
+                finding["check"]["constraint"]["metadata"]["application"]["id"],
+                "exact_word"
+            );
+            assert_eq!(
+                finding["check"]["constraint"]["metadata"]["application"]["entities"][0],
+                "9007199254740993"
+            );
+            assert_eq!(
+                finding["check"]["constraint"]["metadata"]["label"],
+                "Exact symbol"
+            );
+        }
+    }
+}

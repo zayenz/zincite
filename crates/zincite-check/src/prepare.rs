@@ -281,7 +281,9 @@ impl Source<'_> {
             ));
         }
         let parameters: Vec<_> = children[0].child_nodes().collect();
-        let expected = if let Some(table) = TableName::from_name(name) {
+        let expected = if let Some(automaton) = AutomatonName::from_name(name) {
+            automaton.signature()
+        } else if let Some(table) = TableName::from_name(name) {
             table.signature()
         } else if let Some(ordering) = OrderingName::from_name(name) {
             ordering.signature()
@@ -1165,11 +1167,14 @@ impl<'a> Lowerer<'a> {
         let boolean = BooleanName::from_name(&name);
         let counting = CountingName::from_name(&name);
         let table = TableName::from_name(&name);
+        let automaton = AutomatonName::from_name(&name);
         let ordering = OrderingName::from_name(&name);
         let float = FloatName::from_name(&name);
         let selection = SelectionName::from_name(&name);
         let set = SetName::from_name(&name);
-        let arity = if let Some(table) = table {
+        let arity = if let Some(automaton) = automaton {
+            automaton.signature().len()
+        } else if let Some(table) = table {
             table.signature().len()
         } else if let Some(ordering) = ordering {
             ordering.signature().len()
@@ -1205,7 +1210,9 @@ impl<'a> Lowerer<'a> {
                 .source
                 .error(call, format!("'{name}' expects {arity} arguments")));
         }
-        let predicate = if let Some(table) = table {
+        let predicate = if let Some(automaton) = automaton {
+            self.automaton_predicate(call, automaton, &args)?
+        } else if let Some(table) = table {
             self.table_predicate(call, table, &args)?
         } else if let Some(ordering) = ordering {
             self.ordering_predicate(call, ordering, &args)?
@@ -1246,6 +1253,53 @@ impl<'a> Lowerer<'a> {
             predicate,
         });
         Ok(())
+    }
+
+    fn automaton_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: AutomatonName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        let transitions_index = if name == AutomatonName::Regular { 3 } else { 4 };
+        let integer_transitions =
+            |values: Vec<Value>| values.into_iter().map(|value| value.integer()).collect();
+        let first = self.constant_integer(args[2])?;
+        let encoding = match name {
+            AutomatonName::Regular => AutomatonEncoding::Regular {
+                symbols: first,
+                transitions: integer_transitions(self.fixed_array(args[3], ValueType::Integer)?),
+            },
+            AutomatonName::RegularSet => AutomatonEncoding::RegularSet {
+                minimum: first,
+                maximum: self.constant_integer(args[3])?,
+                transitions: integer_transitions(self.fixed_array(args[4], ValueType::Integer)?),
+            },
+            AutomatonName::Nfa => AutomatonEncoding::Nfa {
+                first,
+                symbols: self.constant_integer(args[3])?,
+                transitions: self
+                    .fixed_array(args[4], ValueType::IntegerSet)?
+                    .into_iter()
+                    .map(|value| value.set().clone())
+                    .collect(),
+            },
+        };
+        let accepting = match self.scalar(args[transitions_index + 2], ValueType::IntegerSet)? {
+            Operand::Literal(Value::IntegerSet(set)) => set,
+            _ => return Err(self.source.error(call, "expected fixed accepting states")),
+        };
+        let automaton = Automaton {
+            word: self.array(args[0], ValueType::Integer)?,
+            states: self.constant_integer(args[1])?,
+            initial: self.constant_integer(args[transitions_index + 1])?,
+            accepting,
+            encoding,
+        };
+        automaton
+            .validate()
+            .map_err(|message| self.source.error(call, message))?;
+        Ok(Predicate::Automaton(automaton))
     }
 
     fn table_predicate(

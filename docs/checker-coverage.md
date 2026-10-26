@@ -131,11 +131,12 @@ All other mathematical calls and aliases are planned work.
 | `inverse_offsets`, `gecode_bool_int_channel` | Equal inverse lengths and nonnegative offsets; exactly one true channel position with signed offset | Either side when unique |
 | `member_int/bool`, registered member reifiers, `gecode_precede` | Existential equality or earlier fixed value; empty member is false | Member reifier only |
 | `gecode_table_int/bool` and their `_reif`/`_imp` forms | Fixed typed row-major data; complete rows of candidate width; empty table is false | Full reifier only after every tuple entry is known |
+| `gecode_regular`, `gecode_regular_set`, `gecode_regular_nfa_int_fzn` | Concrete DFA/NFA acceptance; fixed row-major transitions; validated alphabets, states and target sets | None |
 
-The checker admits 761 exact names, including 165 Boolean-family names,
+The checker admits 770 exact names, including 165 Boolean-family names,
 108 integer scalar/linear relation spellings, 80 float-core names, 57 selection
 names, 84 set-family names, 54 float-function names, 54 counting-family names,
-108 ordering/channel names and 18 table names.
+108 ordering/channel names, 18 table names and nine automaton names.
 The `fzn_disjunctive_strict` declaration is required for that external call.
 The other listed names accept calls without declarations. All matching declarations
 validate signatures, roles and shapes, with call checks for declared domains and
@@ -447,12 +448,31 @@ width, membership and condition with the existing constraint metadata. Integer
 values are decimal strings; width is a JSON number.
 
 <a id="family-022"></a>
-**checker-022 — automata.** Check DFA and NFA acceptance of the supplied concrete
-word. The legacy `gecode_regular` starts symbols at 1;
-`gecode_regular_set` explicitly passes the first symbol and symbol count.
-NFA tables contain target-state sets for each row-major state/symbol entry.
-Validate states, alphabet/offsets, transitions and final sets. Reachable-state
-calculation handles nondeterminism; it supplies no missing word symbol.
+**checker-022 — automata.** The three registry literals `gecode_regular`,
+`gecode_regular_set` and `gecode_regular_nfa_int_fzn` each accept the literal
+empty, `gecode_` and `fzn_` prefixes: nine exact names. The legacy DFA alphabet is
+1..S; regular-set arguments 3/4 are inclusive `symbols_min`/`symbols_max`
+endpoints. NFA arguments 3/4 are first symbol/count, within the explicit pinned
+alphabet limits -2147483646..2147483646. Each row-major NFA cell contains target
+states. The set-alphabet NFA wrapper uses the same primitive with min(S),card(S).
+
+Preparation and loading reject invalid dimensions, checked alphabet/index
+arithmetic, initial/final states and targets. DFA zero is a dead transition;
+negative targets are malformed. NFA successor and final sets may be empty.
+Concrete words consume one symbol per edge, without epsilon transitions, and
+accept if any final reachable state is accepting. Empty words accept exactly
+when the initial state is final. Missing symbols block evaluation even for an
+empty language. Automata provide no definitions or witnesses. Typed findings
+carry concrete word references, exact alphabet/state/symbol fields, rejection
+kind and one-based positions with constraint metadata. Each call starts fresh.
+
+The [checker guide](../crates/zincite-check/README.md#compile-only-automaton-controls)
+records compile-only checks under both pinned profiles. Native declarations emit
+all three operations with named words, domains, labels and application IDs.
+Standard wrappers under Gecode emit native DFA/NFA plus shifted-DFA element
+relations. The standard profile's decomposition needs auxiliary witnesses that
+lack definition markers, so primary words alone give incomplete reports.
+checker-030/031 own profile closure and auxiliary-definition limits.
 
 <a id="family-023"></a>
 **checker-023 — circuits and costs.** Check successor range, permutation and the
@@ -844,8 +864,8 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r125"></a>[R125](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2244) | ` gecode_minimum_arg_bool_offset `, ` gecode_gecode_minimum_arg_bool_offset `, ` fzn_gecode_minimum_arg_bool_offset ` | ` p_minimum_arg_bool ` / ` always ` | [D2807](#d2807) | ` gecode_minimum_arg_bool_offset `, ` gecode_gecode_minimum_arg_bool_offset `, ` fzn_gecode_minimum_arg_bool_offset ` | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
 | <a id="r126"></a>[R126](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2245) | ` gecode_maximum_arg_bool_offset `, ` gecode_gecode_maximum_arg_bool_offset `, ` fzn_gecode_maximum_arg_bool_offset ` | ` p_maximum_arg_bool ` / ` always ` | [D2803](#d2803) | ` gecode_maximum_arg_bool_offset `, ` gecode_gecode_maximum_arg_bool_offset `, ` fzn_gecode_maximum_arg_bool_offset ` | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
 | <a id="r127"></a>[R127](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2246) | ` array_int_maximum `, ` gecode_array_int_maximum `, ` fzn_array_int_maximum ` | ` p_maximum ` / ` always ` | [D0569](#d0569), [D3073](#d3073) | ` array_int_maximum `, ` gecode_array_int_maximum `, ` fzn_array_int_maximum ` | [checker-020](#family-020) | argument 1 (extremum) |
-| <a id="r128"></a>[R128](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2247) | ` gecode_regular `, ` gecode_gecode_regular `, ` fzn_gecode_regular ` | ` p_regular ` / ` always ` | [D2907](#d2907) | planned | [checker-022](#family-022) | none |
-| <a id="r129"></a>[R129](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2248) | ` gecode_regular_set `, ` gecode_gecode_regular_set `, ` fzn_gecode_regular_set ` | ` p_regular_set ` / ` always ` | ` gecode_regular_set(array[int] of var int: x, int: Q, int: first_symbol, int: symbols, array[int] of int: d, int: q0, set of int: F) ` (handler) | planned | [checker-022](#family-022) | none |
+| <a id="r128"></a>[R128](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2247) | ` gecode_regular `, ` gecode_gecode_regular `, ` fzn_gecode_regular ` | ` p_regular ` / ` always ` | [D2907](#d2907) | ` gecode_regular `, ` gecode_gecode_regular `, ` fzn_gecode_regular ` | [checker-022](#family-022) | none |
+| <a id="r129"></a>[R129](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2248) | ` gecode_regular_set `, ` gecode_gecode_regular_set `, ` fzn_gecode_regular_set ` | ` p_regular_set ` / ` always ` | ` gecode_regular_set(array[int] of var int: x, int: Q, int: symbols_min, int: symbols_max, array[int] of int: d, int: q0, set of int: F) ` (handler) | ` gecode_regular_set `, ` gecode_gecode_regular_set `, ` fzn_gecode_regular_set ` | [checker-022](#family-022) | none |
 | <a id="r130"></a>[R130](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2249) | ` sort `, ` gecode_sort `, ` fzn_sort ` | ` p_sort ` / ` always ` | [D1448](#d1448), [D2919](#d2919) | ` sort `, ` gecode_sort `, ` fzn_sort ` | [checker-020](#family-020) | argument 2 (sorted multiset) |
 | <a id="r131"></a>[R131](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2250) | ` inverse_offsets `, ` gecode_inverse_offsets `, ` fzn_inverse_offsets ` | ` p_inverse_offsets ` / ` always ` | [D2882](#d2882) | ` inverse_offsets `, ` gecode_inverse_offsets `, ` fzn_inverse_offsets ` | [checker-020](#family-020) | either complete inverse side |
 | <a id="r132"></a>[R132](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2251) | ` increasing_int `, ` gecode_increasing_int `, ` fzn_increasing_int ` | ` p_increasing_int ` / ` always ` | [D1159](#d1159), [D1173](#d1173), [D2879](#d2879) | ` increasing_int `, ` gecode_increasing_int `, ` fzn_increasing_int ` | [checker-020](#family-020) | none |
@@ -931,7 +951,7 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r212"></a>[R212](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2336) | ` gecode_nooverlap_optional `, ` gecode_gecode_nooverlap_optional `, ` fzn_gecode_nooverlap_optional ` | ` p_nooverlap_optional ` / ` always ` | [D3038](#d3038) | planned | [checker-026](#family-026) | [unique outputs](#family-026) |
 | <a id="r213"></a>[R213](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2337) | ` gecode_all_different_optional `, ` gecode_gecode_all_different_optional `, ` fzn_gecode_all_different_optional ` | ` p_distinct_optional ` / ` always ` | [D2793](#d2793), [D3000](#d3000) | ` gecode_all_different_optional `, ` gecode_gecode_all_different_optional `, ` fzn_gecode_all_different_optional ` | [checker-020](#family-020) | none |
 | <a id="r214"></a>[R214](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2338) | ` gecode_all_different_except `, ` gecode_gecode_all_different_except `, ` fzn_gecode_all_different_except ` | ` p_distinct_except ` / ` always ` | [D2799](#d2799), [D3001](#d3001) | ` gecode_all_different_except `, ` gecode_gecode_all_different_except `, ` fzn_gecode_all_different_except ` | [checker-020](#family-020) | none |
-| <a id="r215"></a>[R215](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2339) | ` gecode_regular_nfa_int_fzn `, ` gecode_gecode_regular_nfa_int_fzn `, ` fzn_gecode_regular_nfa_int_fzn ` | ` p_regular_nfa_int ` / ` always ` | [D2909](#d2909), [D2911](#d2911), [D3032](#d3032) | planned | [checker-022](#family-022) | none |
+| <a id="r215"></a>[R215](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2339) | ` gecode_regular_nfa_int_fzn `, ` gecode_gecode_regular_nfa_int_fzn `, ` fzn_gecode_regular_nfa_int_fzn ` | ` p_regular_nfa_int ` / ` always ` | [D2909](#d2909), [D2911](#d2911), [D3032](#d3032) | ` gecode_regular_nfa_int_fzn `, ` gecode_gecode_regular_nfa_int_fzn `, ` fzn_gecode_regular_nfa_int_fzn ` | [checker-022](#family-022) | none |
 | <a id="r216"></a>[R216](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2340) | ` gecode_nooverlap_flex_optional `, ` gecode_gecode_nooverlap_flex_optional `, ` fzn_gecode_nooverlap_flex_optional ` | ` p_nooverlap_flex ` / ` always ` | [D3039](#d3039) | planned | [checker-026](#family-026) | [unique outputs](#family-026) |
 | <a id="r217"></a>[R217](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2341) | ` gecode_arg_min_int `, ` gecode_gecode_arg_min_int `, ` fzn_gecode_arg_min_int ` | ` p_arg_min_int ` / ` always ` | [D3050](#d3050) | ` gecode_arg_min_int `, ` gecode_gecode_arg_min_int `, ` fzn_gecode_arg_min_int ` | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
 | <a id="r218"></a>[R218](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2342) | ` gecode_arg_max_int `, ` gecode_gecode_arg_max_int `, ` fzn_gecode_arg_max_int ` | ` p_arg_max_int ` / ` always ` | [D3051](#d3051) | ` gecode_arg_max_int `, ` gecode_gecode_arg_max_int `, ` fzn_gecode_arg_max_int ` | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
@@ -9711,7 +9731,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2907"></a>D2907 / 33 | ` predicate gecode_regular(array[int] of var int: x, int: Q, int: S, array[int] of int: d, int: q0, set of int: F) ` | S outside profile; G direct | planned | [checker-022](#family-022) | none |
+| <a id="d2907"></a>D2907 / 33 | ` predicate gecode_regular(array[int] of var int: x, int: Q, int: S, array[int] of int: d, int: q0, set of int: F) ` | S outside profile; G direct | C (qualified) | [checker-022](#family-022) | none |
 | <a id="d2908"></a>D2908 / 36 | ` predicate fzn_regular(array[int] of var int: x, int: Q, int: S, array[int,int] of int: d, int: q0, set of int: F) ` | wrapper → ` array1d `, ` gecode_regular ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-824"></a>
@@ -9719,7 +9739,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2909"></a>D2909 / 33 | ` predicate gecode_regular_nfa_int_fzn( array[int] of var int: x, int: q, int: first_symbol, int: symbols, array[int] of set of int: transitions, int: initial, set of int: final, ) ` | S outside profile; G direct | planned | [checker-022](#family-022) | none |
+| <a id="d2909"></a>D2909 / 33 | ` predicate gecode_regular_nfa_int_fzn( array[int] of var int: x, int: q, int: first_symbol, int: symbols, array[int] of set of int: transitions, int: initial, set of int: final, ) ` | S outside profile; G direct | C (qualified) | [checker-022](#family-022) | none |
 | <a id="d2910"></a>D2910 / 43 | ` predicate fzn_regular_nfa( array[int] of var int: xs, int: Q, int: S, array[int, int] of set of int: d, int: q0, set of int: F, ) ` | wrapper → ` array1d `, ` gecode_regular_nfa_int_fzn `, ` length ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-825"></a>
@@ -9727,7 +9747,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2911"></a>D2911 / 33 | ` predicate gecode_regular_nfa_int_fzn( array[int] of var int: x, int: q, int: first_symbol, int: symbols, array[int] of set of int: transitions, int: initial, set of int: final, ) ` | S outside profile; G direct | planned | [checker-022](#family-022) | none |
+| <a id="d2911"></a>D2911 / 33 | ` predicate gecode_regular_nfa_int_fzn( array[int] of var int: x, int: q, int: first_symbol, int: symbols, array[int] of set of int: transitions, int: initial, set of int: final, ) ` | S outside profile; G direct | C (qualified) | [checker-022](#family-022) | none |
 | <a id="d2912"></a>D2912 / 43 | ` predicate fzn_regular_nfa( array[int] of var int: xs, int: Q, set of int: S, array[int, int] of set of int: d, int: q0, set of int: F, ) ` | wrapper → ` array1d `, ` card `, ` gecode_regular_nfa_int_fzn `, ` length `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-826"></a>
@@ -9932,7 +9952,7 @@ Include/resource entry only; see the selection index.
 | <a id="d3029"></a>D3029 / 137 | ` predicate gecode_minimum_distance_fzn( array[int] of var int: sites, int: size, array[int] of int: distances, var int: result, ) ` | S outside profile; G direct | planned | [checker-029](#family-029) | argument 4 (minimum distance) |
 | <a id="d3030"></a>D3030 / 146 | ` predicate gecode_minimum_distance_required_fzn( array[int] of var int: sites, int: size, array[int] of int: distances, var int: result, array[int] of int: requirements, ) ` | S outside profile; G direct | planned | [checker-029](#family-029) | argument 4 (minimum distance) |
 | <a id="d3031"></a>D3031 / 155 | ` predicate gecode_int_nroot(var int: x, int: n, var int: y) ` | S outside profile; G direct | planned | [checker-029](#family-029) | last result; family domain rule |
-| <a id="d3032"></a>D3032 / 159 | ` predicate gecode_regular_nfa_int_fzn( array[int] of var int: x, int: q, int: first_symbol, int: symbols, array[int] of set of int: transitions, int: initial, set of int: final, ) ` | S outside profile; G direct | planned | [checker-022](#family-022) | none |
+| <a id="d3032"></a>D3032 / 159 | ` predicate gecode_regular_nfa_int_fzn( array[int] of var int: x, int: q, int: first_symbol, int: symbols, array[int] of set of int: transitions, int: initial, set of int: final, ) ` | S outside profile; G direct | C (qualified) | [checker-022](#family-022) | none |
 | <a id="d3033"></a>D3033 / 176 | ` predicate gecode_unary_flex( array[int] of var int: start, array[int] of var int: duration, array[int] of var int: end, ) ` | S outside profile; G direct | planned | [checker-025](#family-025) | none |
 | <a id="d3034"></a>D3034 / 191 | ` predicate gecode_cumulative_flex( array[int] of var int: start, array[int] of var int: duration, array[int] of var int: end, array[int] of int: usage, var int: capacity, ) ` | S outside profile; G direct | planned | [checker-025](#family-025) | none |
 | <a id="d3035"></a>D3035 / 208 | ` predicate gecode_cumulatives_flex( array[int] of var int: start, array[int] of var int: duration, array[int] of var int: end, array[int] of var int: usage, array[int] of var int: machine, array[int] of int: capacity, bool: upper, ) ` | S outside profile; G direct | planned | [checker-025](#family-025) | none |

@@ -629,3 +629,73 @@ fn table_text_and_json_use_typed_membership_and_conditions() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn automaton_cli_source_export_load_and_typed_text_agree() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-automaton-cli-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let source = directory.join("automata.fzn");
+    let saved = directory.join("automata.json");
+    let candidate = directory.join("candidate.dzn");
+    std::fs::write(
+        &source,
+        include_str!("../../../examples/checker-compilation/automata.fzn"),
+    )
+    .unwrap();
+    let export = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+        .arg("--export")
+        .arg(&saved)
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(
+        export.status.success(),
+        "{}",
+        String::from_utf8_lossy(&export.stderr)
+    );
+    for (input, status) in [
+        ("x=9007199254740993;y=1;a=-1;b=0;", "valid"),
+        ("x=9007199254740992;y=2;a=-1;b=-1;", "invalid"),
+        ("y=2;", "invalid"),
+        ("", "incomplete"),
+    ] {
+        std::fs::write(&candidate, input).unwrap();
+        let run = |path: &std::path::Path, load: bool, format: &str| {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_zincite-check"));
+            if load {
+                command.arg("--load");
+            }
+            command
+                .args(["--format", format])
+                .arg(path)
+                .arg(&candidate)
+                .output()
+                .unwrap()
+        };
+        let native = run(&source, false, "json");
+        let loaded = run(&saved, true, "json");
+        assert_eq!(native.status.code(), loaded.status.code());
+        let report: serde_json::Value = serde_json::from_slice(&native.stdout).unwrap();
+        assert_eq!(report["status"], status);
+        assert_eq!(
+            report,
+            serde_json::from_slice::<serde_json::Value>(&loaded.stdout).unwrap()
+        );
+        if input.contains("9007199254740992") {
+            let text = String::from_utf8(run(&saved, true, "text").stdout).unwrap();
+            for expected in [
+                "symbol 9007199254740992 at position 1",
+                "alphabet 9007199254740993..9007199254740993",
+                "dead path at position 1 on symbol 2",
+                "nonaccepting end",
+                "accepting {3}",
+                "exact_word",
+                "Exact symbol",
+            ] {
+                assert!(text.contains(expected), "{text}");
+            }
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

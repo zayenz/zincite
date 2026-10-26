@@ -9,6 +9,11 @@ pub use ordering::{
     IndexFault, InverseFault, InverseSide, OrderingArgument, OrderingFinding, OrderingPair,
 };
 use ordering::{Ordering, OrderingName};
+mod automata;
+#[cfg(feature = "prepare")]
+use automata::AutomatonEncoding;
+use automata::{Automaton, AutomatonName};
+pub use automata::{AutomatonFinding, AutomatonRejection};
 mod tables;
 pub use tables::TableData;
 use tables::{Table, TableName};
@@ -344,6 +349,9 @@ pub struct ArgumentValue {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViolationKind {
+    Automaton {
+        finding: AutomatonFinding,
+    },
     Table {
         tuple: Vec<ArgumentValue>,
         table: TableData,
@@ -682,6 +690,7 @@ struct Variable {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Predicate {
+    Automaton(Automaton),
     Ordering(Ordering),
     Counting(Counting),
     Table(Table),
@@ -915,6 +924,7 @@ impl RelationCondition {
 impl Predicate {
     fn operands(&self) -> Vec<&Operand> {
         match self {
+            Self::Automaton(automaton) => automaton.word.iter().collect(),
             Self::Ordering(ordering) => ordering.operands(),
             Self::Counting(counting) => counting.operands(false),
             Self::Table(table) => table.operands(),
@@ -1949,6 +1959,7 @@ impl PreparedModel {
         match &constraint.predicate {
             Predicate::Ordering(ordering) => self.evaluate_ordering(constraint, ordering, values),
             Predicate::Counting(counting) => self.evaluate_counting(constraint, counting, values),
+            Predicate::Automaton(automaton) => Ok(self.evaluate_automaton(automaton, values)),
             Predicate::Table(table) => Ok(self.evaluate_table(table, values)),
             Predicate::Element {
                 indices,
@@ -2958,7 +2969,8 @@ fn definition_direction(
         Predicate::SetIntersection { .. } => {
             Ok((occurrences.as_slice() == [2]).then_some(DefinitionDirection::SetIntersection))
         }
-        Predicate::SetIn { .. }
+        Predicate::Automaton(_)
+        | Predicate::SetIn { .. }
         | Predicate::SetSubset { .. }
         | Predicate::DisjunctiveStrict { .. } => Ok(None),
         Predicate::Linear {

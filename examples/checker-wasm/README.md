@@ -105,11 +105,11 @@ edits and job feedback using these bindings and the saved compiled model.
 
 ## Execute the native/Wasm comparison
 
-Build the bindings above, then export ten artifacts with the native CLI. This
+Build the bindings above, then export eleven artifacts with the native CLI. This
 setup uses both saved compiled workshop models and a tiny handwritten FlatZinc
 integer/set model, the saved float-core control, a direct selection control,
 a direct set control, a float-function control, a direct counting control,
-a direct ordering/channel control and a direct table control.
+a direct ordering/channel control, a direct table control and a direct automaton control.
 This setup does not run MiniZinc:
 
 ```sh
@@ -154,7 +154,8 @@ target/debug/zincite-check --float-absolute-tolerance 2e-9 --float-relative-tole
 target/debug/zincite-check --export "$checker_run/counting.json" examples/checker-compilation/counting.fzn
 target/debug/zincite-check --export "$checker_run/ordering.json" examples/checker-compilation/ordering.fzn
 target/debug/zincite-check --export "$checker_run/tables.json" examples/checker-compilation/tables.fzn
-node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" examples/checker-wasm/candidates.json target/debug/zincite-check
+target/debug/zincite-check --export "$checker_run/automata.json" examples/checker-compilation/automata.fzn
+node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" "$checker_run/automata.json" examples/checker-wasm/candidates.json target/debug/zincite-check
 ```
 
 `smoke.cjs` reads only built bindings, prepared artifacts and typed assignment
@@ -202,7 +203,7 @@ control uses direct FlatZinc; the checker guide records the standard wrapper and
 compiler metadata limits. A second pass exercises reuse
 after changing and removing inputs. Small boundary checks also reject a
 malformed artifact, a JSON number supplied as an integer and an unknown assignment
-name. Expected output ends with `Native/Wasm reports and errors agree across 86 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, global findings and input errors verified.` The native suite owns
+name. Expected output ends with `Native/Wasm reports and errors agree across 92 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, global findings and input errors verified.` The native suite owns
 the wider evaluator coverage.
 
 
@@ -210,3 +211,10 @@ For real-browser latency, serialized-load costs, JSON boundary costs and scaling
 see the [interactive checker report](../../scripts/checker-performance.md). Its
 repeatable browser collection uses these release web bindings; Node is used only
 for the correctness smoke above.
+
+
+The three automaton candidates exercise acceptance, all three typed rejection
+kinds and a known rejection with missing symbols. The smoke checks exact
+state/symbol strings, numeric positions, word references, labels and application
+IDs, then repeats the 46 candidates after changing and removing assignments.
+The original 43 candidate records are unchanged.

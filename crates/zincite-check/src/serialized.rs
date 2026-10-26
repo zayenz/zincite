@@ -199,6 +199,20 @@ impl PreparedModel {
                 return Err(invalid("constraint ordinals must follow executable order"));
             }
             let predicate_name = match &constraint.predicate {
+                Predicate::Automaton(automaton) => {
+                    if AutomatonName::from_name(&constraint.reference.predicate)
+                        != Some(automaton.name())
+                    {
+                        return Err(invalid(
+                            "automaton predicate name does not match its executable contract",
+                        ));
+                    }
+                    automaton.validate().map_err(invalid)?;
+                    for entry in &automaton.word {
+                        self.validate_operand(entry, ValueType::Integer)?;
+                    }
+                    &constraint.reference.predicate
+                }
                 Predicate::Table(table) => {
                     self.validate_table(constraint, table)?;
                     &constraint.reference.predicate

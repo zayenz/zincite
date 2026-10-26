@@ -192,6 +192,32 @@ pub fn render_text(report: &CheckReport) -> String {
             check_text(&violation.check)
         );
         match &violation.details {
+            ViolationKind::Automaton { finding } => {
+                let word = finding
+                    .word
+                    .iter()
+                    .map(argument_text)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let reason = match finding.rejection {
+                    crate::AutomatonRejection::OutOfAlphabet { position, symbol } => {
+                        format!("symbol {symbol} at position {position} is outside the alphabet")
+                    }
+                    crate::AutomatonRejection::DeadPath { position, symbol } => {
+                        format!("dead path at position {position} on symbol {symbol}")
+                    }
+                    crate::AutomatonRejection::NonacceptingEnd => "nonaccepting end".into(),
+                };
+                let _ = writeln!(
+                    text,
+                    "  automaton word [{word}]: {reason}; initial {}, accepting {}, reached {}, alphabet {}..{}",
+                    finding.initial,
+                    finding.accepting,
+                    finding.reached,
+                    finding.minimum_symbol,
+                    finding.maximum_symbol
+                );
+            }
             ViolationKind::Table {
                 tuple,
                 table,

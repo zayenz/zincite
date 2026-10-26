@@ -300,6 +300,13 @@ CURRENT |= {
 }
 
 
+CURRENT |= {
+    prefix + name
+    for prefix in ("", "gecode_", "fzn_")
+    for name in ("gecode_regular", "gecode_regular_set", "gecode_regular_nfa_int_fzn")
+}
+
+
 @dataclass(frozen=True)
 class Declaration:
     file: str
@@ -811,7 +818,7 @@ def registry_signature(name: str) -> str:
             "count": "array[int] of var int: x, var int: value, var int: count",
             "count_reif": "array[int] of var int: x, var int: value, var int: count, var bool: b",
             "count_imp": "array[int] of var int: x, var int: value, var int: count, var bool: b",
-            "gecode_regular_set": "array[int] of var int: x, int: Q, int: first_symbol, int: symbols, array[int] of int: d, int: q0, set of int: F",
+            "gecode_regular_set": "array[int] of var int: x, int: Q, int: symbols_min, int: symbols_max, array[int] of int: d, int: q0, set of int: F",
             "array_set_union": "array[int] of var set of int: x, var set of int: result",
         }.get(name)
         if args is None:
@@ -932,6 +939,13 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
     admitted |= {
         prefix + name
         for name in re.findall(r'"([a-z_0-9]+)"', table_names)
+        for prefix in ("", "gecode_", "fzn_")
+    }
+    automata = (ROOT / "crates/zincite-check/src/automata.rs").read_text()
+    automata_names = automata.split("match base {", 1)[1].split("_ =>", 1)[0]
+    admitted |= {
+        prefix + name
+        for name in re.findall(r'"([a-z_0-9]+)"', automata_names)
         for prefix in ("", "gecode_", "fzn_")
     }
     if admitted != CURRENT:

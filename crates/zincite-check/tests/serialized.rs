@@ -1790,3 +1790,187 @@ fn parser_free_tables_validate_names_types_shapes_and_conditions() {
         );
     }
 }
+
+#[test]
+fn parser_free_automata_validate_fixed_encodings_and_exact_reports() {
+    let set = |lower: &str, upper: &str| json!({"ranges":[{"lower":lower,"upper":upper}]});
+    let mut artifact = executable();
+    artifact["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_regular_set");
+    let automaton = json!({
+        "word":[{"Variable":0}],"states":"1","initial":"1","accepting":set("1","1"),
+        "encoding":{"RegularSet":{"minimum":"9007199254740993","maximum":"9007199254740993","transitions":["1"]}}
+    });
+    artifact["model"]["constraints"][0]["predicate"] = json!({"Automaton":automaton});
+    let model = PreparedModel::from_json(&artifact.to_string()).unwrap();
+    for (value, status) in [
+        (Some(9_007_199_254_740_993), Status::Valid),
+        (Some(9_007_199_254_740_992), Status::Invalid),
+        (None, Status::Incomplete),
+        (Some(9_007_199_254_740_993), Status::Valid),
+    ] {
+        let assignment = Assignment {
+            entries: value
+                .into_iter()
+                .map(|value| AssignmentEntry {
+                    name: "x".into(),
+                    value: AssignmentValue::Scalar(Value::Integer(value)),
+                    location: None,
+                })
+                .collect(),
+        };
+        let report = model.check(&assignment).unwrap();
+        assert_eq!(report.status, status);
+        let report = serde_json::to_value(report).unwrap();
+        assert_eq!(
+            report,
+            serde_json::to_value(
+                PreparedModel::from_json(&model.to_json().unwrap())
+                    .unwrap()
+                    .check(&assignment)
+                    .unwrap()
+            )
+            .unwrap()
+        );
+        if status == Status::Invalid {
+            assert_eq!(
+                report["violations"][0]["details"]["finding"]["rejection"]["symbol"],
+                "9007199254740992"
+            );
+            assert_eq!(
+                report["violations"][0]["details"]["finding"]["reached"],
+                set("1", "1")
+            );
+        }
+    }
+    let mut changes = vec![
+        ("/states", json!("0")),
+        ("/states", json!("9223372036854775807")),
+        ("/initial", json!("0")),
+        ("/initial", json!("2")),
+        ("/accepting", set("0", "1")),
+        ("/accepting", set("1", "2")),
+        ("/word", json!([{"Variable":99}])),
+        (
+            "/word",
+            json!([{"Literal":{"kind":"boolean","value":true}}]),
+        ),
+        ("/encoding/RegularSet/minimum", json!("9007199254740994")),
+        (
+            "/encoding/RegularSet/minimum",
+            json!("-9223372036854775808"),
+        ),
+        ("/encoding/RegularSet/transitions", json!([])),
+        ("/encoding/RegularSet/transitions", json!(["1", "1"])),
+        ("/encoding/RegularSet/transitions", json!(["-1"])),
+        ("/encoding/RegularSet/transitions", json!(["2"])),
+        ("/encoding/RegularSet/transitions", json!([1])),
+        (
+            "/encoding",
+            json!({"Regular":{"symbols":"0","transitions":[]}}),
+        ),
+    ];
+    for (pointer, value) in changes.drain(..) {
+        let mut bad = artifact.clone();
+        *bad["model"]["constraints"][0]["predicate"]["Automaton"]
+            .pointer_mut(pointer)
+            .unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&bad.to_string()).is_err(),
+            "{pointer}: {bad}"
+        );
+    }
+    for name in [
+        "regular_set",
+        "gecode_regular",
+        "gecode_regular_nfa_int_fzn",
+        "gecode_regular_set_imp",
+    ] {
+        let mut bad = artifact.clone();
+        bad["model"]["constraints"][0]["reference"]["predicate"] = json!(name);
+        assert!(
+            PreparedModel::from_json(&bad.to_string()).is_err(),
+            "{name}"
+        );
+    }
+    for (name, encoding, valid) in [
+        (
+            "gecode_regular",
+            json!({"Regular":{"symbols":"1","transitions":["0"]}}),
+            true,
+        ),
+        (
+            "gecode_regular",
+            json!({"Regular":{"symbols":"0","transitions":[]}}),
+            false,
+        ),
+        (
+            "gecode_regular",
+            json!({"Regular":{"symbols":"9223372036854775807","transitions":[]}}),
+            false,
+        ),
+        (
+            "gecode_regular_nfa_int_fzn",
+            json!({"Nfa":{"first":"-1","symbols":"2","transitions":[set("1","1"),{"ranges":[]}]}}),
+            true,
+        ),
+        (
+            "gecode_regular_nfa_int_fzn",
+            json!({"Nfa":{"first":"-2147483646","symbols":"1","transitions":[set("1","1")]}}),
+            true,
+        ),
+        (
+            "gecode_regular_nfa_int_fzn",
+            json!({"Nfa":{"first":"2147483646","symbols":"1","transitions":[set("1","1")]}}),
+            true,
+        ),
+        (
+            "gecode_regular_nfa_int_fzn",
+            json!({"Nfa":{"first":"-2147483647","symbols":"1","transitions":[{"ranges":[]}]}}),
+            false,
+        ),
+        (
+            "gecode_regular_nfa_int_fzn",
+            json!({"Nfa":{"first":"2147483646","symbols":"2","transitions":[{"ranges":[]},{"ranges":[]}]}}),
+            false,
+        ),
+        (
+            "gecode_regular_nfa_int_fzn",
+            json!({"Nfa":{"first":"9223372036854775807","symbols":"2","transitions":[]}}),
+            false,
+        ),
+        (
+            "gecode_regular_nfa_int_fzn",
+            json!({"Nfa":{"first":"1","symbols":"0","transitions":[]}}),
+            false,
+        ),
+        (
+            "gecode_regular_nfa_int_fzn",
+            json!({"Nfa":{"first":"1","symbols":"1","transitions":[]}}),
+            false,
+        ),
+        (
+            "gecode_regular_nfa_int_fzn",
+            json!({"Nfa":{"first":"1","symbols":"1","transitions":[set("0","1")]}}),
+            false,
+        ),
+        (
+            "gecode_regular_nfa_int_fzn",
+            json!({"Nfa":{"first":"1","symbols":"1","transitions":[set("1","2")]}}),
+            false,
+        ),
+        (
+            "gecode_regular_nfa_int_fzn",
+            json!({"Nfa":{"first":"1","symbols":"1","transitions":[set("2","1")]}}),
+            false,
+        ),
+    ] {
+        let mut candidate = artifact.clone();
+        candidate["model"]["constraints"][0]["reference"]["predicate"] = json!(name);
+        candidate["model"]["constraints"][0]["predicate"]["Automaton"]["encoding"] = encoding;
+        assert_eq!(
+            PreparedModel::from_json(&candidate.to_string()).is_ok(),
+            valid,
+            "{candidate}"
+        );
+    }
+}

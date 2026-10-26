@@ -641,7 +641,7 @@ profile or general preservation of editable domains and variables.
 
 All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
 `fzn_` spellings, for 108 integer relation names. The 55 Boolean base names also
-accept those exact prefixes, for 165 Boolean names and 761 admitted names overall.
+accept those exact prefixes, for 165 Boolean names and 770 admitted names overall.
 Prefixed scalar XOR uses three arguments; only bare `bool_xor` also admits the
 two-argument assertion. Matching declarations select one admitted arity and calls
 must use that arity; duplicate declarations diagnose.
@@ -952,7 +952,7 @@ establish include/decomposition closure; checker-030/031 own profile repairs.
 
 The checker admits the six `gecode_table_int/bool` literals with plain, `_reif`
 and `_imp` forms, each with the literal empty, `gecode_` and `fzn_` prefixes.
-The family has 18 exact names; the checker admits 761 names overall. The prefix applies to the
+The family has 18 exact names; the checker admits 770 names overall. The prefix applies to the
 whole literal: `gecode_gecode_table_int` and `fzn_gecode_table_int` are direct
 names; `table_int` and `fzn_table_int` are not.
 
@@ -1012,3 +1012,84 @@ Boolean reification and native integer implication. That output drops membership
 application IDs and emits `is_defined_var` on a constraint; preparation diagnoses
 that misplaced annotation. These compiler-profile limits belong
 to checker-030/031. The runtime keeps its existing marker rules.
+
+
+## Deterministic and nondeterministic automata
+
+The checker admits `gecode_regular`, `gecode_regular_set` and
+`gecode_regular_nfa_int_fzn`, each with the literal empty, `gecode_` and `fzn_`
+prefixes. These nine names bring overall admission to 770. The prefix applies to
+the whole literal, including `gecode_gecode_regular`; standard wrapper names and
+reified forms are not direct checker operations.
+
+All three forms take an integer word, positive state count Q, fixed transition
+data, initial state and accepting-state set. States are numbered 1..Q.
+`gecode_regular(word,Q,S,d,q0,F)` uses alphabet 1..S.
+`gecode_regular_set(word,Q,symbols_min,symbols_max,d,q0,F)` uses inclusive alphabet
+endpoints. Its fourth argument is not a count.
+`gecode_regular_nfa_int_fzn(word,Q,first_symbol,symbol_count,d,q0,F)` uses a first
+symbol and positive count, within the pinned NFA alphabet limits
+-2147483646..2147483646. The DFA forms use the existing checked i64 boundary.
+
+Transition data contains exactly Q times the alphabet width entries, in state
+then symbol order. A DFA cell contains a target in 0..Q; zero ends the path.
+An NFA cell contains a compact set of target states in 1..Q. Each transition
+consumes one symbol, with no epsilon transitions. Nondeterminism follows all
+successors and accepts when any final reachable state belongs to F. Empty
+accepting and successor sets are legal. The empty word accepts exactly when
+q0 belongs to F. Preparation and loading validate dimensions, checked alphabet
+and index arithmetic, states and targets before any candidate check.
+
+Every word operand must be known before checking, even for an empty language.
+Missing operands produce blocked checks. Automata never supply symbols or
+witness states, including through `defines_var`. Each check starts from q0.
+Typed `automaton` findings carry word arguments and variable references, initial,
+accepting and reached states, alphabet endpoints, and a rejection reason:
+`out_of_alphabet`, `dead_path` or `nonaccepting_end`. The first two include a
+one-based position and the offending symbol. Mathematical integers use decimal
+JSON strings; positions use numbers. CLI text renders these fields alongside
+labels, locations and application metadata.
+
+The [direct FlatZinc control](../../examples/checker-compilation/automata.fzn)
+checks an exact symbol above 2^53, a DFA dead transition and an NFA branch.
+`x=9007199254740993; y=1; a=-1; b=0;` is valid and complete.
+`x=9007199254740992; y=2; a=-1; b=-1;` reports all three rejection kinds.
+`y=2;` reports a known dead path with incomplete word checks.
+
+### Compile-only automaton controls
+
+Both MiniZinc controls start with `globals.mzn` and `checker_annotations.mzn`.
+The [native control](../../examples/checker-compilation/automata-gecode-controls.mzn)
+exposes all three fixed encodings. Format and default-lint both controls against
+the pinned standard library and checker include directory. Compile each under
+both fixed profiles, without starting a solver:
+
+```sh
+checker_run=$(mktemp -d "$PWD/target/checker-automata.XXXXXX")
+for model in automata-controls automata-gecode-controls; do
+    minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file "$checker_run/standard-$model.paths" --output-fzn-to-file "$checker_run/standard-$model.fzn" "examples/checker-compilation/$model.mzn"
+    minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file "$checker_run/gecode-$model.paths" --output-fzn-to-file "$checker_run/gecode-$model.fzn" "examples/checker-compilation/$model.mzn"
+done
+```
+
+The native control emits the same three names under both profiles, without
+auxiliary definitions. Both keep `word` in 1..2, `shifted_word` and `nfa_word` in
+-1..0, named arrays, all three application IDs, labels and paths.
+`word=[1,2]; shifted_word=[-1,0]; nfa_word=[-1,0];` checks valid and complete;
+`word=[2,1]; shifted_word=[0,-1]; nfa_word=[0,-1];` reports three violations.
+Supplying only `word=[2,1];` reports a violation with incomplete checks. Both CLI
+forms agree through source and export/load paths.
+
+The [standard-wrapper control](../../examples/checker-compilation/automata-controls.mzn)
+compiles under both profiles and preserves the three IDs, labels and word domains.
+The Gecode profile emits native DFA and NFA operations; its set-alphabet NFA
+wrapper lowers -1..0 to first=-1, count=2 using the same NFA primitive. Shifted
+DFA membership decomposes into two `gecode_int_element2d` calls, one defining its
+intermediate state. The three candidates above check completely for full words,
+including four violations for the invalid words, and incompletely for partial
+words. The standard profile decomposes DFA/NFA calls into element, set membership
+and linear relations. Five linear outputs have definitions, but intermediate
+state and target-set witnesses have no definition markers. Supplied primary
+words therefore produce incomplete reports without known violations. The checker
+does not infer these witnesses. checker-030/031 own compiler-profile closure and
+auxiliary-definition limits; this control needs no annotation or include repair.
