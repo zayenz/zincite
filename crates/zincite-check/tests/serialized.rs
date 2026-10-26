@@ -862,3 +862,145 @@ fn float_source_export_and_reload_have_identical_reports_and_text() {
         );
     }
 }
+
+#[test]
+fn parser_free_selection_loading_validates_names_types_roles_and_layouts() {
+    let literal = |value: &str| json!({"Literal":{"kind":"integer","value":value}});
+    let mut artifact = executable();
+    artifact["model"]["constraints"][0]["reference"]["predicate"] = json!("array_var_int_element");
+    artifact["model"]["constraints"][0]["predicate"] = json!({"Element": {
+        "indices":[literal("2")], "elements":[{"Variable":0},literal("7")],
+        "result":{"Variable":0}, "layout":{"kind":"one_based"}
+    }});
+    let loaded = PreparedModel::from_json(&artifact.to_string()).unwrap();
+    let report = loaded
+        .check(&Assignment {
+            entries: vec![AssignmentEntry {
+                name: "x".into(),
+                value: AssignmentValue::Scalar(Value::Integer(3)),
+                location: None,
+            }],
+        })
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(report).unwrap()["violations"][0]["details"]["kind"],
+        "element_mismatch"
+    );
+    for (pointer, replacement, message) in [
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("array_int_element"),
+            "fixed parameters",
+        ),
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("gecode_int_ite"),
+            "selection operation",
+        ),
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("array_var_bool_element"),
+            "operand type",
+        ),
+        (
+            "/model/constraints/0/predicate/Element/indices",
+            json!([]),
+            "selection operation",
+        ),
+        (
+            "/model/constraints/0/predicate/Element/indices/0",
+            json!({"Literal":{"kind":"boolean","value":true}}),
+            "operand type",
+        ),
+        (
+            "/model/constraints/0/predicate/Element/elements/1",
+            json!({"Variable":99}),
+            "unknown slot",
+        ),
+        (
+            "/model/constraints/0/predicate/Element/result",
+            json!({"Literal":{"kind":"float","value":1.0}}),
+            "operand type",
+        ),
+        (
+            "/model/constraints/0/predicate/Element/layout",
+            json!({"kind":"offset","offset":{"Variable":0}}),
+            "string",
+        ),
+    ] {
+        let mut malformed = artifact.clone();
+        *malformed.pointer_mut(pointer).unwrap() = replacement;
+        let error = PreparedModel::from_json(&malformed.to_string()).unwrap_err();
+        assert!(
+            error.message.contains(message),
+            "{pointer}: {}",
+            error.message
+        );
+    }
+    artifact["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_int_element2d");
+    artifact["model"]["constraints"][0]["predicate"]["Element"]["indices"] =
+        json!([literal("-1"), literal("5")]);
+    for (layout, message) in [
+        (
+            json!({"kind":"matrix","rows":{"ranges":[]},"columns":{"ranges":[{"lower":"4","upper":"5"}]}}),
+            "nonempty and contiguous",
+        ),
+        (
+            json!({"kind":"matrix","rows":{"ranges":[{"lower":"1","upper":"1"},{"lower":"3","upper":"3"}]},"columns":{"ranges":[{"lower":"4","upper":"4"}]}}),
+            "nonempty and contiguous",
+        ),
+        (
+            json!({"kind":"matrix","rows":{"ranges":[{"lower":"-2","upper":"-1"}]},"columns":{"ranges":[{"lower":"4","upper":"6"}]}}),
+            "flat array length",
+        ),
+    ] {
+        artifact["model"]["constraints"][0]["predicate"]["Element"]["layout"] = layout;
+        assert!(
+            PreparedModel::from_json(&artifact.to_string())
+                .unwrap_err()
+                .message
+                .contains(message)
+        );
+    }
+    artifact["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_set_element2d");
+    artifact["model"]["constraints"][0]["predicate"]["Element"]["layout"] =
+        json!({"kind":"set_matrix","width":"0","height":"2"});
+    assert!(
+        PreparedModel::from_json(&artifact.to_string())
+            .unwrap_err()
+            .message
+            .contains("positive")
+    );
+
+    artifact["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_int_ite");
+    artifact["model"]["constraints"][0]["predicate"] = json!({"Conditional":{
+        "condition":{"Literal":{"kind":"boolean","value":true}},
+        "then_value":literal("7"),"else_value":{"Variable":0},"result":{"Variable":0}
+    }});
+    assert!(PreparedModel::from_json(&artifact.to_string()).is_ok());
+    for (pointer, replacement) in [
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("array_var_int_element"),
+        ),
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("gecode_float_ite"),
+        ),
+        (
+            "/model/constraints/0/predicate/Conditional/condition",
+            literal("1"),
+        ),
+        (
+            "/model/constraints/0/predicate/Conditional/else_value",
+            json!({"Variable":99}),
+        ),
+    ] {
+        let mut malformed = artifact.clone();
+        *malformed.pointer_mut(pointer).unwrap() = replacement;
+        assert!(
+            PreparedModel::from_json(&malformed.to_string()).is_err(),
+            "{pointer}"
+        );
+    }
+}

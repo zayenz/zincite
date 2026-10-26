@@ -17,6 +17,9 @@ use floats::FloatName;
 pub use floats::{
     FiniteFloat, FloatConversion, FloatMembership, FloatOperation, FloatSet, FloatTolerance,
 };
+mod selection;
+pub use selection::ElementLayout;
+use selection::{SelectionForm, SelectionName, SelectionPosition};
 mod serialized;
 mod sets;
 pub use sets::IntegerSet;
@@ -303,6 +306,23 @@ pub struct ArgumentValue {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViolationKind {
+    ElementRange {
+        indices: Vec<Option<ArgumentValue>>,
+        layout: ElementLayout,
+        length: usize,
+        result: Option<ArgumentValue>,
+    },
+    ElementMismatch {
+        indices: Vec<ArgumentValue>,
+        layout: ElementLayout,
+        selected: ArgumentValue,
+        result: ArgumentValue,
+    },
+    ConditionalMismatch {
+        condition: ArgumentValue,
+        selected: ArgumentValue,
+        result: ArgumentValue,
+    },
     FloatRelation {
         relation: IntegerRelation,
         left: ArgumentValue,
@@ -553,6 +573,18 @@ struct Variable {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Predicate {
+    Element {
+        indices: Vec<Operand>,
+        elements: Vec<Operand>,
+        result: Operand,
+        layout: ElementLayout,
+    },
+    Conditional {
+        condition: Operand,
+        then_value: Operand,
+        else_value: Operand,
+        result: Operand,
+    },
     FloatRelation {
         relation: IntegerRelation,
         left: Operand,
@@ -735,6 +767,22 @@ impl RelationCondition {
 impl Predicate {
     fn operands(&self) -> Vec<&Operand> {
         match self {
+            Self::Element {
+                indices,
+                elements,
+                result,
+                ..
+            } => indices
+                .iter()
+                .chain(elements)
+                .chain(std::iter::once(result))
+                .collect(),
+            Self::Conditional {
+                condition,
+                then_value,
+                else_value,
+                result,
+            } => vec![condition, then_value, else_value, result],
             Self::FloatRelation {
                 left,
                 right,
@@ -816,6 +864,28 @@ impl Predicate {
         }
     }
 
+    fn required_operands(&self, values: &[Option<Value>]) -> Vec<&Operand> {
+        match self {
+            Self::Element {
+                indices,
+                elements,
+                result,
+                layout,
+            } => match layout.position(indices, elements.len(), values) {
+                SelectionPosition::Missing => indices.iter().collect(),
+                SelectionPosition::OutOfRange => Vec::new(),
+                SelectionPosition::Selected(position) => vec![&elements[position], result],
+            },
+            Self::Conditional {
+                condition, result, ..
+            } => match self.selected_operand(values) {
+                Some(selected) => vec![selected, result],
+                None => vec![condition],
+            },
+            _ => self.operands(),
+        }
+    }
+
     fn inactive_implication(&self, values: &[Option<Value>]) -> bool {
         match self {
             Self::FloatRelation { condition, .. }
@@ -860,6 +930,7 @@ impl Constraint {
 
 #[derive(Clone, Copy, Debug)]
 enum DefinitionDirection {
+    Selection,
     FloatEqual { input: usize },
     FloatReified,
     FloatLinear { term: usize },
@@ -1090,6 +1161,10 @@ impl PreparedModel {
     ) -> Result<Option<Value>, CheckError> {
         let constraint = &self.constraints[definition.constraint];
         match (&constraint.predicate, definition.direction) {
+            (predicate, DefinitionDirection::Selection) => Ok(predicate
+                .selected_operand(values)
+                .and_then(|operand| operand.value(values))
+                .cloned()),
             (
                 Predicate::FloatRelation { left, right, .. },
                 DefinitionDirection::FloatEqual { input },
@@ -1523,8 +1598,25 @@ impl PreparedModel {
         }
     }
 
+    fn selected_matches_result(
+        &self,
+        selected: &Operand,
+        result: &Operand,
+        values: &[Option<Value>],
+    ) -> bool {
+        let selected = selected.value(values).expect("available selected input");
+        let result = result.value(values).expect("available selection result");
+        match (selected, result) {
+            (Value::Float(left), Value::Float(right)) => {
+                self.float_tolerance
+                    .holds(IntegerRelation::Equal, *left, *right)
+            }
+            _ => selected == result,
+        }
+    }
+
     fn missing(&self, predicate: &Predicate, values: &[Option<Value>]) -> Vec<VariableRef> {
-        let operands = predicate.operands();
+        let operands = predicate.required_operands(values);
         let mut slots = HashSet::new();
         operands
             .iter()
@@ -1602,6 +1694,58 @@ impl PreparedModel {
                 .expect("blocked constraints are excluded before evaluation")
         };
         match &constraint.predicate {
+            Predicate::Element {
+                indices,
+                elements,
+                result,
+                layout,
+            } => {
+                if matches!(
+                    layout.position(indices, elements.len(), values),
+                    SelectionPosition::OutOfRange
+                ) {
+                    return Ok(Some(ViolationKind::ElementRange {
+                        indices: indices
+                            .iter()
+                            .map(|index| self.argument(index, values))
+                            .collect(),
+                        layout: layout.clone(),
+                        length: elements.len(),
+                        result: self.argument(result, values),
+                    }));
+                }
+                let selected = constraint
+                    .predicate
+                    .selected_operand(values)
+                    .expect("available valid selector");
+                Ok(
+                    (!self.selected_matches_result(selected, result, values)).then(|| {
+                        ViolationKind::ElementMismatch {
+                            indices: indices.iter().map(argument).collect(),
+                            layout: layout.clone(),
+                            selected: argument(selected),
+                            result: argument(result),
+                        }
+                    }),
+                )
+            }
+            Predicate::Conditional {
+                condition, result, ..
+            } => {
+                let selected = constraint
+                    .predicate
+                    .selected_operand(values)
+                    .expect("available condition");
+                Ok(
+                    (!self.selected_matches_result(selected, result, values)).then(|| {
+                        ViolationKind::ConditionalMismatch {
+                            condition: argument(condition),
+                            selected: argument(selected),
+                            result: argument(result),
+                        }
+                    }),
+                )
+            }
             Predicate::FloatRelation {
                 relation,
                 left,
@@ -2146,6 +2290,10 @@ fn definition_direction(
         return Err(absent());
     }
     match &constraint.predicate {
+        Predicate::Element { result, .. } | Predicate::Conditional { result, .. } => {
+            Ok(matches!(result, Operand::Variable(slot) if *slot == output)
+                .then_some(DefinitionDirection::Selection))
+        }
         Predicate::FloatRelation {
             relation,
             condition,

@@ -104,9 +104,10 @@ edits and job feedback using these bindings and the saved compiled model.
 
 ## Execute the native/Wasm comparison
 
-Build the bindings above, then export four artifacts with the native CLI. This
+Build the bindings above, then export five artifacts with the native CLI. This
 setup uses both saved compiled workshop models and a tiny handwritten FlatZinc
-integer/set model and the saved float-core control; it does not run MiniZinc:
+integer/set model, the saved float-core control and a direct selection control.
+This setup does not run MiniZinc:
 
 ```sh
 cargo build --locked -p zincite-check --bin zincite-check
@@ -144,7 +145,8 @@ FZN
 target/debug/zincite-check --export "$checker_run/exact.json" "$checker_run/exact.fzn"
 target/debug/zincite-check --export "$checker_run/bench.json" examples/checker-compilation/shared-bench.fzn
 target/debug/zincite-check --float-absolute-tolerance 2e-9 --float-relative-tolerance 3e-9 --export "$checker_run/float.json" examples/checker-compilation/float-core.fzn
-node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" examples/checker-wasm/candidates.json target/debug/zincite-check
+target/debug/zincite-check --float-absolute-tolerance 2e-6 --float-relative-tolerance 3e-6 --export "$checker_run/selection.json" examples/checker-compilation/selection.fzn
+node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" examples/checker-wasm/candidates.json target/debug/zincite-check
 ```
 
 `smoke.cjs` reads only built bindings, prepared artifacts and typed assignment
@@ -153,7 +155,7 @@ compares every observable report with the native CLI's `--load` path. The CLI
 receives literal `.dzn` assignments made from the same typed values in a temporary
 directory. The consumer removes those temporary assignments when finished.
 
-The seventeen named cases cover valid, invalid, incomplete and invalid-with-incomplete
+The twenty-three named cases cover valid, invalid, incomplete and invalid-with-incomplete
 reports, application metadata, Boolean and array input, set definitions and domain
 failures, strict resource conflicts, and the distinct integers 9007199254740992
 and 9007199254740993 as both integers and set endpoints. The exact-value model
@@ -165,10 +167,13 @@ parity, clause equivalence, channeling and a Boolean linear result above 2^53.
 Float cases compare saved, custom and strict policy, arithmetic/conversion
 completion, malformed finite values/settings, repeated edits and removed inputs.
 They compare typed conflicts and an incomplete candidate with a known channel
-violation. A second pass exercises
-reuse after changing and removing inputs. Small boundary checks also reject a
+violation. Selection cases cover offset indexing, rectangular Boolean/set calls,
+all four selected value types, unselected output aliases, typed conflicts and an
+extreme invalid selector with an unavailable result. They use saved, custom and
+strict float tolerance. A second pass exercises reuse after changing and removing
+inputs. Small boundary checks also reject a
 malformed artifact, a JSON number supplied as an integer and an unknown assignment
-name. Expected output ends with `Native/Wasm reports agree across 34 checks; finite floats, saved/custom tolerance, exact integers, arithmetic, relations, Booleans, sets, global findings and input errors verified.` The native suite owns
+name. Expected output ends with `Native/Wasm reports agree across 46 checks; finite floats, saved/custom tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, global findings and input errors verified.` The native suite owns
 the wider evaluator coverage.
 
 

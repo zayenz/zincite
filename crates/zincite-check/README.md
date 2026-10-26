@@ -316,6 +316,67 @@ are rejected explicitly. External executable/DLL callbacks and restart-history
 hooks also diagnose; the checker does not execute search or external code.
 Syntax acceptance by the shared parser does not imply checker support.
 
+## Elements and conditionals
+
+Selection supports Boolean, integer, finite integer-set and float values. Fixed
+array spellings require fixed entries; `array_var_` spellings accept variable or
+fixed entries. Float sets are parameters and cannot be selected values.
+
+| Calls | Indexing and fixed arguments |
+| --- | --- |
+| `array_[var_]bool/int/set_element(index,values,result)` | One-based position; bare names and exact `gecode_`/`fzn_` prefixes |
+| `array_[var_]float_element(index,values,result)` | One-based position; bare names only |
+| `array_var_bool/int/set/float_element_nonshifted(index,values,result)` | One-based position over admitted `1..n` FlatZinc arrays; bare names only |
+| `gecode_[var_]int/bool_element(index,offset,values,result)` | Position `index-offset`; fixed offset; variable or fixed array entries |
+| `gecode_int/bool_element2d(row,column,values,rows,columns,result)` | Row-major flat array; fixed nonempty contiguous index sets; exact rectangular length |
+| `gecode_set_element2d(values,column,width,row,height,result)` | Zero-based column and row; fixed positive width/height; exact rectangular length |
+| `gecode_bool/int/set/float_ite(condition,then_value,else_value,result)` | Boolean condition chooses one typed input |
+
+Every native `gecode_` name in the last four rows also accepts its literal
+`gecode_` and `fzn_` registry prefixes, including doubled `gecode_gecode_` names.
+Both matrix axes are checked before calculating the flat position. Empty 1D
+arrays have no valid index. Out-of-range indices produce `element_range`
+findings even when the result or another coordinate is unavailable. Findings
+carry available typed indices, fixed layout and optional result values. Matrix
+finding indices use `[row,column]`, including set matrix calls.
+`element_mismatch` and `conditional_mismatch` carry the selected input and result
+with variable references and the constraint's application metadata. Integer,
+Boolean and set values compare exactly; floats use the model's saved tolerance.
+
+A supported `defines_var` direction derives only the result. An unknown selector
+blocks that relation on the selector; a known valid selector needs only the
+selected input and result. An output in an unselected branch does not prevent
+completion. A selected self-reference supplies no value. Independent unresolved
+variables and domain checks still make the report incomplete. Supplied results
+are checked without replacement, and each check starts with fresh values.
+
+The nonshifted 1D calls operate on the admitted FlatZinc array positions. MiniZinc
+must lower original source offsets before checking. Two-dimensional nonshifted
+calls require source array shape information and follow compiler decomposition;
+`if_then_else`/`fzn_if_then_else` wrappers also follow their compiler routes.
+Direct support for the calls above does not establish full wrapper/profile closure.
+
+Two compile-only controls use the pinned standard and Gecode libraries:
+
+```sh
+mkdir -p target/checker-selection-controls
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-selection-controls/layouts.paths --output-fzn-to-file target/checker-selection-controls/layouts.fzn examples/checker-compilation/element-layouts.mzn
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-selection-controls/conditionals.paths --output-fzn-to-file target/checker-selection-controls/conditionals.fzn examples/checker-compilation/conditional-values.mzn
+```
+
+MiniZinc 2.10.1 emits `gecode_int_element(index,-3,[1,entry,7],selected)`
+and a row-major 2×3 `gecode_int_element2d` with row set `-2..-1` and column set
+`4..6`. The candidate `entry=5;index=-2;row=-1;column=5;` derives both results
+as 5. Supplying `selected_matrix=6` gives one element mismatch. The conditional
+control emits the four native `ite` calls; `condition=true;then_bool=true;`
+derives `true`, `2`, `{1,3}` and `1.25`. Changing `chosen_set` to `{2}` gives
+one conditional mismatch. Both compilations preserve `defines_var`, labels,
+paths and application identifiers/payloads. They start no solver.
+
+The handwritten `examples/checker-compilation/selection.fzn` combines direct
+calls for the native/Wasm smoke. It also checks output aliases in unselected
+branches and compares selected float outputs under saved and custom tolerance.
+
 ## Float policy
 
 Finite binary64 floats work as scalars, domains, arrays, aliases, objectives and
@@ -364,7 +425,8 @@ reifiers, scalar ne, `float_abs`, `float_plus`, `float_times`, `float_div`,
 mean equal, not equal, less-or-equal, less, greater-or-equal and greater.
 A false guard skips missing numerical operands/calculations; it is never an
 output. Float membership and ceil/floor/round have only bare names. Roots,
-powers, transcendental operations and float conditionals are outside float-core.
+powers and transcendental operations await checker-018. Float selection uses the
+same saved comparison policy as float-core.
 
 Rust callers configure the model directly:
 
@@ -454,7 +516,7 @@ by both application models:
 
 All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
 `fzn_` spellings, for 108 integer relation names. The 55 Boolean base names also
-accept those exact prefixes, for 165 Boolean names and 392 admitted names overall.
+accept those exact prefixes, for 165 Boolean names and 449 admitted names overall.
 Prefixed scalar XOR uses three arguments; only bare `bool_xor` also admits the
 two-argument assertion. Matching declarations select one admitted arity and calls
 must use that arity; duplicate declarations diagnose.

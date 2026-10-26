@@ -209,6 +209,10 @@ impl PreparedModel {
                 return Err(invalid("constraint ordinals must follow executable order"));
             }
             let predicate_name = match &constraint.predicate {
+                Predicate::Element { .. } | Predicate::Conditional { .. } => {
+                    self.validate_selection(constraint)?;
+                    &constraint.reference.predicate
+                }
                 Predicate::FloatRelation { .. }
                 | Predicate::FloatLinear { .. }
                 | Predicate::FloatArithmetic { .. }
@@ -367,6 +371,52 @@ impl PreparedModel {
                     "constraint report predicate does not match its operation",
                 ));
             }
+        }
+        Ok(())
+    }
+
+    fn validate_selection(&self, constraint: &Constraint) -> Result<(), Diagnostic> {
+        let mismatch =
+            || invalid("constraint report predicate does not match its selection operation");
+        let name =
+            SelectionName::from_name(&constraint.reference.predicate).ok_or_else(mismatch)?;
+        match &constraint.predicate {
+            Predicate::Element {
+                indices,
+                elements,
+                result,
+                layout,
+            } => {
+                if name.form != layout.form() || indices.len() != layout.index_count() {
+                    return Err(mismatch());
+                }
+                layout.validate(elements.len()).map_err(invalid)?;
+                for index in indices {
+                    self.validate_operand(index, ValueType::Integer)?;
+                }
+                for element in elements {
+                    self.validate_operand(element, name.kind)?;
+                    if !name.allows_variables && !matches!(element, Operand::Literal(_)) {
+                        return Err(invalid("element array requires fixed parameters"));
+                    }
+                }
+                self.validate_operand(result, name.kind)?;
+            }
+            Predicate::Conditional {
+                condition,
+                then_value,
+                else_value,
+                result,
+            } => {
+                if name.form != SelectionForm::Conditional {
+                    return Err(mismatch());
+                }
+                self.validate_operand(condition, ValueType::Boolean)?;
+                for value in [then_value, else_value, result] {
+                    self.validate_operand(value, name.kind)?;
+                }
+            }
+            _ => return Err(mismatch()),
         }
         Ok(())
     }

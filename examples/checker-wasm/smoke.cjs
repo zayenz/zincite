@@ -5,11 +5,11 @@ const { tmpdir } = require("node:os");
 const { resolve, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-assert.equal(process.argv.length, 9,
-    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json CANDIDATES.json NATIVE_CHECKER");
-const [glue, schedule, exact, bench, floats, candidates, native] = process.argv.slice(2).map(path => resolve(path));
+assert.equal(process.argv.length, 10,
+    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json CANDIDATES.json NATIVE_CHECKER");
+const [glue, schedule, exact, bench, floats, selection, candidates, native] = process.argv.slice(2).map(path => resolve(path));
 const { PreparedModel } = require(glue);
-const paths = { schedule, exact, bench, floats };
+const paths = { schedule, exact, bench, floats, selection };
 const defaults = {};
 const models = Object.fromEntries(Object.entries(paths).map(([name, path]) =>
     [name, new PreparedModel(readFileSync(path, "utf8"))]));
@@ -44,7 +44,7 @@ try {
     }
     assert.throws(() => models.floats.check('{"entries":[{"name":"x","value":{"kind":"scalar","value":{"kind":"float","value":1e999}}}]}'));
     for (const value of [NaN, Infinity, -1]) assert.throws(() => models.floats.setFloatTolerance(value, 0));
-    console.log(`Native/Wasm reports agree across ${cases.length * 2} checks; finite floats, saved/custom tolerance, exact integers, arithmetic, relations, Booleans, sets, global findings and input errors verified.`);
+    console.log(`Native/Wasm reports agree across ${cases.length * 2} checks; finite floats, saved/custom tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, global findings and input errors verified.`);
 } finally {
     for (const model of Object.values(models)) model.free();
     rmSync(directory, { recursive: true, force: true });
@@ -99,6 +99,22 @@ function decimal(value) {
 }
 
 function checkDetails(name, report) {
+    if (name === "selection-saved") assert.equal(report.objective.argument.value.value, "7");
+    if (name === "selection-conflict") {
+        for (const kind of ["element_mismatch", "conditional_mismatch"]) {
+            assert(report.violations.some(finding => finding.details.kind === kind), kind);
+        }
+        const element = report.violations.find(finding => finding.check.constraint?.metadata.application?.id === "selection");
+        assert.deepEqual(element.details.layout, {kind: "offset", offset: "-2"});
+        assert.equal(element.details.selected.value.value, "7");
+        assert.equal(element.details.result.variable.name, "picked");
+    }
+    if (name === "selection-range") {
+        const range = report.violations.find(finding => finding.details.kind === "element_range");
+        assert.equal(range.details.indices[0].value.value, "9223372036854775807");
+        assert.equal(range.details.result, null);
+    }
+
     if (name === "float-conflict") {
         for (const kind of ["float_arithmetic", "float_conversion", "float_relation", "float_membership"]) {
             assert(report.violations.some(finding => finding.details.kind === kind), kind);

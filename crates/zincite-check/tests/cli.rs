@@ -137,6 +137,13 @@ fn text_and_json_reports_cover_completeness_statuses_metadata_and_errors() {
         report["violations"][1]["details"]["condition"]["kind"],
         "implied"
     );
+    std::fs::write(&model, "var int: y; constraint array_int_element(0,[],y); constraint array_int_element(1,[3],4); constraint gecode_bool_ite(false,true,false,true); solve satisfy;").unwrap();
+    let output = run("text");
+    assert_eq!(output.status.code(), Some(1));
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("element indices [0] outside one-based positions (length 0)"));
+    assert!(text.contains("selected 3 differs from result 4"));
+    assert!(text.contains("condition false selects false, which differs from result true"));
     std::fs::write(&data, "missing=1;").unwrap();
     let error = run("json");
     assert_eq!(error.status.code(), Some(2));

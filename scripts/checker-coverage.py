@@ -130,6 +130,35 @@ CURRENT |= {
 }
 
 
+CURRENT |= {
+    prefix + "array_" + variable + kind + "_element"
+    for prefix in ("", "gecode_", "fzn_")
+    for variable in ("", "var_")
+    for kind in ("bool", "int", "set")
+}
+CURRENT |= {"array_" + variable + "float_element" for variable in ("", "var_")}
+CURRENT |= {
+    "array_var_" + kind + "_element_nonshifted"
+    for kind in ("bool", "int", "set", "float")
+}
+CURRENT |= {
+    prefix + "gecode_" + variable + kind + "_element"
+    for prefix in ("", "gecode_", "fzn_")
+    for variable in ("", "var_")
+    for kind in ("bool", "int")
+}
+CURRENT |= {
+    prefix + "gecode_" + kind + "_element2d"
+    for prefix in ("", "gecode_", "fzn_")
+    for kind in ("bool", "int", "set")
+}
+CURRENT |= {
+    prefix + "gecode_" + kind + "_ite"
+    for prefix in ("", "gecode_", "fzn_")
+    for kind in ("bool", "int", "set", "float")
+}
+
+
 @dataclass(frozen=True)
 class Declaration:
     file: str
@@ -709,10 +738,17 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
     boolean_names = boolean.split("match name {", 1)[1].split("_ =>", 1)[0]
     floats = (ROOT / "crates/zincite-check/src/floats.rs").read_text()
     float_names = floats.split("match name {", 1)[1].split("_ =>", 1)[0]
+    selection = (ROOT / "crates/zincite-check/src/selection.rs").read_text()
+    selection_names = selection.split("match name {", 1)[1].split("_ =>", 1)[0]
     admitted = set(
         re.findall(
             r'"([a-z_0-9]+)"',
-            arity + arithmetic_names + relation_names + boolean_names + float_names,
+            arity
+            + arithmetic_names
+            + relation_names
+            + boolean_names
+            + float_names
+            + selection_names,
         )
     )
     if admitted != CURRENT:

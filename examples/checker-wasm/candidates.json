@@ -174,5 +174,77 @@
     ]},
     "status": "invalid",
     "complete": false
+  },
+  {
+    "name": "selection-saved",
+    "model": "selection",
+    "assignment": {"entries": [
+      {"name": "index", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "0"}}},
+      {"name": "condition", "value": {"kind": "scalar", "value": {"kind": "boolean", "value": true}}},
+      {"name": "input_float", "value": {"kind": "scalar", "value": {"kind": "float", "value": 1.2500000001}}},
+      {"name": "input_set", "value": {"kind": "scalar", "value": {"kind": "integer_set", "value": {"ranges": [{"lower": "6", "upper": "6"}]}}}}
+    ]},
+    "status": "valid",
+    "complete": true
+  },
+  {
+    "name": "selection-custom",
+    "model": "selection",
+    "assignment": {"entries": [
+      {"name": "index", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "0"}}},
+      {"name": "condition", "value": {"kind": "scalar", "value": {"kind": "boolean", "value": true}}},
+      {"name": "input_float", "value": {"kind": "scalar", "value": {"kind": "float", "value": 1.2501}}},
+      {"name": "input_set", "value": {"kind": "scalar", "value": {"kind": "integer_set", "value": {"ranges": [{"lower": "6", "upper": "6"}]}}}}
+    ]},
+    "status": "valid",
+    "complete": true,
+    "tolerance": {"absolute": 0.001, "relative": 0.0}
+  },
+  {
+    "name": "selection-strict",
+    "model": "selection",
+    "assignment": {"entries": [
+      {"name": "index", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "0"}}},
+      {"name": "condition", "value": {"kind": "scalar", "value": {"kind": "boolean", "value": true}}},
+      {"name": "input_float", "value": {"kind": "scalar", "value": {"kind": "float", "value": 1.2500000001}}},
+      {"name": "input_set", "value": {"kind": "scalar", "value": {"kind": "integer_set", "value": {"ranges": [{"lower": "6", "upper": "6"}]}}}}
+    ]},
+    "status": "invalid",
+    "complete": true,
+    "tolerance": {"absolute": 0.0, "relative": 0.0}
+  },
+  {
+    "name": "selection-conflict",
+    "model": "selection",
+    "assignment": {"entries": [
+      {"name": "index", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "0"}}},
+      {"name": "condition", "value": {"kind": "scalar", "value": {"kind": "boolean", "value": true}}},
+      {"name": "input_float", "value": {"kind": "scalar", "value": {"kind": "float", "value": 1.2500000001}}},
+      {"name": "input_set", "value": {"kind": "scalar", "value": {"kind": "integer_set", "value": {"ranges": [{"lower": "6", "upper": "6"}]}}}},
+      {"name": "picked", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "8"}}},
+      {"name": "chosen_bool", "value": {"kind": "scalar", "value": {"kind": "boolean", "value": false}}},
+      {"name": "chosen_set", "value": {"kind": "scalar", "value": {"kind": "integer_set", "value": {"ranges": [{"lower": "5", "upper": "5"}]}}}},
+      {"name": "chosen_float", "value": {"kind": "scalar", "value": {"kind": "float", "value": 2.0}}}
+    ]},
+    "status": "invalid",
+    "complete": true
+  },
+  {
+    "name": "selection-range",
+    "model": "selection",
+    "assignment": {"entries": [
+      {"name": "index", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "9223372036854775807"}}},
+      {"name": "condition", "value": {"kind": "scalar", "value": {"kind": "boolean", "value": true}}},
+      {"name": "input_set", "value": {"kind": "scalar", "value": {"kind": "integer_set", "value": {"ranges": [{"lower": "6", "upper": "6"}]}}}}
+    ]},
+    "status": "invalid",
+    "complete": false
+  },
+  {
+    "name": "selection-missing",
+    "model": "selection",
+    "assignment": {"entries": []},
+    "status": "incomplete",
+    "complete": false
   }
 ]

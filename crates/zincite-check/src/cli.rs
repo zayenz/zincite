@@ -192,6 +192,61 @@ pub fn render_text(report: &CheckReport) -> String {
             check_text(&violation.check)
         );
         match &violation.details {
+            ViolationKind::ElementRange {
+                indices,
+                layout,
+                length,
+                result,
+            } => {
+                let indices = indices
+                    .iter()
+                    .map(|index| {
+                        index
+                            .as_ref()
+                            .map(argument_text)
+                            .unwrap_or_else(|| "unavailable".into())
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(
+                    text,
+                    "  element indices [{indices}] outside {layout} (length {length})"
+                );
+                if let Some(result) = result {
+                    let _ = writeln!(text, "  result {}", argument_text(result));
+                }
+            }
+            ViolationKind::ElementMismatch {
+                indices,
+                layout,
+                selected,
+                result,
+            } => {
+                let indices = indices
+                    .iter()
+                    .map(argument_text)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(
+                    text,
+                    "  element indices [{indices}] in {layout}: selected {} differs from result {}",
+                    argument_text(selected),
+                    argument_text(result)
+                );
+            }
+            ViolationKind::ConditionalMismatch {
+                condition,
+                selected,
+                result,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  condition {} selects {}, which differs from result {}",
+                    argument_text(condition),
+                    argument_text(selected),
+                    argument_text(result)
+                );
+            }
             ViolationKind::FloatRelation {
                 relation,
                 left,

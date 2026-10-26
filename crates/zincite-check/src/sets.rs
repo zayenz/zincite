@@ -67,6 +67,13 @@ impl IntegerSet {
         Self { ranges: merged }
     }
 
+    pub(crate) fn contiguous_bounds(&self) -> Option<(i64, i64)> {
+        match self.ranges.as_slice() {
+            [range] => Some((range.lower, range.upper)),
+            _ => None,
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         self.ranges.is_empty()
     }

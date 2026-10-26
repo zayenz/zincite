@@ -1,0 +1,16 @@
+var int: index;
+var bool: condition;
+var float: input_float;
+var set of int: input_set;
+var int: picked ::is_defined_var;
+var bool: chosen_bool ::is_defined_var;
+var set of int: chosen_set ::is_defined_var;
+var float: chosen_float ::is_defined_var;
+constraint gecode_int_element(index,-2,[99,picked,7],picked)::defines_var(picked)::checker_constraint("selection",[9007199254740993]);
+constraint gecode_bool_ite(condition,true,chosen_bool,chosen_bool)::defines_var(chosen_bool);
+constraint array_var_set_element_nonshifted(2,[{},input_set],chosen_set)::defines_var(chosen_set);
+constraint gecode_float_ite(condition,input_float,chosen_float,chosen_float)::defines_var(chosen_float);
+constraint array_float_element(1,[1.25],chosen_float);
+constraint gecode_set_element2d([{1},{2},{3},{4},{5},{6}],2,3,1,2,chosen_set);
+constraint gecode_bool_element2d(-1,5,[true,false,false,false,true,false],-2..-1,4..6,chosen_bool);
+solve minimize picked;

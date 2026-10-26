@@ -281,7 +281,9 @@ impl Source<'_> {
             ));
         }
         let parameters: Vec<_> = children[0].child_nodes().collect();
-        let expected = if let Some(float) = FloatName::from_name(name) {
+        let expected = if let Some(selection) = SelectionName::from_name(name) {
+            selection.signature()
+        } else if let Some(float) = FloatName::from_name(name) {
             float.signature()
         } else if let Some(boolean) = BooleanName::from_name(name) {
             boolean
@@ -1147,7 +1149,10 @@ impl<'a> Lowerer<'a> {
         let args: Vec<_> = call.child_nodes().collect();
         let boolean = BooleanName::from_name(&name);
         let float = FloatName::from_name(&name);
-        let arity = if let Some(float) = float {
+        let selection = SelectionName::from_name(&name);
+        let arity = if let Some(selection) = selection {
+            selection.arity()
+        } else if let Some(float) = float {
             float.signature().len()
         } else if let Some(boolean) = boolean {
             boolean.mode_for_arity(args.len()).ok_or_else(|| {
@@ -1174,7 +1179,9 @@ impl<'a> Lowerer<'a> {
                 .source
                 .error(call, format!("'{name}' expects {arity} arguments")));
         }
-        let predicate = if let Some(float) = float {
+        let predicate = if let Some(selection) = selection {
+            self.selection_predicate(call, selection, &args)?
+        } else if let Some(float) = float {
             self.float_predicate(call, float, &args)?
         } else if let Some(boolean) = boolean {
             self.boolean_predicate(call, boolean, &args)?
@@ -1231,6 +1238,93 @@ impl<'a> Lowerer<'a> {
             predicate,
         });
         Ok(())
+    }
+
+    fn selection_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: SelectionName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        if name.form == SelectionForm::Conditional {
+            return Ok(Predicate::Conditional {
+                condition: self.scalar(args[0], ValueType::Boolean)?,
+                then_value: self.scalar(args[1], name.kind)?,
+                else_value: self.scalar(args[2], name.kind)?,
+                result: self.scalar(args[3], name.kind)?,
+            });
+        }
+        struct ElementArguments<'a> {
+            indices: Vec<&'a SyntaxNode>,
+            array: &'a SyntaxNode,
+            result: &'a SyntaxNode,
+            layout: ElementLayout,
+        }
+        let element = match name.form {
+            SelectionForm::OneBased => ElementArguments {
+                indices: vec![args[0]],
+                array: args[1],
+                result: args[2],
+                layout: ElementLayout::OneBased,
+            },
+            SelectionForm::Offset => ElementArguments {
+                indices: vec![args[0]],
+                array: args[2],
+                result: args[3],
+                layout: ElementLayout::Offset {
+                    offset: self.constant_integer(args[1])?,
+                },
+            },
+            SelectionForm::Matrix => {
+                let mut fixed_set = |node| match self.scalar(node, ValueType::IntegerSet)? {
+                    Operand::Literal(Value::IntegerSet(set)) => Ok(set),
+                    _ => Err(self
+                        .source
+                        .error(node, "expected a fixed integer index set")),
+                };
+                ElementArguments {
+                    indices: vec![args[0], args[1]],
+                    array: args[2],
+                    result: args[5],
+                    layout: ElementLayout::Matrix {
+                        rows: fixed_set(args[3])?,
+                        columns: fixed_set(args[4])?,
+                    },
+                }
+            }
+            SelectionForm::SetMatrix => ElementArguments {
+                indices: vec![args[3], args[1]],
+                array: args[0],
+                result: args[5],
+                layout: ElementLayout::SetMatrix {
+                    width: self.constant_integer(args[2])?,
+                    height: self.constant_integer(args[4])?,
+                },
+            },
+            SelectionForm::Conditional => unreachable!("conditional handled above"),
+        };
+        let elements = if name.allows_variables {
+            self.array(element.array, name.kind)?
+        } else {
+            self.fixed_array(element.array, name.kind)?
+                .into_iter()
+                .map(Operand::Literal)
+                .collect()
+        };
+        element
+            .layout
+            .validate(elements.len())
+            .map_err(|message| self.source.error(call, message))?;
+        Ok(Predicate::Element {
+            indices: element
+                .indices
+                .into_iter()
+                .map(|index| self.scalar(index, ValueType::Integer))
+                .collect::<Result<_>>()?,
+            elements,
+            result: self.scalar(element.result, name.kind)?,
+            layout: element.layout,
+        })
     }
 
     fn fixed_array(&mut self, node: &SyntaxNode, kind: ValueType) -> Result<Vec<Value>> {

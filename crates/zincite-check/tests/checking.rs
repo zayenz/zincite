@@ -1924,3 +1924,343 @@ fn float_names_conditions_and_source_roles_follow_pinned_signatures() {
         assert!(prepare("bad.fzn", text).is_err(), "{text}");
     }
 }
+
+#[test]
+fn selection_spellings_and_declared_roles_match_upstream_signatures() {
+    let mut count = 0;
+    for (kind, value) in [
+        ("bool", "true"),
+        ("int", "7"),
+        ("float", "1.25"),
+        ("set of int", "{2,7}"),
+    ] {
+        let stem = if kind == "set of int" { "set" } else { kind };
+        for variable_array in [false, true] {
+            let var = if variable_array { "var_" } else { "" };
+            let role = if variable_array { "var " } else { "" };
+            let prefixes: &[&str] = if stem == "float" {
+                &[""]
+            } else {
+                &["", "gecode_", "fzn_"]
+            };
+            for prefix in prefixes {
+                let name = format!("{prefix}array_{var}{stem}_element");
+                let source = format!(
+                    "predicate {name}(var int: i, array[int] of {role}{kind}: a, var {kind}: y); var {kind}: y ::is_defined_var; constraint {name}(1,[{value}],y)::defines_var(y); solve satisfy;"
+                );
+                assert_eq!(
+                    prepare("selection.fzn", &source)
+                        .unwrap()
+                        .check(&assignment(""))
+                        .unwrap()
+                        .status,
+                    Status::Valid,
+                    "{name}"
+                );
+                count += 1;
+            }
+        }
+        let name = format!("array_var_{stem}_element_nonshifted");
+        let source = format!("constraint {name}(1,[{value}],{value}); solve satisfy;");
+        assert_eq!(
+            prepare("selection.fzn", &source)
+                .unwrap()
+                .check(&assignment(""))
+                .unwrap()
+                .status,
+            Status::Valid
+        );
+        count += 1;
+        for prefix in ["", "gecode_", "fzn_"] {
+            let name = format!("{prefix}gecode_{stem}_ite");
+            let source = format!(
+                "predicate {name}(var bool: b,var {kind}: x,var {kind}: y,var {kind}: z); var {kind}: z ::is_defined_var; constraint {name}(true,{value},z,z)::defines_var(z); solve satisfy;"
+            );
+            assert_eq!(
+                prepare("selection.fzn", &source)
+                    .unwrap()
+                    .check(&assignment(""))
+                    .unwrap()
+                    .status,
+                Status::Valid
+            );
+            count += 1;
+        }
+        if matches!(stem, "int" | "bool") {
+            for prefix in ["", "gecode_", "fzn_"] {
+                for var in ["", "var_"] {
+                    let name = format!("{prefix}gecode_{var}{stem}_element");
+                    let source = format!(
+                        "predicate {name}(var int: i,int: offset,array[int] of var {kind}: a,var {kind}: y); var {kind}: x; var {kind}: y ::is_defined_var; constraint {name}(-3,-3,[x],y)::defines_var(y); solve satisfy;"
+                    );
+                    assert_eq!(
+                        prepare("selection.fzn", &source)
+                            .unwrap()
+                            .check(&assignment(&format!("x={value};")))
+                            .unwrap()
+                            .status,
+                        Status::Valid
+                    );
+                    count += 1;
+                }
+                let name = format!("{prefix}gecode_{stem}_element2d");
+                let source = format!(
+                    "predicate {name}(var int: r,var int: c,array[int] of var {kind}: a,set of int: rows,set of int: cols,var {kind}: y); constraint {name}(-1,5,[{value},{value}],-1..-1,4..5,{value}); solve satisfy;"
+                );
+                assert_eq!(
+                    prepare("selection.fzn", &source)
+                        .unwrap()
+                        .check(&assignment(""))
+                        .unwrap()
+                        .status,
+                    Status::Valid
+                );
+                count += 1;
+            }
+        }
+    }
+    for prefix in ["", "gecode_", "fzn_"] {
+        let name = format!("{prefix}gecode_set_element2d");
+        let source = format!(
+            "predicate {name}(array[int] of var set of int: a,var int: c,int: w,var int: r,int: h,var set of int: y); constraint {name}([{{1}},{{2}},{{3}},{{4}},{{5}},{{6}}],2,3,1,2,{{6}}); solve satisfy;"
+        );
+        assert_eq!(
+            prepare("selection.fzn", &source)
+                .unwrap()
+                .check(&assignment(""))
+                .unwrap()
+                .status,
+            Status::Valid
+        );
+        count += 1;
+    }
+    assert_eq!(count, 57);
+
+    for source in [
+        "var int: x; constraint array_int_element(1,[x],1); solve satisfy;",
+        "var int: o; constraint gecode_int_element(1,o,[1],1); solve satisfy;",
+        "var set of int: rows; constraint gecode_int_element2d(1,1,[1],rows,1..1,1); solve satisfy;",
+        "var int: w; constraint gecode_set_element2d([{1}],0,w,0,1,{1}); solve satisfy;",
+        "predicate array_int_element(var int: i,array[int] of var int: a,var int: y); solve satisfy;",
+        "predicate gecode_int_element(var int: i,var int: o,array[int] of var int: a,var int: y); solve satisfy;",
+        "predicate gecode_bool_ite(bool: b,var bool: x,var bool: y,var bool: z); solve satisfy;",
+        "constraint gecode_array_float_element(1,[1.0],1.0); solve satisfy;",
+        "constraint array_var_int_element2d_nonshifted(1,1,[1],1); solve satisfy;",
+    ] {
+        assert!(prepare("roles.fzn", source).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn selections_require_only_current_selected_values_and_keep_conflicts_and_domain_failures() {
+    let model = prepare("selection.fzn", r#"
+var int: i;
+var bool: condition;
+var int: missing;
+var 0..5: selected ::is_defined_var;
+var int: branch ::is_defined_var;
+var int: next ::is_defined_var;
+constraint array_var_int_element(i,[missing,9,selected],selected)::defines_var(selected)::checker_constraint("pick",[42])::mzn_constraint_name("Choose value");
+constraint gecode_int_ite(condition,selected,branch,branch)::defines_var(branch);
+constraint int_plus(branch,1,next)::defines_var(next);
+solve minimize next;
+"#).unwrap();
+    let report = model.check(&assignment("i=2;condition=true;")).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(!report.completeness.complete); // The independent missing variable still has a domain check.
+    assert_eq!(report.violations.len(), 1);
+    assert_eq!(report.objective.unwrap().argument.value, Value::Integer(10));
+    assert!(
+        !report
+            .completeness
+            .blocked_checks
+            .iter()
+            .any(|blocked| matches!(blocked.check, CheckRef::Constraint { .. }))
+    );
+
+    let report = model
+        .check(&assignment("i=2;condition=true;selected=3;branch=4;"))
+        .unwrap();
+    assert_eq!(report.violations.len(), 2);
+    let ViolationKind::ElementMismatch {
+        indices,
+        selected,
+        result,
+        ..
+    } = &report.violations[0].details
+    else {
+        panic!("element mismatch")
+    };
+    assert_eq!(indices[0].value, Value::Integer(2));
+    assert_eq!(selected.value, Value::Integer(9));
+    assert_eq!(result.variable.as_ref().unwrap().name, "selected");
+    let CheckRef::Constraint { constraint } = &report.violations[0].check else {
+        panic!("constraint")
+    };
+    assert_eq!(constraint.metadata.application.as_ref().unwrap().id, "pick");
+    assert_eq!(
+        constraint.metadata.application.as_ref().unwrap().entities,
+        [42]
+    );
+    assert_eq!(constraint.metadata.label.as_deref(), Some("Choose value"));
+    assert!(matches!(
+        report.violations[1].details,
+        ViolationKind::ConditionalMismatch { .. }
+    ));
+
+    for candidate in [
+        "i=1;condition=true;",
+        "i=3;condition=true;",
+        "i=2;condition=false;",
+    ] {
+        let report = model.check(&assignment(candidate)).unwrap();
+        assert!(report.objective.is_none(), "{candidate}");
+        assert!(!report.completeness.complete);
+    }
+    let report = model.check(&assignment("condition=true;")).unwrap();
+    let missing = report
+        .completeness
+        .blocked_checks
+        .iter()
+        .find_map(|blocked| match &blocked.check {
+            CheckRef::Constraint { constraint } if constraint.ordinal == 1 => {
+                Some(&blocked.missing)
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        missing.iter().map(|v| v.name.as_str()).collect::<Vec<_>>(),
+        ["i"]
+    );
+    let report = model.check(&assignment("i=-9223372036854775808;")).unwrap();
+    assert!(matches!(
+        report.violations[0].details,
+        ViolationKind::ElementRange { result: None, .. }
+    ));
+    assert!(
+        model
+            .check(&assignment("i=2;condition=true;"))
+            .unwrap()
+            .objective
+            .is_some()
+    );
+}
+
+#[test]
+fn element_layouts_check_axes_before_row_major_selection_and_use_exact_indices() {
+    for (call, good, bad) in [
+        (
+            "gecode_int_element(i,-9223372036854775808,[3,7],y)",
+            "i=-9223372036854775807;y=7;",
+            "i=9223372036854775807;",
+        ),
+        (
+            "gecode_int_element2d(i,j,[1,2,3,4,5,6],-2..-1,4..6,y)",
+            "i=-1;j=5;y=5;",
+            "i=-2;j=7;",
+        ),
+        (
+            "gecode_bool_element2d(i,j,[true,false,false,false,true,false],-2..-1,4..6,y)",
+            "i=-1;j=5;y=true;",
+            "i=-3;",
+        ),
+        (
+            "gecode_set_element2d([{1},{2},{3},{4},{5},{6}],j,3,i,2,y)",
+            "i=1;j=2;y={6};",
+            "i=0;j=3;",
+        ),
+    ] {
+        let kind = if call.starts_with("gecode_bool") {
+            "bool"
+        } else if call.starts_with("gecode_set") {
+            "set of int"
+        } else {
+            "int"
+        };
+        let source =
+            format!("var int: i; var int: j; var {kind}: y; constraint {call}; solve satisfy;");
+        let model = prepare("layout.fzn", &source).unwrap();
+        let report = model.check(&assignment(good)).unwrap();
+        assert!(report.violations.is_empty(), "{call}");
+        let report = model.check(&assignment(bad)).unwrap();
+        assert!(
+            matches!(
+                report.violations[0].details,
+                ViolationKind::ElementRange { result: None, .. }
+            ),
+            "{call}"
+        );
+    }
+    for call in [
+        "gecode_int_element2d(1,1,[1],{},1..1,1)",
+        "gecode_int_element2d(1,1,[1,2],{1,3},1..1,1)",
+        "gecode_int_element2d(1,1,[1],1..2,1..3,1)",
+        "gecode_int_element2d(1,1,[],1..9223372036854775807,1..9223372036854775807,1)",
+        "gecode_set_element2d([],0,0,0,1,{})",
+        "gecode_set_element2d([],0,1,0,-1,{})",
+        "gecode_set_element2d([{1}],0,2,0,1,{1})",
+    ] {
+        assert!(
+            prepare("shape.fzn", &format!("constraint {call}; solve satisfy;")).is_err(),
+            "{call}"
+        );
+    }
+    let model = prepare(
+        "empty.fzn",
+        "var int: i; var int: y; constraint array_var_int_element(i,[],y); solve satisfy;",
+    )
+    .unwrap();
+    assert_eq!(
+        model.check(&assignment("")).unwrap().status,
+        Status::Incomplete
+    );
+    assert!(matches!(
+        model.check(&assignment("i=1;")).unwrap().violations[0].details,
+        ViolationKind::ElementRange { length: 0, .. }
+    ));
+}
+
+#[test]
+fn selected_floats_use_the_saved_policy_without_changing_the_selected_value() {
+    let mut model = prepare("float-selection.fzn", "var float: chosen ::is_defined_var; constraint array_var_float_element_nonshifted(2,[9.0,1.25],chosen)::defines_var(chosen); constraint gecode_float_ite(false,9.0,chosen,1.2500000001); solve minimize chosen;").unwrap();
+    let report = model.check(&assignment("")).unwrap();
+    assert_eq!(report.status, Status::Valid);
+    assert_eq!(
+        report.objective.unwrap().argument.value,
+        Value::Float(zincite_check::FiniteFloat::new(1.25).unwrap())
+    );
+    model.set_float_tolerance(zincite_check::FloatTolerance::new(0.0, 0.0).unwrap());
+    assert!(matches!(
+        model.check(&assignment("")).unwrap().violations[0].details,
+        ViolationKind::ConditionalMismatch { .. }
+    ));
+}
+
+#[test]
+fn selection_reports_and_text_survive_validated_round_trips() {
+    let mut model = prepare(
+        "selection.fzn",
+        include_str!("../../../examples/checker-compilation/selection.fzn"),
+    )
+    .unwrap();
+    model.set_float_tolerance(zincite_check::FloatTolerance::new(2e-6, 3e-6).unwrap());
+    let loaded = zincite_check::PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for candidate in [
+        "index=0;condition=true;input_float=1.2500000001;input_set={6};",
+        "index=0;condition=true;input_float=1.25;input_set={6};picked=8;chosen_bool=false;chosen_set={5};chosen_float=2.0;",
+        "index=9223372036854775807;condition=true;input_set={6};",
+        "",
+    ] {
+        let original = model.check(&assignment(candidate)).unwrap();
+        let round_trip = loaded.check(&assignment(candidate)).unwrap();
+        assert_eq!(
+            serde_json::to_value(&original).unwrap(),
+            serde_json::to_value(&round_trip).unwrap()
+        );
+        assert_eq!(
+            zincite_check::cli::render_text(&original),
+            zincite_check::cli::render_text(&round_trip)
+        );
+    }
+}
