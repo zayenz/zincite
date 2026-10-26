@@ -61,15 +61,19 @@ statement fails, the command produces no partial report on stdout.
 
 ## Candidate checking from a checkout
 
-`zincite check` and `zincite-check` share one CLI. They accept two file paths:
+`zincite check` and `zincite-check` share one CLI:
 
 ```sh
 zincite check [--format text|json] model.fzn candidate.dzn
 zincite-check [--format text|json] model.fzn candidate.dzn
+zincite check --export prepared.json model.fzn
+zincite-check --load [--format text|json] prepared.json candidate.dzn
 ```
 
-Reports go to stdout; input and execution errors go to stderr without partial
-stdout. The checker reads literal Boolean/integer assignments, checks every
+`--export` prepares the source and creates a new JSON file, refusing existing
+paths. `--load` validates that artifact and checks without parsing FlatZinc.
+Both entry points support both options. Reports go to stdout; input and
+execution errors go to stderr without partial stdout. The checker reads literal Boolean/integer assignments, checks every
 available domain and supported relation, and reports independent completeness.
 Supported linear-equality and full-reification outputs are derived from known
 inputs before checking. It starts no compiler or solver.
@@ -92,9 +96,9 @@ bytes again before replacing the file. Writes retain file permissions.
 
 | Code | Formatter | Linter | Query | Checker (checkout) |
 | --- | --- | --- | --- | --- |
-| `0` | Formatting succeeded; check found no changes | No unsuppressed warnings or errors | Complete result | Valid, complete candidate |
+| `0` | Formatting succeeded; check found no changes | No unsuppressed warnings or errors | Complete result | Valid, complete candidate or successful export |
 | `1` | Check found formatting changes | Unsuppressed warnings | Incomplete semantic report or data candidate | Invalid or incomplete report |
-| `2` | Input, syntax, configuration, directive, usage or I/O error | Input, syntax, settings, directive, usage, dependency or I/O error | Query, input, model, usage or I/O error | Usage, I/O, preparation, assignment or arithmetic error |
+| `2` | Input, syntax, configuration, directive, usage or I/O error | Input, syntax, settings, directive, usage, dependency or I/O error | Query, input, model, usage or I/O error | Usage, I/O, preparation, loading, assignment or arithmetic error |
 
 Errors take precedence across formatter/linter inputs. A query's empty fragment
 selection succeeds with no source; its count is 0. Lint limitations alone retain

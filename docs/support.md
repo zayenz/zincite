@@ -36,6 +36,10 @@ full-reification definitions calculate auxiliary values from known inputs.
 A complete valid report establishes feasibility of that supported compiled
 model, without claiming optimality.
 Checking starts no compiler or solver; compilation is a separate offline step.
+The checker can export prepared models as versioned JSON, validate and load
+them without parsing FlatZinc, and check through the same runtime. Mathematical
+integers use exact decimal strings. The loader and checking API also work
+without the optional syntax dependency; browser bindings are not yet available.
 
 ## Unknown facts and incomplete analysis
 

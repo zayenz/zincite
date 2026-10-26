@@ -80,8 +80,9 @@ offers additional examples and background.
 The checkout also provides `zincite check` and `zincite-check` for a documented
 Boolean/integer FlatZinc subset. Prepare once and check supplied candidates,
 including infeasible or incomplete ones, without running a compiler or solver.
-See the [checker guide](crates/zincite-check/README.md) for local installation,
-working commands, structured reports and exact coverage. Supported linear
+Export a prepared model to versioned JSON and load it for checking without
+parsing the FlatZinc again. See the [checker guide](crates/zincite-check/README.md)
+for local installation, working commands, structured reports and exact coverage. Supported linear
 equality and full reification definitions derive auxiliaries from primary decisions.
 The checker is not part of the published 0.3.0 packages.
 

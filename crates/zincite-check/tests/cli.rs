@@ -125,3 +125,93 @@ fn text_and_json_reports_cover_completeness_statuses_metadata_and_errors() {
     assert!(String::from_utf8_lossy(&error.stderr).contains("unsupported type"));
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn export_and_load_check_the_same_candidates_and_refuse_overwrites() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-check-export-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let model = directory.join("model.fzn");
+    let artifact = directory.join("model.json");
+    let data = directory.join("candidate.dzn");
+    let source = include_str!("../../../examples/checker-compilation/model.fzn");
+    std::fs::write(&model, source).unwrap();
+    let export = |output: &std::path::Path| {
+        Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+            .arg("--export")
+            .arg(output)
+            .arg(&model)
+            .output()
+            .unwrap()
+    };
+    let output = export(&artifact);
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stdout.is_empty() && output.stderr.is_empty());
+    let exported = std::fs::read(&artifact).unwrap();
+    assert_eq!(export(&artifact).status.code(), Some(2));
+    assert_eq!(std::fs::read(&artifact).unwrap(), exported);
+    assert_eq!(export(&model).status.code(), Some(2));
+    assert_eq!(std::fs::read_to_string(&model).unwrap(), source);
+    for (source, exit) in [
+        (
+            include_str!("../../../examples/checker-compilation/candidates/feasible.dzn"),
+            0,
+        ),
+        (
+            include_str!("../../../examples/checker-compilation/candidates/infeasible.dzn"),
+            1,
+        ),
+        (
+            include_str!("../../../examples/checker-compilation/candidates/incomplete.dzn"),
+            1,
+        ),
+        (
+            include_str!("../../../examples/checker-compilation/candidates/incomplete-invalid.dzn"),
+            1,
+        ),
+    ] {
+        std::fs::write(&data, source).unwrap();
+        let check = |load| {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_zincite-check"));
+            if load {
+                command.arg("--load");
+            }
+            command
+                .arg("--format")
+                .arg("json")
+                .arg(if load { &artifact } else { &model })
+                .arg(&data)
+                .output()
+                .unwrap()
+        };
+        let original = check(false);
+        let loaded = check(true);
+        assert_eq!(original.status.code(), Some(exit));
+        assert_eq!(loaded.status.code(), Some(exit), "{loaded:?}");
+        assert!(loaded.stderr.is_empty());
+        assert_eq!(loaded.stdout, original.stdout);
+    }
+    // Loaded checking no longer needs the source file.
+    std::fs::remove_file(&model).unwrap();
+    std::fs::write(&data, "start=[1,4];").unwrap();
+    let loaded = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+        .arg("--load")
+        .arg(&artifact)
+        .arg(&data)
+        .output()
+        .unwrap();
+    assert!(loaded.status.success(), "{loaded:?}");
+    let mut malformed: serde_json::Value = serde_json::from_slice(&exported).unwrap();
+    malformed["format_version"] = 42.into();
+    std::fs::write(&artifact, malformed.to_string()).unwrap();
+    let error = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+        .arg("--load")
+        .arg(&artifact)
+        .arg(&data)
+        .output()
+        .unwrap();
+    assert_eq!(error.status.code(), Some(2));
+    assert!(error.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&error.stderr).contains("format version"));
+    std::fs::remove_dir_all(directory).unwrap();
+}

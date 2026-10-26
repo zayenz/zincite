@@ -28,6 +28,33 @@ report, alongside any known violations.
 The four saved candidates in `examples/checker-compilation/candidates/` supply
 only primary decisions and cover feasible, infeasible and incomplete reports.
 
+## Export once and load for repeated checks
+
+```sh
+cargo run -p zincite-check -- --export /tmp/zincite-prepared.json examples/checker-compilation/model.fzn
+cargo run -p zincite-check -- --load --format json /tmp/zincite-prepared.json examples/checker-compilation/candidates/infeasible.dzn
+cargo run -p zincite -- check --load /tmp/zincite-prepared.json examples/checker-compilation/candidates/incomplete-invalid.dzn
+```
+
+`--export OUTPUT.json MODEL.fzn` prepares the source and creates a new file.
+It refuses an existing output path, including the source path, and writes
+nothing to stdout. Choose a fresh path for another export. `--load` validates
+the prepared JSON and checks assignments without reading or parsing the
+FlatZinc again. Both entry points support these options; the source-checking
+invocation above also works.
+
+The artifact has `format_version: 1` and an executable `model`: typed slots
+and seed defaults, name/array bindings, declaration domains, the three supported
+operations, an optional objective, and report references with application
+metadata. It carries no source text or CST. All mathematical integers are
+decimal strings, including domain bounds, coefficients, defaults and entity
+payloads. Loading rejects incompatible versions, bad references, wrong types
+and invalid definition annotations before exposing a checkable model. It
+rebuilds aliases, definition directions and dependencies from validated
+operations rather than accepting serialized execution caches. A slot's seed
+must come from a fixed or singleton declaration; other alias domains can still
+report violations against that value.
+
 ## Compile the application model offline
 
 The package includes `minizinc/checker_annotations.mzn`. It declares
@@ -96,11 +123,13 @@ control sources and observations are in the repository's
 ## Library use
 
 ```rust
-use zincite_check::{prepare, parse_assignment, Status};
+use zincite_check::{prepare, parse_assignment, PreparedModel, Status};
 
 let model = prepare("small.fzn", "var 0..3: x; constraint int_lin_le([1],[x],2); solve satisfy;").unwrap();
 let assignment = parse_assignment("candidate.dzn", "x=3;").unwrap();
-let report = model.check(&assignment).unwrap();
+let exported = model.to_json().unwrap();
+let loaded = PreparedModel::from_json(&exported).unwrap();
+let report = loaded.check(&assignment).unwrap();
 assert_eq!(report.status, Status::Invalid);
 assert!(report.completeness.complete);
 assert_eq!(report.violations.len(), 1);
@@ -114,8 +143,12 @@ failures. Insufficient input returns `Ok(CheckReport)`.
 
 The default `prepare` feature uses `zincite-syntax` for CST traversal and source
 locations, and includes the native CLI. Disabling default features excludes the
-parser and CLI. Prepared-model loading and WebAssembly bindings are later work;
-this increment provides no parser-free model constructor.
+parser and CLI. `PreparedModel::from_json` and `check` also work with
+`zincite-check = { version = "0.3.0", default-features = false }` when using
+this checkout. Supply `Assignment` values directly in that build. `from_json`
+returns a `Diagnostic` on malformed input; `PreparedModel` does not implement
+`Deserialize`, so deserialization cannot bypass admission checks. WebAssembly
+bindings are later work.
 
 ## Accepted model and assignment forms
 
@@ -220,12 +253,13 @@ positions are ordinary JSON numbers. Report JSON is an output format, not a
 prepared-model loading format.
 
 Both commands accept `--format text` (the default) or `--format json`, followed
-by a model path and an assignment path. Reports go to stdout. Errors go to
-stderr with no partial stdout, including in JSON mode. Neither command writes
-input files.
+by a model path and an assignment path. With `--load`, the model path names
+the prepared JSON artifact. Reports go to stdout. Errors go to
+stderr with no partial stdout, including in JSON mode. Checking writes no input
+files. `--export` creates a new output file.
 
 | Status | Meaning |
 | --- | --- |
-| 0 | Valid, complete candidate |
+| 0 | Valid, complete candidate or successful export |
 | 1 | Invalid or incomplete report |
-| 2 | Usage, I/O, syntax, preparation, assignment or arithmetic error |
+| 2 | Usage, I/O, syntax, preparation, loading, assignment or arithmetic error |

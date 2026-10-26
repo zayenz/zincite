@@ -302,17 +302,6 @@ impl Source<'_> {
     }
 }
 
-impl Domain {
-    fn singleton(&self) -> Option<Value> {
-        match self {
-            Self::Interval { lower, upper } if lower == upper => Some(Value::Integer(*lower)),
-            Self::Enumeration { values } if values.len() == 1 => Some(Value::Integer(values[0])),
-            Self::Fixed { value } => Some(*value),
-            _ => None,
-        }
-    }
-}
-
 struct Declaration<'a> {
     node: &'a SyntaxNode,
     name: String,
@@ -561,14 +550,14 @@ impl<'a> Lowerer<'a> {
                 .source
                 .error(self.source.parsed.tree(), "expected exactly one solve item"));
         }
-        self.prepare_definitions()?;
+        self.model.prepare_definitions()?;
         self.model.variables.sort_by_key(|variable| {
             (
                 variable.reference.location.start,
                 variable.reference.position,
             )
         });
-        self.link_aliases();
+        self.model.link_aliases();
         Ok(self.model)
     }
 
@@ -695,31 +684,6 @@ impl<'a> Lowerer<'a> {
                 slot,
                 domains,
             });
-        }
-    }
-
-    fn link_aliases(&mut self) {
-        let mut aliases = vec![Vec::new(); self.model.slots.len()];
-        for variable in &self.model.variables {
-            aliases[variable.slot].push(VariableAlias {
-                name: variable.reference.name.clone(),
-                position: variable.reference.position,
-            });
-        }
-        let link = |reference: &mut VariableRef, slot: usize| {
-            reference.aliases = aliases[slot]
-                .iter()
-                .filter(|alias| {
-                    alias.name != reference.name || alias.position != reference.position
-                })
-                .cloned()
-                .collect();
-        };
-        for variable in &mut self.model.variables {
-            link(&mut variable.reference, variable.slot);
-        }
-        for (slot, value) in self.model.slots.iter_mut().enumerate() {
-            link(&mut value.reference, slot);
         }
     }
 
@@ -927,120 +891,6 @@ impl<'a> Lowerer<'a> {
             _ => unreachable!("solve annotations were validated before resolving search inputs"),
         }
         Ok(())
-    }
-
-    fn prepare_definitions(&mut self) -> Result<()> {
-        let mut defined = HashSet::new();
-        self.model.dependents = vec![Vec::new(); self.model.slots.len()];
-        for (constraint_index, constraint) in self.model.constraints.iter().enumerate() {
-            let Some(name) = &constraint.reference.metadata.defines else {
-                continue;
-            };
-            let fail = |message: &str| Diagnostic {
-                location: Some(constraint.reference.location.clone()),
-                message: message.into(),
-            };
-            let binding = self
-                .model
-                .bindings
-                .get(name)
-                .ok_or_else(|| fail("defines_var names an unknown variable"))?;
-            let [Operand::Variable(slot)] = binding.elements.as_slice() else {
-                return Err(fail("defines_var needs a scalar variable"));
-            };
-            if binding.is_array || !binding.assignable {
-                return Err(fail("defines_var needs a scalar variable"));
-            }
-            let declaration = &self.declarations[self.names[name]];
-            if !declaration.metadata.is_defined {
-                return Err(fail("defines_var target must have is_defined_var"));
-            }
-            if !defined.insert(*slot) {
-                return Err(fail("a variable has multiple defines_var annotations"));
-            }
-            let direction = definition_direction(constraint, *slot)?;
-            // A definition supplies its output even when an alias has a singleton domain.
-            self.model.slots[*slot].default = None;
-            if let Some(direction) = direction {
-                let inputs: &[Operand] = match &constraint.predicate {
-                    Predicate::Linear { terms, .. } => terms,
-                    Predicate::ReifiedLessEqual { left, right, .. } => &[*left, *right],
-                };
-                let definition_index = self.model.definitions.len();
-                let mut inputs_seen = HashSet::new();
-                for operand in inputs {
-                    if let Operand::Variable(input) = operand
-                        && input != slot
-                        && inputs_seen.insert(*input)
-                    {
-                        self.model.dependents[*input].push(definition_index);
-                    }
-                }
-                self.model.definitions.push(Definition {
-                    constraint: constraint_index,
-                    output: *slot,
-                    direction,
-                });
-            }
-        }
-        for declaration in &self.declarations {
-            if declaration.metadata.is_defined {
-                let binding = &self.model.bindings[&declaration.name];
-                if !matches!(binding.elements.as_slice(), [Operand::Variable(slot)] if defined.contains(slot))
-                {
-                    return Err(self.source.error(
-                        declaration.node,
-                        "is_defined_var has no matching defines_var relation",
-                    ));
-                }
-            }
-        }
-        Ok(())
-    }
-}
-
-fn definition_direction(
-    constraint: &Constraint,
-    output: usize,
-) -> Result<Option<DefinitionDirection>> {
-    let absent = || Diagnostic {
-        location: Some(constraint.reference.location.clone()),
-        message: "defines_var target does not occur in its relation".into(),
-    };
-    match &constraint.predicate {
-        Predicate::Linear {
-            coefficients,
-            terms,
-            equality,
-            ..
-        } => {
-            let occurrences: Vec<_> = terms
-                .iter()
-                .enumerate()
-                .filter_map(|(index, operand)| {
-                    matches!(operand, Operand::Variable(slot) if *slot == output).then_some(index)
-                })
-                .collect();
-            let &term = occurrences.first().ok_or_else(absent)?;
-            Ok(
-                (*equality && occurrences.len() == 1 && coefficients[term] != 0)
-                    .then_some(DefinitionDirection::Linear { term }),
-            )
-        }
-        Predicate::ReifiedLessEqual {
-            left,
-            right,
-            result,
-        } => {
-            if ![left, right, result]
-                .iter()
-                .any(|operand| matches!(operand, Operand::Variable(slot) if *slot == output))
-            {
-                return Err(absent());
-            }
-            Ok(matches!(result, Operand::Variable(slot) if *slot == output)
-                .then_some(DefinitionDirection::ReifiedLessEqual))
-        }
     }
 }
 

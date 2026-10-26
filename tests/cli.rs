@@ -1794,3 +1794,48 @@ fn query_markdown_inline_and_file_keep_native_subjects_and_buffer_errors() {
     assert_eq!(limited.status.code(), Some(2));
     assert!(limited.stdout.is_empty());
 }
+
+#[test]
+fn checker_dispatch_exports_and_loads_prepared_candidates() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-root-check-export-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let artifact = directory.join("prepared.json");
+    let model = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/examples/checker-compilation/model.fzn"
+    );
+    let export = run(
+        &["check", "--export", artifact.to_str().unwrap(), model],
+        "",
+    );
+    assert!(export.status.success(), "{export:?}");
+    assert!(export.stdout.is_empty() && export.stderr.is_empty());
+    for (candidate, exit) in [
+        ("feasible", 0),
+        ("infeasible", 1),
+        ("incomplete", 1),
+        ("incomplete-invalid", 1),
+    ] {
+        let assignment = format!(
+            "{}/examples/checker-compilation/candidates/{candidate}.dzn",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let source = run(&["check", "--format", "json", model, &assignment], "");
+        let loaded = run(
+            &[
+                "check",
+                "--load",
+                "--format",
+                "json",
+                artifact.to_str().unwrap(),
+                &assignment,
+            ],
+            "",
+        );
+        assert_eq!(loaded.status.code(), Some(exit), "{loaded:?}");
+        assert!(loaded.stderr.is_empty());
+        assert_eq!(source.stdout, loaded.stdout);
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

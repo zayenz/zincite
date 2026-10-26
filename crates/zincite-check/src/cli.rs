@@ -18,8 +18,15 @@ pub fn run(arguments: Vec<OsString>, invocation: &str) -> ExitCode {
     }
 }
 
+enum InputMode {
+    Source,
+    Load,
+    Export(PathBuf),
+}
+
 fn command(arguments: Vec<OsString>, invocation: &str) -> Result<(String, u8), String> {
     let mut paths = Vec::new();
+    let mut mode = InputMode::Source;
     let mut json = false;
     let mut options = true;
     let mut arguments = arguments.into_iter();
@@ -27,6 +34,20 @@ fn command(arguments: Vec<OsString>, invocation: &str) -> Result<(String, u8), S
         match argument.to_str() {
             Some("--") if options => options = false,
             Some("-h" | "--help") if options => return Ok((help(invocation), 0)),
+            Some("--load" | "--export") if options => {
+                if !matches!(mode, InputMode::Source) {
+                    return Err(
+                        "--load and --export can be used only once and cannot be combined".into(),
+                    );
+                }
+                mode = if argument == "--load" {
+                    InputMode::Load
+                } else {
+                    InputMode::Export(PathBuf::from(
+                        arguments.next().ok_or("--export expects an output path")?,
+                    ))
+                };
+            }
             Some("--format") if options => {
                 json = match arguments.next().as_deref().and_then(|value| value.to_str()) {
                     Some("json") => true,
@@ -40,18 +61,32 @@ fn command(arguments: Vec<OsString>, invocation: &str) -> Result<(String, u8), S
             _ => paths.push(PathBuf::from(argument)),
         }
     }
-    if paths.len() != 2 {
+    let expected = if matches!(mode, InputMode::Export(_)) {
+        1
+    } else {
+        2
+    };
+    if paths.len() != expected {
         return Err(format!(
-            "expected a model and an assignment file; use {invocation} --help"
+            "expected {expected} input file(s); use {invocation} --help"
         ));
     }
     let read = |path: &std::path::Path| {
         std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
     };
     let model_source = read(&paths[0])?;
+    let model = if matches!(mode, InputMode::Load) {
+        PreparedModel::from_json(&model_source)
+            .map_err(|error| format!("{}: {}", paths[0].display(), error.message))?
+    } else {
+        prepare(&paths[0].to_string_lossy(), &model_source)
+            .map_err(|errors| diagnostics(&errors))?
+    };
+    if let InputMode::Export(output) = mode {
+        export_model(&model, &output)?;
+        return Ok((String::new(), 0));
+    }
     let assignment_source = read(&paths[1])?;
-    let model = prepare(&paths[0].to_string_lossy(), &model_source)
-        .map_err(|errors| diagnostics(&errors))?;
     let assignment = parse_assignment(&paths[1].to_string_lossy(), &assignment_source)
         .map_err(|errors| diagnostics(&errors))?;
     let report = model
@@ -69,6 +104,19 @@ fn command(arguments: Vec<OsString>, invocation: &str) -> Result<(String, u8), S
     Ok((output, status))
 }
 
+fn export_model(model: &PreparedModel, output: &std::path::Path) -> Result<(), String> {
+    let json = model
+        .to_json()
+        .map_err(|error| format!("cannot export model: {error}"))?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output)
+        .map_err(|error| format!("{}: {error}", output.display()))?;
+    writeln!(file, "{json}").map_err(|error| format!("{}: {error}", output.display()))?;
+    Ok(())
+}
+
 fn fail(message: &str) -> ExitCode {
     let _ = writeln!(io::stderr(), "{message}");
     ExitCode::from(2)
@@ -76,7 +124,7 @@ fn fail(message: &str) -> ExitCode {
 
 fn help(invocation: &str) -> String {
     format!(
-        "Usage: {invocation} [--format text|json] MODEL.fzn ASSIGNMENT.dzn\n\nCheck a candidate against the supported Boolean/integer FlatZinc subset.\nDerive supported linear-equality and full-reification outputs from supplied inputs.\nMissing inputs or unsupported directions produce an incomplete report.\nNo compiler or solver runs. JSON mathematical integers are decimal strings.\n\nExit status: 0 valid, 1 invalid or incomplete, 2 input or execution error.\n"
+        "Usage: {invocation} [--format text|json] MODEL.fzn ASSIGNMENT.dzn\n       {invocation} --export MODEL.json MODEL.fzn\n       {invocation} --load [--format text|json] MODEL.json ASSIGNMENT.dzn\n\nCheck a candidate against the supported Boolean/integer FlatZinc subset.\nDerive supported linear-equality and full-reification outputs from supplied inputs.\nMissing inputs or unsupported directions produce an incomplete report.\nNo compiler or solver runs. JSON mathematical integers are decimal strings.\nExport prepares the model and creates a new JSON file, refusing existing paths.\nLoad validates the executable JSON without parsing FlatZinc source.\n\nExit status: 0 valid or exported, 1 invalid or incomplete, 2 input or execution error.\n"
     )
 }
 

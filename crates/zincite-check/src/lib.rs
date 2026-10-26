@@ -1,8 +1,10 @@
 //! Check repeated candidates against a prepared Boolean/integer FlatZinc model.
 //! Preparation is optional; checking performs no I/O and starts no external tools.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
+
+mod serialized;
 
 #[cfg(feature = "prepare")]
 mod prepare;
@@ -12,11 +14,17 @@ pub use prepare::{parse_assignment, prepare};
 pub mod cli;
 
 /// Mathematical integers use checked i64 arithmetic. JSON writes decimal strings.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Value {
     Boolean(bool),
-    Integer(#[serde(serialize_with = "serialize_integer")] i64),
+    Integer(
+        #[serde(
+            serialize_with = "serialize_integer",
+            deserialize_with = "deserialize_integer"
+        )]
+        i64,
+    ),
 }
 
 impl std::fmt::Display for Value {
@@ -28,7 +36,8 @@ impl std::fmt::Display for Value {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 enum ValueType {
     Boolean,
     Integer,
@@ -43,7 +52,7 @@ impl Value {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Location {
     pub source: String,
     pub start: usize,
@@ -58,14 +67,17 @@ pub struct Diagnostic {
     pub message: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Application {
     pub id: String,
-    #[serde(serialize_with = "serialize_integers")]
+    #[serde(
+        serialize_with = "serialize_integers",
+        deserialize_with = "deserialize_integers"
+    )]
     pub entities: Vec<i64>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Metadata {
     pub application: Option<Application>,
     pub label: Option<String>,
@@ -75,13 +87,13 @@ pub struct Metadata {
     pub output: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VariableAlias {
     pub name: String,
     pub position: Option<usize>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VariableRef {
     pub name: String,
     /// One-based FlatZinc position for an array element.
@@ -91,7 +103,7 @@ pub struct VariableRef {
     pub aliases: Vec<VariableAlias>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConstraintRef {
     pub ordinal: usize,
     pub predicate: String,
@@ -99,19 +111,28 @@ pub struct ConstraintRef {
     pub metadata: Metadata,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Domain {
     Boolean,
     Integer,
     Interval {
-        #[serde(serialize_with = "serialize_integer")]
+        #[serde(
+            serialize_with = "serialize_integer",
+            deserialize_with = "deserialize_integer"
+        )]
         lower: i64,
-        #[serde(serialize_with = "serialize_integer")]
+        #[serde(
+            serialize_with = "serialize_integer",
+            deserialize_with = "deserialize_integer"
+        )]
         upper: i64,
     },
     Enumeration {
-        #[serde(serialize_with = "serialize_integers")]
+        #[serde(
+            serialize_with = "serialize_integers",
+            deserialize_with = "deserialize_integers"
+        )]
         values: Vec<i64>,
     },
     Fixed {
@@ -228,7 +249,7 @@ pub struct Completeness {
     pub blocked_checks: Vec<BlockedCheck>,
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ObjectiveDirection {
     Minimize,
@@ -262,9 +283,7 @@ pub struct CheckError {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-// Parser-free model construction arrives with prepared-model loading.
-#[cfg_attr(not(feature = "prepare"), allow(dead_code))]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 enum Operand {
     Literal(Value),
     Variable(usize),
@@ -279,15 +298,14 @@ impl Operand {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Slot {
-    #[cfg_attr(not(feature = "prepare"), allow(dead_code))]
     kind: ValueType,
     default: Option<Value>,
     reference: VariableRef,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 struct Binding {
     elements: Vec<Operand>,
     is_array: bool,
@@ -295,19 +313,26 @@ struct Binding {
     assignable: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Variable {
     reference: VariableRef,
     slot: usize,
     domains: Vec<Domain>,
 }
 
-#[cfg_attr(not(feature = "prepare"), allow(dead_code))]
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 enum Predicate {
     Linear {
+        #[serde(
+            serialize_with = "serialize_integers",
+            deserialize_with = "deserialize_integers"
+        )]
         coefficients: Vec<i64>,
         terms: Vec<Operand>,
+        #[serde(
+            serialize_with = "serialize_integer",
+            deserialize_with = "deserialize_integer"
+        )]
         bound: i64,
         equality: bool,
     },
@@ -318,7 +343,7 @@ enum Predicate {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Constraint {
     reference: ConstraintRef,
     predicate: Predicate,
@@ -336,7 +361,6 @@ impl Constraint {
     }
 }
 
-#[cfg_attr(not(feature = "prepare"), allow(dead_code))]
 #[derive(Clone, Copy, Debug)]
 enum DefinitionDirection {
     Linear { term: usize },
@@ -351,14 +375,16 @@ struct Definition {
 }
 
 /// An executable model. Its fields are private so checking uses validated inputs.
-/// Prepared-model serialization and loading are later work.
-#[derive(Debug)]
+/// Export with `to_json`; `from_json` validates the executable model before use.
+#[derive(Debug, Serialize)]
 pub struct PreparedModel {
     slots: Vec<Slot>,
     bindings: HashMap<String, Binding>,
     variables: Vec<Variable>,
     constraints: Vec<Constraint>,
+    #[serde(skip)]
     definitions: Vec<Definition>,
+    #[serde(skip)]
     dependents: Vec<Vec<usize>>,
     objective: Option<(ObjectiveDirection, Operand)>,
 }
@@ -700,4 +726,168 @@ fn serialize_integers<S: serde::Serializer>(
         sequence.serialize_element(&value.to_string())?;
     }
     sequence.end()
+}
+
+fn deserialize_integer<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
+    String::deserialize(deserializer)?
+        .parse()
+        .map_err(serde::de::Error::custom)
+}
+
+fn deserialize_integers<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<i64>, D::Error> {
+    Vec::<String>::deserialize(deserializer)?
+        .into_iter()
+        .map(|value| value.parse().map_err(serde::de::Error::custom))
+        .collect()
+}
+
+impl PreparedModel {
+    fn link_aliases(&mut self) {
+        let mut aliases = vec![Vec::new(); self.slots.len()];
+        for variable in &self.variables {
+            aliases[variable.slot].push(VariableAlias {
+                name: variable.reference.name.clone(),
+                position: variable.reference.position,
+            });
+        }
+        let link = |reference: &mut VariableRef, slot: usize| {
+            reference.aliases = aliases[slot]
+                .iter()
+                .filter(|alias| {
+                    alias.name != reference.name || alias.position != reference.position
+                })
+                .cloned()
+                .collect();
+        };
+        for variable in &mut self.variables {
+            link(&mut variable.reference, variable.slot);
+        }
+        for (slot, value) in self.slots.iter_mut().enumerate() {
+            link(&mut value.reference, slot);
+        }
+    }
+
+    fn prepare_definitions(&mut self) -> Result<(), Diagnostic> {
+        let mut defined = HashSet::new();
+        self.definitions.clear();
+        self.dependents = vec![Vec::new(); self.slots.len()];
+        for (constraint_index, constraint) in self.constraints.iter().enumerate() {
+            let Some(name) = &constraint.reference.metadata.defines else {
+                continue;
+            };
+            let fail = |message: &str| Diagnostic {
+                location: Some(constraint.reference.location.clone()),
+                message: message.into(),
+            };
+            let binding = self
+                .bindings
+                .get(name)
+                .ok_or_else(|| fail("defines_var names an unknown variable"))?;
+            let [Operand::Variable(slot)] = binding.elements.as_slice() else {
+                return Err(fail("defines_var needs a scalar variable"));
+            };
+            if binding.is_array || !binding.assignable {
+                return Err(fail("defines_var needs a scalar variable"));
+            }
+            if !self.variables.iter().any(|variable| {
+                variable.reference.name == *name && variable.reference.metadata.is_defined
+            }) {
+                return Err(fail("defines_var target must have is_defined_var"));
+            }
+            if !defined.insert(*slot) {
+                return Err(fail("a variable has multiple defines_var annotations"));
+            }
+            let direction = definition_direction(constraint, *slot)?;
+            // A definition supplies its output even when an alias has a singleton domain.
+            self.slots[*slot].default = None;
+            if let Some(direction) = direction {
+                let inputs: &[Operand] = match &constraint.predicate {
+                    Predicate::Linear { terms, .. } => terms,
+                    Predicate::ReifiedLessEqual { left, right, .. } => &[*left, *right],
+                };
+                let definition_index = self.definitions.len();
+                let mut inputs_seen = HashSet::new();
+                for operand in inputs {
+                    if let Operand::Variable(input) = operand
+                        && input != slot
+                        && inputs_seen.insert(*input)
+                    {
+                        self.dependents[*input].push(definition_index);
+                    }
+                }
+                self.definitions.push(Definition {
+                    constraint: constraint_index,
+                    output: *slot,
+                    direction,
+                });
+            }
+        }
+        for variable in &self.variables {
+            if variable.reference.metadata.is_defined && !defined.contains(&variable.slot) {
+                return Err(Diagnostic {
+                    location: Some(variable.reference.location.clone()),
+                    message: "is_defined_var has no matching defines_var relation".into(),
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+fn definition_direction(
+    constraint: &Constraint,
+    output: usize,
+) -> Result<Option<DefinitionDirection>, Diagnostic> {
+    let absent = || Diagnostic {
+        location: Some(constraint.reference.location.clone()),
+        message: "defines_var target does not occur in its relation".into(),
+    };
+    match &constraint.predicate {
+        Predicate::Linear {
+            coefficients,
+            terms,
+            equality,
+            ..
+        } => {
+            let occurrences: Vec<_> = terms
+                .iter()
+                .enumerate()
+                .filter_map(|(index, operand)| {
+                    matches!(operand, Operand::Variable(slot) if *slot == output).then_some(index)
+                })
+                .collect();
+            let &term = occurrences.first().ok_or_else(absent)?;
+            Ok(
+                (*equality && occurrences.len() == 1 && coefficients[term] != 0)
+                    .then_some(DefinitionDirection::Linear { term }),
+            )
+        }
+        Predicate::ReifiedLessEqual {
+            left,
+            right,
+            result,
+        } => {
+            if ![left, right, result]
+                .iter()
+                .any(|operand| matches!(operand, Operand::Variable(slot) if *slot == output))
+            {
+                return Err(absent());
+            }
+            Ok(matches!(result, Operand::Variable(slot) if *slot == output)
+                .then_some(DefinitionDirection::ReifiedLessEqual))
+        }
+    }
+}
+
+impl Domain {
+    fn singleton(&self) -> Option<Value> {
+        match self {
+            Self::Interval { lower, upper } if lower == upper => Some(Value::Integer(*lower)),
+            Self::Enumeration { values } if values.len() == 1 => Some(Value::Integer(values[0])),
+            Self::Fixed { value } => Some(*value),
+            _ => None,
+        }
+    }
 }
