@@ -217,6 +217,20 @@ impl PreparedModel {
                     self.validate_table(constraint, table)?;
                     &constraint.reference.predicate
                 }
+                Predicate::Circuit(circuit) => {
+                    if CircuitName::from_name(&constraint.reference.predicate)
+                        != Some(circuit.name())
+                    {
+                        return Err(invalid(
+                            "circuit predicate name does not match its executable contract",
+                        ));
+                    }
+                    circuit.validate_shape().map_err(invalid)?;
+                    for operand in circuit.operands() {
+                        self.validate_operand(operand, ValueType::Integer)?;
+                    }
+                    &constraint.reference.predicate
+                }
                 Predicate::Ordering(ordering) => {
                     self.validate_ordering(constraint, ordering)?;
                     &constraint.reference.predicate

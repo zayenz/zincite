@@ -4,6 +4,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+mod circuits;
+use circuits::{Circuit, CircuitName};
+pub use circuits::{CircuitArgument, CircuitFault, CircuitFinding};
 mod ordering;
 pub use ordering::{
     IndexFault, InverseFault, InverseSide, OrderingArgument, OrderingFinding, OrderingPair,
@@ -359,6 +362,9 @@ pub enum ViolationKind {
         membership: bool,
         condition: RelationConditionValue,
     },
+    Circuit {
+        finding: CircuitFinding,
+    },
     Ordering {
         finding: OrderingFinding,
     },
@@ -691,6 +697,7 @@ struct Variable {
 #[derive(Debug, Serialize, Deserialize)]
 enum Predicate {
     Automaton(Automaton),
+    Circuit(Circuit),
     Ordering(Ordering),
     Counting(Counting),
     Table(Table),
@@ -925,6 +932,7 @@ impl Predicate {
     fn operands(&self) -> Vec<&Operand> {
         match self {
             Self::Automaton(automaton) => automaton.word.iter().collect(),
+            Self::Circuit(circuit) => circuit.operands(),
             Self::Ordering(ordering) => ordering.operands(),
             Self::Counting(counting) => counting.operands(false),
             Self::Table(table) => table.operands(),
@@ -1066,6 +1074,7 @@ impl Predicate {
 
     fn required_operands(&self, values: &[Option<Value>]) -> Vec<&Operand> {
         match self {
+            Self::Circuit(circuit) => circuit.required_operands(values),
             Self::Ordering(ordering) => ordering.required_operands(values),
             Self::Counting(counting) => counting.operands(true),
             Self::Element {
@@ -1137,6 +1146,7 @@ impl Constraint {
 #[derive(Clone, Copy, Debug)]
 enum DefinitionDirection {
     Table,
+    Circuit,
     Ordering,
     Counting,
     Selection,
@@ -1376,6 +1386,9 @@ impl PreparedModel {
         match (&constraint.predicate, definition.direction) {
             (Predicate::Table(table), DefinitionDirection::Table) => {
                 Ok(table.membership(values).map(Value::Boolean))
+            }
+            (Predicate::Circuit(circuit), DefinitionDirection::Circuit) => {
+                circuit.derive(definition.output, values, constraint)
             }
             (Predicate::Ordering(ordering), DefinitionDirection::Ordering) => {
                 ordering.derive(definition.output, values, constraint)
@@ -1957,6 +1970,7 @@ impl PreparedModel {
                 .expect("blocked constraints are excluded before evaluation")
         };
         match &constraint.predicate {
+            Predicate::Circuit(circuit) => self.evaluate_circuit(constraint, circuit, values),
             Predicate::Ordering(ordering) => self.evaluate_ordering(constraint, ordering, values),
             Predicate::Counting(counting) => self.evaluate_counting(constraint, counting, values),
             Predicate::Automaton(automaton) => Ok(self.evaluate_automaton(automaton, values)),
@@ -2626,12 +2640,21 @@ impl PreparedModel {
             }
         }
         if array_target {
-            let outputs: Vec<(&[Operand], ValueType)> = match &constraint.predicate {
+            let outputs: Vec<(Vec<&Operand>, ValueType)> = match &constraint.predicate {
                 Predicate::Counting(Counting::Cardinality {
                     counts: counting::CardinalityCounts::Exact(counts),
                     ..
-                }) => vec![(counts, ValueType::Integer)],
-                Predicate::Ordering(ordering) => ordering.array_outputs(),
+                }) => vec![(counts.iter().collect(), ValueType::Integer)],
+                Predicate::Circuit(circuit) => circuit
+                    .array_outputs()
+                    .into_iter()
+                    .map(|outputs| (outputs, ValueType::Integer))
+                    .collect(),
+                Predicate::Ordering(ordering) => ordering
+                    .array_outputs()
+                    .into_iter()
+                    .map(|(outputs, kind)| (outputs.iter().collect(), kind))
+                    .collect(),
                 _ => Vec::new(),
             };
             // Annotation order identifies slots; predicate positions own the calculation.
@@ -2744,6 +2767,9 @@ fn definition_direction(
         Predicate::Table(table) => Ok(table
             .can_define(output)
             .then_some(DefinitionDirection::Table)),
+        Predicate::Circuit(circuit) => Ok(circuit
+            .can_define(output)
+            .then_some(DefinitionDirection::Circuit)),
         Predicate::Ordering(ordering) => Ok(ordering
             .can_define(output)
             .then_some(DefinitionDirection::Ordering)),

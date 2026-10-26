@@ -641,7 +641,7 @@ profile or general preservation of editable domains and variables.
 
 All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
 `fzn_` spellings, for 108 integer relation names. The 55 Boolean base names also
-accept those exact prefixes, for 165 Boolean names and 770 admitted names overall.
+accept those exact prefixes, for 165 Boolean names and 779 admitted names overall.
 Prefixed scalar XOR uses three arguments; only bare `bool_xor` also admits the
 two-argument assertion. Matching declarations select one admitted arity and calls
 must use that arity; duplicate declarations diagnose.
@@ -952,7 +952,7 @@ establish include/decomposition closure; checker-030/031 own profile repairs.
 
 The checker admits the six `gecode_table_int/bool` literals with plain, `_reif`
 and `_imp` forms, each with the literal empty, `gecode_` and `fzn_` prefixes.
-The family has 18 exact names; the checker admits 770 names overall. The prefix applies to the
+The family has 18 exact names; the checker admits 779 names overall. The prefix applies to the
 whole literal: `gecode_gecode_table_int` and `fzn_gecode_table_int` are direct
 names; `table_int` and `fzn_table_int` are not.
 
@@ -1018,7 +1018,7 @@ to checker-030/031. The runtime keeps its existing marker rules.
 
 The checker admits `gecode_regular`, `gecode_regular_set` and
 `gecode_regular_nfa_int_fzn`, each with the literal empty, `gecode_` and `fzn_`
-prefixes. These nine names bring overall admission to 770. The prefix applies to
+prefixes. The family has nine exact names; overall admission is 779. The prefix applies to
 the whole literal, including `gecode_gecode_regular`; standard wrapper names and
 reified forms are not direct checker operations.
 
@@ -1093,3 +1093,96 @@ state and target-set witnesses have no definition markers. Supplied primary
 words therefore produce incomplete reports without known violations. The checker
 does not infer these witnesses. checker-030/031 own compiler-profile closure and
 auxiliary-definition limits; this control needs no annotation or include repair.
+
+## Circuits and costs
+
+The checker admits `gecode_circuit`, `gecode_circuit_cost` and
+`gecode_circuit_cost_array`, each with the literal `gecode_` and `fzn_` registry
+prefixes, for nine exact names and 779 admitted names overall. The prefix applies
+to the complete name: `gecode_gecode_circuit` and `fzn_gecode_circuit` are valid;
+`fzn_circuit`, `circuit_cost` and reified variants use other compiler routes.
+Declarations check argument roles independently of formal parameter names.
+
+| Native signature | Relation and marked outputs |
+| --- | --- |
+| `gecode_circuit(int: offset, array[int] of var int: x)` | `x` is an in-range permutation with one cycle; no output direction |
+| `gecode_circuit_cost(array[int] of int: c, array[int] of var int: x, var int: z)` | Zero-based circuit; `z=sum(c[i*n+x[i]])`; marked `z` derives from all selected costs |
+| `gecode_circuit_cost_array(array[int] of int: c, array[int] of var int: x, array[int] of var int: y, var int: z)` | Zero-based circuit; each `y[i]=c[i*n+x[i]]`; `z=sum(y)` using actual supplied or derived `y` |
+
+Here `i` is a zero-based structural row and `c` contains `n*n` row-major costs.
+The array form requires exactly `n` edge costs. Admission rejects empty successor
+arrays, negative plain offsets, overflowing fixed successor intervals and malformed
+cost shapes. A singleton self-cycle passes. Candidate successors outside the
+interval report a fault before index conversion. Repeated successor aliases are
+legal candidates and can fail the permutation check. Checked i64 arithmetic
+preserves wide offsets and negative costs; source-order sum overflow is a located
+execution error. Gecode's solver integer representation does not bound these values.
+
+Known in-range successors determine corresponding marked edge costs even if
+other edges are missing or the topology fails. A repeated output slot needs all
+its occurrences to select the same known cost. Complete `y` arrays and combined
+`[y...,z]` slot multisets support the existing array `defines_var` syntax,
+independently of annotation order. Marked array-form totals wait for actual `y`;
+they do not invent unmarked edge costs. A supplied edge cost stays available to
+the sum even when it conflicts with the matrix. Targets also used as successors,
+and targets used as both an edge cost and its total, have no completion direction.
+The checker never chooses successors or solves sums backwards.
+
+`ViolationKind::Circuit` carries optional typed successor/cost arguments,
+references for unresolved arguments, the offset, and all available faults:
+out-of-range or repeated successors, positions in proper subcycles, selected
+edge-cost conflicts and total conflicts. Fault positions are one-based JSON
+numbers; mathematical integers are decimal strings. Known faults can report
+while other inputs are missing. Unresolved values and blocked checks describe
+completeness independently. Labels, application IDs/entities and locations use
+the same references as other families.
+
+The [direct control](../../examples/checker-compilation/circuits.fzn) includes a
+wide offset and costs above 2^53, combined reordered output targets, a scalar
+cost definition and a downstream bound. With
+`a=1;b=0;p=9007199254740994;q=9007199254740993;`, it derives
+`costs=[9007199254740993,-4]` and both totals `9007199254740989`, then passes.
+`a=0;` establishes proper subcycles while other inputs and checks are unresolved.
+The [Wasm smoke](../../examples/checker-wasm/README.md) checks complete conflicts,
+incomplete reports and fresh completion against this same exported control.
+
+### Compile-only circuit controls
+
+Both small controls start with `globals.mzn` and the checker annotations. They
+format/default-lint and compile under both exact pinned profiles without solving:
+
+```sh
+checker_run=$(mktemp -d "$PWD/target/checker-circuit.XXXXXX")
+for model in circuit-controls circuit-gecode-controls; do
+    minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file "$checker_run/standard-$model.paths" --output-fzn-to-file "$checker_run/standard-$model.fzn" "examples/checker-compilation/$model.mzn"
+    minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file "$checker_run/gecode-$model.paths" --output-fzn-to-file "$checker_run/gecode-$model.fzn" "examples/checker-compilation/$model.mzn"
+done
+```
+
+The native control emits the three native names under both profiles. Domains
+stay `5..7` for the plain successors, `0..1` for cost successors, `-4..7` for
+edge costs and `-4..14` for totals. Named array aliases, all three constraint
+labels/IDs, value IDs/entities and paths survive. The compiler drops both
+`is_defined_var` and `defines_var` for the edge-cost array, while the scalar
+`scalar_total` keeps its markers. Thus
+`positive_successors=[6,7,5];successors=[1,0];costs=[7,-4];array_total=3;`
+checks valid and derives `scalar_total=3`; omitting `costs` and `array_total`
+leaves an incomplete report. Supplied `[8,9]` with `array_total=16` reports two
+edge conflicts and the actual total 17, independently of circuit topology.
+
+The public control uses index sets `5..7` and `-2..0`. Gecode emits
+`gecode_circuit(5,...)` for the positive array and `gecode_circuit(0,...)` for
+the shifted negative array, with marked `int_lin_eq` definitions for the shift.
+Source domains stay `5..7` and `-2..0`; shifted domains are `0..2`. The array
+aliases are `X_INTRODUCED_16_` and `X_INTRODUCED_21_` in this compilation.
+Their assignments `[6,7,5]` and `[-1,0,-2]` pass after completion. Self-loop
+assignments `[5,6,7]` and `[-2,-1,0]` fail both circuits. Both IDs, labels,
+value metadata and paths survive. Generated names belong to that compilation.
+
+The standard public decomposition emits integer linear relations, element calls,
+Boolean clauses and reifiers, with tighter successor domains excluding self-loops.
+It also emits `defines_var` on an element result without `is_defined_var` on
+that declaration; preparation diagnoses the missing marker. No output was
+rewritten to bypass this check. These observations document compiler-profile
+and definition-marker limits owned by checker-030/031; they do not establish
+full wrapper or include/decomposition closure.

@@ -699,3 +699,74 @@ fn automaton_cli_source_export_load_and_typed_text_agree() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn circuit_cli_source_export_load_and_typed_text_agree() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-circuit-cli-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let source = directory.join("circuits.fzn");
+    let saved = directory.join("circuits.json");
+    let candidate = directory.join("candidate.dzn");
+    std::fs::write(
+        &source,
+        include_str!("../../../examples/checker-compilation/circuits.fzn"),
+    )
+    .unwrap();
+    let export = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+        .arg("--export")
+        .arg(&saved)
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(
+        export.status.success(),
+        "{}",
+        String::from_utf8_lossy(&export.stderr)
+    );
+    for (input, status) in [
+        ("a=1;b=0;p=9007199254740994;q=9007199254740993;", "valid"),
+        (
+            "a=0;b=1;p=9007199254740993;q=9007199254740994;costs=[8,9];total=16;scalar_total=4;",
+            "invalid",
+        ),
+        ("a=0;", "invalid"),
+        ("", "incomplete"),
+    ] {
+        std::fs::write(&candidate, input).unwrap();
+        let run = |path: &std::path::Path, load: bool, format: &str| {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_zincite-check"));
+            if load {
+                command.arg("--load");
+            }
+            command
+                .args(["--format", format])
+                .arg(path)
+                .arg(&candidate)
+                .output()
+                .unwrap()
+        };
+        let native = run(&source, false, "json");
+        let loaded = run(&saved, true, "json");
+        assert_eq!(native.status.code(), loaded.status.code());
+        let report: serde_json::Value = serde_json::from_slice(&native.stdout).unwrap();
+        assert_eq!(report["status"], status);
+        assert_eq!(
+            report,
+            serde_json::from_slice::<serde_json::Value>(&loaded.stdout).unwrap()
+        );
+        if input.contains("costs=") {
+            let text = String::from_utf8(run(&saved, true, "text").stdout).unwrap();
+            for expected in [
+                "proper cycle at positions [1]",
+                "edge 1 -> 1 costs 0, supplied 8",
+                "total cost is 17, supplied 16",
+                "wide_cycle",
+                "Wide circuit",
+            ] {
+                assert!(text.contains(expected), "{text}");
+            }
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

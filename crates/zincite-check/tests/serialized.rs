@@ -1974,3 +1974,89 @@ fn parser_free_automata_validate_fixed_encodings_and_exact_reports() {
         );
     }
 }
+
+#[test]
+fn parser_free_circuits_validate_contracts_and_definition_targets() {
+    let mut artifact = executable();
+    artifact["model"]["objective"] = Json::Null;
+    artifact["model"]["constraints"][0]["reference"]["predicate"] =
+        json!("gecode_circuit_cost_array");
+    artifact["model"]["constraints"][0]["predicate"] = json!({"Circuit":{"Cost":{
+        "matrix":["7"],"successors":[{"Literal":{"kind":"integer","value":"0"}}],
+        "costs":[{"Variable":0}],"total":{"Literal":{"kind":"integer","value":"7"}}
+    }}});
+    let model = PreparedModel::from_json(&artifact.to_string()).unwrap();
+    assert_eq!(
+        model.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
+    for (value, status) in [(7, Status::Valid), (8, Status::Invalid)] {
+        let input = Assignment {
+            entries: vec![AssignmentEntry {
+                name: "x".into(),
+                value: AssignmentValue::Scalar(Value::Integer(value)),
+                location: None,
+            }],
+        };
+        assert_eq!(model.check(&input).unwrap().status, status);
+    }
+    for (path, value) in [
+        ("/matrix", json!([])),
+        ("/matrix", json!([7])),
+        ("/successors", json!([])),
+        ("/successors", json!([{"Variable":99}])),
+        (
+            "/successors",
+            json!([{"Literal":{"kind":"boolean","value":true}}]),
+        ),
+        ("/costs", json!([])),
+        ("/costs", json!([{"Variable":99}])),
+        ("/total", json!({"Literal":{"kind":"boolean","value":true}})),
+    ] {
+        let mut bad = artifact.clone();
+        *bad["model"]["constraints"][0]["predicate"]["Circuit"]["Cost"]
+            .pointer_mut(path)
+            .unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&bad.to_string()).is_err(),
+            "{path}"
+        );
+    }
+    for name in [
+        "circuit_cost_array",
+        "gecode_circuit_cost",
+        "gecode_circuit",
+        "gecode_circuit_cost_array_reif",
+    ] {
+        let mut bad = artifact.clone();
+        bad["model"]["constraints"][0]["reference"]["predicate"] = json!(name);
+        assert!(
+            PreparedModel::from_json(&bad.to_string()).is_err(),
+            "{name}"
+        );
+    }
+    for (offset, successors) in [
+        ("-1", vec!["0"]),
+        ("9223372036854775807", vec!["0", "1"]),
+        ("0", vec![]),
+    ] {
+        let mut bad = artifact.clone();
+        bad["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_circuit");
+        bad["model"]["constraints"][0]["predicate"] = json!({"Circuit":{"Plain":{"offset":offset,"successors":successors.into_iter().map(|value|json!({"Literal":{"kind":"integer","value":value}})).collect::<Vec<_>>()}}});
+        assert!(PreparedModel::from_json(&bad.to_string()).is_err());
+    }
+    artifact["model"]["variables"][0]["reference"]["metadata"]["is_defined"] = json!(true);
+    artifact["model"]["slots"][0]["reference"]["metadata"]["is_defined"] = json!(true);
+    artifact["model"]["constraints"][0]["reference"]["metadata"]["defines"] = json!(["x"]);
+    let defined = PreparedModel::from_json(&artifact.to_string()).unwrap();
+    assert_eq!(
+        defined.check(&Assignment::default()).unwrap().status,
+        Status::Valid
+    );
+    let mut bad = artifact.clone();
+    bad["model"]["constraints"][0]["reference"]["metadata"]["defines"] = json!(["x", "x"]);
+    assert!(PreparedModel::from_json(&bad.to_string()).is_err());
+    let mut bad = artifact.clone();
+    bad["model"]["slots"][0]["default"] = json!({"kind":"integer","value":"7"});
+    assert!(PreparedModel::from_json(&bad.to_string()).is_err());
+}

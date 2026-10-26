@@ -4321,3 +4321,344 @@ fn automaton_reports_round_trip_and_start_fresh() {
         }
     }
 }
+
+#[test]
+fn circuit_names_signatures_and_fixed_shapes_are_exact() {
+    for prefix in ["", "gecode_", "fzn_"] {
+        for (name, signature, args) in [
+            (
+                "gecode_circuit",
+                "int: banana,array[int] of var int: pear",
+                "0,[0]",
+            ),
+            (
+                "gecode_circuit_cost",
+                "array[int] of int: banana,array[int] of var int: pear,var int: kiwi",
+                "[-7],[0],-7",
+            ),
+            (
+                "gecode_circuit_cost_array",
+                "array[int] of int: banana,array[int] of var int: pear,array[int] of var int: kiwi,var int: melon",
+                "[-7],[0],[-7],-7",
+            ),
+        ] {
+            let source = format!(
+                "predicate {prefix}{name}({signature});constraint {prefix}{name}({args});solve satisfy;"
+            );
+            assert_eq!(
+                prepare("names", &source)
+                    .unwrap()
+                    .check(&Assignment::default())
+                    .unwrap()
+                    .status,
+                Status::Valid,
+                "{source}"
+            );
+        }
+    }
+    for call in [
+        "circuit([0])",
+        "fzn_circuit([0])",
+        "circuit_cost([0],[0],0)",
+        "circuit_cost_array([0],[0],[0],0)",
+        "gecode_circuit_reif(0,[0],true)",
+        "fzn_fzn_gecode_circuit(0,[0])",
+        "gecode_circuit([0],0)",
+        "gecode_circuit(0,[true])",
+        "gecode_circuit(v,[0])",
+        "gecode_circuit(0,[])",
+        "gecode_circuit(-1,[0])",
+        "gecode_circuit(9223372036854775807,[0,1])",
+        "gecode_circuit(0,[0],0)",
+        "gecode_circuit_cost([],[],0)",
+        "gecode_circuit_cost([0],[0,1],0)",
+        "gecode_circuit_cost([v],[0],0)",
+        "gecode_circuit_cost([0],[0],true)",
+        "gecode_circuit_cost_array([0],[0],[],0)",
+        "gecode_circuit_cost_array([0],[0],[true],0)",
+        "gecode_circuit_cost_array([0],[0],[0],0,0)",
+    ] {
+        let errors = prepare(
+            "bad",
+            &format!("var int:v;constraint {call};solve satisfy;"),
+        )
+        .unwrap_err();
+        assert!(
+            errors.iter().all(|error| error.location.is_some()),
+            "{call}"
+        );
+    }
+    for signature in [
+        "var int:o,array[int] of var int:x",
+        "int:o,array[int] of int:x",
+        "int:o,var int:x",
+    ] {
+        assert!(
+            prepare(
+                "bad-declaration",
+                &format!("predicate gecode_circuit({signature});solve satisfy;")
+            )
+            .is_err()
+        );
+    }
+}
+
+#[test]
+fn circuits_check_topology_offsets_layout_and_actual_cost_sums() {
+    for (call, status, kinds) in [
+        ("gecode_circuit(0,[0])", Status::Valid, vec![]),
+        (
+            "gecode_circuit(9223372036854775807,[9223372036854775807])",
+            Status::Valid,
+            vec![],
+        ),
+        (
+            "gecode_circuit(9007199254740993,[9007199254740994,9007199254740993])",
+            Status::Valid,
+            vec![],
+        ),
+        (
+            "gecode_circuit(0,[1,0,3,2])",
+            Status::Invalid,
+            vec!["subcycle", "subcycle"],
+        ),
+        (
+            "gecode_circuit(0,[1,1])",
+            Status::Invalid,
+            vec!["repeated_successor", "subcycle"],
+        ),
+        (
+            "gecode_circuit(9007199254740993,[-9223372036854775808,9223372036854775807])",
+            Status::Invalid,
+            vec!["out_of_range", "out_of_range"],
+        ),
+        (
+            "gecode_circuit_cost([1,7,-4,2],[1,0],3)",
+            Status::Valid,
+            vec![],
+        ),
+        (
+            "gecode_circuit_cost_array([1,7,-4,2],[1,0],[8,-4],4)",
+            Status::Invalid,
+            vec!["edge_cost"],
+        ),
+        (
+            "gecode_circuit_cost_array([1,7,-4,2],[1,0],[8,-4],3)",
+            Status::Invalid,
+            vec!["edge_cost", "total_cost"],
+        ),
+        (
+            "gecode_circuit_cost([1,7,-4,2],[1,0],4)",
+            Status::Invalid,
+            vec!["total_cost"],
+        ),
+        (
+            "gecode_circuit_cost([0,9007199254740993,-9007199254740992,0],[1,0],1)",
+            Status::Valid,
+            vec![],
+        ),
+    ] {
+        let model = prepare("topology", &format!("constraint {call};solve satisfy;")).unwrap();
+        let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+        let report = model.check(&Assignment::default()).unwrap();
+        assert_eq!(report.status, status, "{call}");
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(
+            json,
+            serde_json::to_value(loaded.check(&Assignment::default()).unwrap()).unwrap()
+        );
+        if status == Status::Invalid {
+            let actual: Vec<_> = json["violations"][0]["details"]["finding"]["faults"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|fault| fault["kind"].as_str().unwrap())
+                .collect();
+            assert_eq!(actual, kinds, "{call}");
+        }
+    }
+    let alias = prepare(
+        "aliases",
+        "var int:x;var int:y=x;constraint gecode_circuit(0,[x,y]);solve satisfy;",
+    )
+    .unwrap();
+    assert_eq!(
+        alias.check(&assignment("x=1;")).unwrap().status,
+        Status::Invalid
+    );
+    for call in [
+        "gecode_circuit_cost([0,9223372036854775807,0,0,0,1,-1,0,0],[1,2,0],9223372036854775807)",
+        "gecode_circuit_cost_array([0,0,0,0,0,0,0,0,0],[1,2,0],[9223372036854775807,1,-1],9223372036854775807)",
+    ] {
+        let model = prepare("overflow", &format!("constraint {call};solve satisfy;")).unwrap();
+        let error = model.check(&Assignment::default()).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Execution);
+        assert!(error.diagnostics[0].location.is_some());
+    }
+}
+
+#[test]
+fn circuit_cost_definitions_use_marked_slots_and_known_edges() {
+    for target in ["costs", "[y2,y1]", "[z,y2,y1]"] {
+        let define_total = if target.contains('z') {
+            ""
+        } else {
+            "constraint int_plus(y1,y2,z)::defines_var(z);"
+        };
+        let source = format!(
+            "var int:a;var int:b;var 0..5:y1::is_defined_var;var -4..0:y2::is_defined_var;var 0..5:z::is_defined_var;array[1..2] of var int:costs=[y1,y2];constraint gecode_circuit_cost_array([1,7,-4,2],[a,b],costs,z)::defines_var({target});{define_total}constraint int_le(y1,6);solve satisfy;"
+        );
+        let model = prepare("completion", &source).unwrap();
+        let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+        for candidate in ["a=1;b=0;", "a=1;b=0;y1=8;", "a=0;", "", "a=1;b=0;"] {
+            let report = model.check(&assignment(candidate)).unwrap();
+            assert_eq!(
+                serde_json::to_value(&report).unwrap(),
+                serde_json::to_value(loaded.check(&assignment(candidate)).unwrap()).unwrap()
+            );
+            if candidate == "a=1;b=0;" {
+                assert!(report.completeness.complete);
+                assert_eq!(report.violations.len(), 2); // Derived domain and downstream bound both fail.
+                let json = serde_json::to_value(&report).unwrap();
+                assert!(json.to_string().contains("\"7\""));
+            }
+            if candidate == "a=0;" {
+                assert_eq!(report.status, Status::Invalid);
+                assert!(!report.completeness.complete);
+            }
+            if candidate.is_empty() {
+                assert_eq!(report.status, Status::Incomplete);
+            }
+        }
+    }
+    for (matrix, status) in [
+        ("[0,7,7,0]", Status::Valid),
+        ("[0,7,8,0]", Status::Incomplete),
+    ] {
+        let source = format!(
+            "var int:y::is_defined_var;constraint gecode_circuit_cost_array({matrix},[1,0],[y,y],14)::defines_var([y,y]);solve satisfy;"
+        );
+        let model = prepare("repeated", &source).unwrap();
+        assert_eq!(model.check(&Assignment::default()).unwrap().status, status);
+    }
+    for source in [
+        "var 0..0:x::is_defined_var;constraint gecode_circuit_cost([0],[x],x)::defines_var(x);solve satisfy;",
+        "var 0..0:x::is_defined_var;constraint gecode_circuit_cost_array([0],[0],[x],x)::defines_var([x,x]);solve satisfy;",
+    ] {
+        let model = prepare("self", source).unwrap();
+        let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+        assert_eq!(
+            loaded.check(&Assignment::default()).unwrap().status,
+            Status::Incomplete
+        );
+        assert_eq!(
+            loaded.check(&assignment("x=0;")).unwrap().status,
+            Status::Valid
+        );
+    }
+    let scalar=prepare("scalar","var int:z::is_defined_var;constraint gecode_circuit_cost([0,7,-4,0],[1,0],z)::defines_var(z);solve satisfy;").unwrap();
+    assert_eq!(
+        scalar.check(&Assignment::default()).unwrap().status,
+        Status::Valid
+    );
+    let unmarked=prepare("unmarked","var int:y;var int:z::is_defined_var;constraint gecode_circuit_cost_array([7],[0],[y],z)::defines_var(z);solve satisfy;").unwrap();
+    assert_eq!(
+        unmarked.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
+    assert_eq!(
+        unmarked.check(&assignment("y=8;")).unwrap().status,
+        Status::Invalid
+    );
+    for target in ["[y1]", "[y1,z]", "[y1,y1]"] {
+        assert!(prepare("bad-target",&format!("var int:y1::is_defined_var;var int:y2::is_defined_var;var int:z::is_defined_var;constraint gecode_circuit_cost_array([0,7,-4,0],[1,0],[y1,y2],z)::defines_var({target});solve satisfy;")).is_err());
+    }
+    assert!(prepare("competing","var int:z::is_defined_var;constraint gecode_circuit_cost([7],[0],z)::defines_var(z);constraint int_eq(z,7)::defines_var(z);solve satisfy;").is_err());
+}
+
+#[test]
+fn circuit_partial_findings_and_round_trips_keep_metadata_and_completeness() {
+    let partial=prepare("partial","var int:a;var int:b;var int:c;var int:d;var int:z;constraint gecode_circuit_cost_array([0,7,-4,0],[a,b],[c,d],z);solve satisfy;").unwrap();
+    for (candidate, status, blocked) in [
+        ("c=7;d=-4;z=3;", Status::Incomplete, true),
+        ("c=7;d=-4;z=4;", Status::Invalid, false),
+        ("a=0;", Status::Invalid, false),
+        ("a=1;c=8;", Status::Invalid, false),
+        ("a=-9223372036854775808;", Status::Invalid, false),
+    ] {
+        let report = partial.check(&assignment(candidate)).unwrap();
+        assert_eq!(report.status, status, "{candidate}");
+        assert!(!report.completeness.complete);
+        assert_eq!(
+            report
+                .completeness
+                .blocked_checks
+                .iter()
+                .any(|check| matches!(check.check, CheckRef::Constraint { .. })),
+            blocked,
+            "{candidate}"
+        );
+    }
+    let model = prepare(
+        "circuits.fzn",
+        include_str!("../../../examples/checker-compilation/circuits.fzn"),
+    )
+    .unwrap();
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for (candidate, status, complete) in [
+        (
+            "a=1;b=0;p=9007199254740994;q=9007199254740993;",
+            Status::Valid,
+            true,
+        ),
+        (
+            "a=0;b=1;p=9007199254740993;q=9007199254740994;costs=[8,9];total=17;scalar_total=4;",
+            Status::Invalid,
+            true,
+        ),
+        ("a=0;", Status::Invalid, false),
+        ("", Status::Incomplete, false),
+        (
+            "a=1;b=0;p=9007199254740994;q=9007199254740993;",
+            Status::Valid,
+            true,
+        ),
+    ] {
+        let input = assignment(candidate);
+        let report = model.check(&input).unwrap();
+        assert_eq!(report.status, status);
+        assert_eq!(report.completeness.complete, complete);
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(
+            json,
+            serde_json::to_value(loaded.check(&input).unwrap()).unwrap()
+        );
+        if candidate.starts_with("a=0;b=1") {
+            let violation = &json["violations"][0];
+            assert_eq!(
+                violation["details"]["finding"]["successors"][0]["value"]["variable"]["name"],
+                "p"
+            );
+            assert_eq!(
+                violation["details"]["finding"]["offset"],
+                "9007199254740993"
+            );
+            assert_eq!(
+                violation["details"]["finding"]["faults"][0]["positions"][0],
+                1
+            );
+            assert_eq!(
+                violation["check"]["constraint"]["metadata"]["application"]["id"],
+                "wide_cycle"
+            );
+            assert_eq!(
+                violation["check"]["constraint"]["metadata"]["application"]["entities"][0],
+                "9007199254740993"
+            );
+            assert_eq!(
+                violation["check"]["constraint"]["metadata"]["label"],
+                "Wide circuit"
+            );
+        }
+    }
+}

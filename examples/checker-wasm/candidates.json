@@ -1094,5 +1094,170 @@
         },
         "status": "invalid",
         "complete": false
+    },
+    {
+        "name": "circuits-valid",
+        "model": "circuits",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "a",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "1"
+                        }
+                    }
+                },
+                {
+                    "name": "b",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                },
+                {
+                    "name": "p",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740994"
+                        }
+                    }
+                },
+                {
+                    "name": "q",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "valid",
+        "complete": true
+    },
+    {
+        "name": "circuits-conflict",
+        "model": "circuits",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "a",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                },
+                {
+                    "name": "b",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "1"
+                        }
+                    }
+                },
+                {
+                    "name": "p",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                },
+                {
+                    "name": "q",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740994"
+                        }
+                    }
+                },
+                {
+                    "name": "costs",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "integer",
+                                "value": "8"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "9"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "total",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "16"
+                        }
+                    }
+                },
+                {
+                    "name": "scalar_total",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "4"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "circuits-incomplete-invalid",
+        "model": "circuits",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "a",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": false
+    },
+    {
+        "name": "circuits-incomplete",
+        "model": "circuits",
+        "assignment": {
+            "entries": []
+        },
+        "status": "incomplete",
+        "complete": false
     }
 ]

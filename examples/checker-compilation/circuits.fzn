@@ -1,0 +1,18 @@
+predicate gecode_circuit(int: offset, array[int] of var int: successors);
+predicate gecode_circuit_cost_array(array[int] of int: matrix, array[int] of var int: successors, array[int] of var int: costs, var int: total);
+predicate gecode_circuit_cost(array[int] of int: matrix, array[int] of var int: successors, var int: total);
+var 0..1: a;
+var 0..1: b;
+var 9007199254740993..9007199254740994: p;
+var 9007199254740993..9007199254740994: q;
+var -4..9007199254740993: first_cost :: is_defined_var;
+var -4..9007199254740993: second_cost :: is_defined_var;
+var -4..9007199254740993: total :: is_defined_var;
+var -4..9007199254740993: scalar_total :: is_defined_var;
+array[1..2] of var int: successors = [a,b];
+array[1..2] of var int: costs :: checker_value("edge_costs",[1,2]) = [first_cost,second_cost];
+constraint gecode_circuit(9007199254740993,[p,q]) :: checker_constraint("wide_cycle",[9007199254740993,9007199254740994]) :: mzn_constraint_name("Wide circuit");
+constraint gecode_circuit_cost_array([0,9007199254740993,-4,0],successors,costs,total) :: defines_var([total,second_cost,first_cost]) :: checker_constraint("tour_costs",[1,2]) :: mzn_constraint_name("Selected edge costs");
+constraint gecode_circuit_cost([0,9007199254740993,-4,0],successors,scalar_total) :: defines_var(scalar_total) :: checker_constraint("scalar_cost",[1,2]);
+constraint int_le(total,9007199254740989) :: checker_constraint("cost_bound",[1,2]);
+solve satisfy;

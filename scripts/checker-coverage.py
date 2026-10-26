@@ -22,6 +22,12 @@ END = "<!-- checker-coverage:end -->"
 NAME = r"(?:[A-Za-z_][A-Za-z_0-9]*|'[^']*')"
 CURRENT = {"fzn_disjunctive_strict"}
 CURRENT |= {
+    prefix + name
+    for prefix in ("", "gecode_", "fzn_")
+    for name in ("gecode_circuit", "gecode_circuit_cost", "gecode_circuit_cost_array")
+}
+
+CURRENT |= {
     prefix + "int_" + shape + relation + suffix
     for prefix in ("", "gecode_", "fzn_")
     for shape in ("", "lin_")
@@ -785,7 +791,13 @@ def output_rule(name: str, task: int, *, wrapper: bool = False) -> str:
             if name.endswith("_reif")
             else "none"
         )
-    if task in {23, 26, 27, 28}:
+    if task == 23:
+        if name == "gecode_circuit_cost_array":
+            return "argument 3 (selected edge costs); argument 4 (actual cost sum)"
+        if name == "gecode_circuit_cost":
+            return "argument 3 (selected matrix cost sum)"
+        return "none"
+    if task in {26, 27, 28}:
         return f"[unique outputs](#family-{task:03})"
     return "compiler lowering; emitted definitions"
 
@@ -925,6 +937,13 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
     admitted |= {
         prefix + name
         for name in re.findall(r'"([a-z_0-9]+)"', counting_names)
+        for prefix in ("", "gecode_", "fzn_")
+    }
+    circuits = (ROOT / "crates/zincite-check/src/circuits.rs").read_text()
+    circuit_names = circuits.split("match base {", 1)[1].split("_ =>", 1)[0]
+    admitted |= {
+        prefix + name
+        for name in re.findall(r'"([a-z_0-9]+)"', circuit_names)
         for prefix in ("", "gecode_", "fzn_")
     }
     ordering = (ROOT / "crates/zincite-check/src/ordering.rs").read_text()

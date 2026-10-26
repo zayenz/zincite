@@ -285,6 +285,8 @@ impl Source<'_> {
             automaton.signature()
         } else if let Some(table) = TableName::from_name(name) {
             table.signature()
+        } else if let Some(circuit) = CircuitName::from_name(name) {
+            circuit.signature()
         } else if let Some(ordering) = OrderingName::from_name(name) {
             ordering.signature()
         } else if let Some(counting) = CountingName::from_name(name) {
@@ -1168,6 +1170,7 @@ impl<'a> Lowerer<'a> {
         let counting = CountingName::from_name(&name);
         let table = TableName::from_name(&name);
         let automaton = AutomatonName::from_name(&name);
+        let circuit = CircuitName::from_name(&name);
         let ordering = OrderingName::from_name(&name);
         let float = FloatName::from_name(&name);
         let selection = SelectionName::from_name(&name);
@@ -1176,6 +1179,8 @@ impl<'a> Lowerer<'a> {
             automaton.signature().len()
         } else if let Some(table) = table {
             table.signature().len()
+        } else if let Some(circuit) = circuit {
+            circuit.signature().len()
         } else if let Some(ordering) = ordering {
             ordering.signature().len()
         } else if let Some(counting) = counting {
@@ -1214,6 +1219,8 @@ impl<'a> Lowerer<'a> {
             self.automaton_predicate(call, automaton, &args)?
         } else if let Some(table) = table {
             self.table_predicate(call, table, &args)?
+        } else if let Some(circuit) = circuit {
+            self.circuit_predicate(call, circuit, &args)?
         } else if let Some(ordering) = ordering {
             self.ordering_predicate(call, ordering, &args)?
         } else if let Some(counting) = counting {
@@ -1330,6 +1337,41 @@ impl<'a> Lowerer<'a> {
             .validate_shape()
             .map_err(|message| self.source.error(call, message))?;
         Ok(Predicate::Table(table))
+    }
+
+    fn circuit_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: CircuitName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        let circuit = match name {
+            CircuitName::Plain => Circuit::Plain {
+                offset: self.constant_integer(args[0])?,
+                successors: self.array(args[1], ValueType::Integer)?,
+            },
+            CircuitName::Cost | CircuitName::CostArray => Circuit::Cost {
+                matrix: self
+                    .fixed_array(args[0], ValueType::Integer)?
+                    .iter()
+                    .map(Value::integer)
+                    .collect(),
+                successors: self.array(args[1], ValueType::Integer)?,
+                costs: if name == CircuitName::CostArray {
+                    Some(self.array(args[2], ValueType::Integer)?)
+                } else {
+                    None
+                },
+                total: self.scalar(
+                    args[if name == CircuitName::CostArray { 3 } else { 2 }],
+                    ValueType::Integer,
+                )?,
+            },
+        };
+        circuit
+            .validate_shape()
+            .map_err(|message| self.source.error(call, message))?;
+        Ok(Predicate::Circuit(circuit))
     }
 
     fn ordering_predicate(

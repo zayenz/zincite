@@ -248,6 +248,9 @@ pub fn render_text(report: &CheckReport) -> String {
                     condition_text(condition)
                 );
             }
+            ViolationKind::Circuit { finding } => {
+                let _ = writeln!(text, "  {}", circuit_text(finding));
+            }
             ViolationKind::Ordering { finding } => {
                 let _ = writeln!(text, "  {}", ordering_text(finding));
             }
@@ -1014,4 +1017,39 @@ fn ordering_pairs(pairs: &[crate::OrderingPair]) -> String {
         .map(|pair| format!("({}, {})", pair.first, pair.second))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn circuit_text(finding: &crate::CircuitFinding) -> String {
+    finding
+        .faults
+        .iter()
+        .map(|fault| match fault {
+            crate::CircuitFault::OutOfRange {
+                position,
+                successor,
+            } => format!(
+                "circuit successor {successor} at position {position} is outside its index range"
+            ),
+            crate::CircuitFault::RepeatedSuccessor {
+                first,
+                second,
+                successor,
+            } => format!("circuit positions {first} and {second} repeat successor {successor}"),
+            crate::CircuitFault::Subcycle { positions } => {
+                format!("circuit closes a proper cycle at positions {positions:?}")
+            }
+            crate::CircuitFault::EdgeCost {
+                position,
+                target_position,
+                expected,
+                actual,
+            } => format!(
+                "circuit edge {position} -> {target_position} costs {expected}, supplied {actual}"
+            ),
+            crate::CircuitFault::TotalCost { expected, actual } => {
+                format!("circuit total cost is {expected}, supplied {actual}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }

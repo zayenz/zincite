@@ -132,11 +132,12 @@ All other mathematical calls and aliases are planned work.
 | `member_int/bool`, registered member reifiers, `gecode_precede` | Existential equality or earlier fixed value; empty member is false | Member reifier only |
 | `gecode_table_int/bool` and their `_reif`/`_imp` forms | Fixed typed row-major data; complete rows of candidate width; empty table is false | Full reifier only after every tuple entry is known |
 | `gecode_regular`, `gecode_regular_set`, `gecode_regular_nfa_int_fzn` | Concrete DFA/NFA acceptance; fixed row-major transitions; validated alphabets, states and target sets | None |
+| `gecode_circuit`, `gecode_circuit_cost`, `gecode_circuit_cost_array` | Nonempty single-cycle permutation; plain offset or zero-based cost rows; independent edge equalities and actual cost sum | Marked edge costs and totals from their known inputs |
 
-The checker admits 770 exact names, including 165 Boolean-family names,
+The checker admits 779 exact names, including 165 Boolean-family names,
 108 integer scalar/linear relation spellings, 80 float-core names, 57 selection
 names, 84 set-family names, 54 float-function names, 54 counting-family names,
-108 ordering/channel names, 18 table names and nine automaton names.
+108 ordering/channel names, 18 table names, nine automaton names and nine circuit names.
 The `fzn_disjunctive_strict` declaration is required for that external call.
 The other listed names accept calls without declarations. All matching declarations
 validate signatures, roles and shapes, with call checks for declared domains and
@@ -475,10 +476,32 @@ lack definition markers, so primary words alone give incomplete reports.
 checker-030/031 own profile closure and auxiliary-definition limits.
 
 <a id="family-023"></a>
-**checker-023 — circuits and costs.** Check successor range, permutation and the
-single-cycle requirement under each offset convention. Known successors determine
-per-arc and total costs in cost forms, using the exact flattened matrix layout and
-checked sums. Circuit checking never chooses missing successors.
+**checker-023 — circuits and costs.** The three registry literals
+`gecode_circuit`, `gecode_circuit_cost` and `gecode_circuit_cost_array` each accept
+one literal `gecode_` or `fzn_` prefix, giving nine exact names. Plain circuits
+use a fixed nonnegative offset; both cost forms use zero-based successors.
+Successors must form a nonempty in-range permutation with one cycle over every
+node. A singleton self-cycle passes. Empty arrays, overflowing fixed intervals,
+non-square cost layouts and unequal edge-cost lengths fail admission. Repeated
+successor references are legal candidates because the registry unshares them.
+
+The fixed matrix stores row-major `n*n` costs. Known in-range successors determine
+selected edge costs even when topology fails. The array form checks each
+`y[i]=matrix[i*n+x[i]]` and checks `sum(y)=z` using actual supplied or derived
+`y`; conflicting edge costs do not change that sum. The scalar form sums its
+matrix-selected costs. Sums check i64 intermediates in source order. The checker
+does not impose solver integer representation limits.
+
+Marked edge-cost slots derive only when all occurrences select the same known
+cost. Marked totals derive from known actual `y` or all selected scalar-form
+costs. Complete edge arrays and combined edge-plus-total slot multisets support
+array `defines_var`, independently of annotation order. Successor/output aliases
+and edge/total self-dependencies have no completion direction. Supplied values
+still check. Known range, duplicate, subcycle, edge and total faults can report
+with other operands missing; unresolved values and blocked checks describe
+completeness separately. No direction chooses successors or inverts sums.
+Public `fzn_circuit` and cost wrappers follow compiler lowering; checker-030/031
+own profile closure and missing or misplaced definition markers.
 
 <a id="family-024"></a>
 **checker-024 — legacy scheduling.** Check unary/disjunctive, optional unary,
@@ -902,9 +925,9 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r163"></a>[R163](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2285) | ` gecode_schedule_unary `, ` gecode_gecode_schedule_unary `, ` fzn_gecode_schedule_unary ` | ` p_schedule_unary ` / ` always ` | [D2839](#d2839), [D2853](#d2853), [D2969](#d2969) | planned | [checker-024](#family-024) | none |
 | <a id="r164"></a>[R164](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2286) | ` gecode_schedule_unary_optional `, ` gecode_gecode_schedule_unary_optional `, ` fzn_gecode_schedule_unary_optional ` | ` p_schedule_unary_optional ` / ` always ` | [D2855](#d2855), [D2970](#d2970) | planned | [checker-024](#family-024) | none |
 | <a id="r165"></a>[R165](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2287) | ` gecode_schedule_cumulative_optional `, ` gecode_gecode_schedule_cumulative_optional `, ` fzn_gecode_schedule_cumulative_optional ` | ` p_cumulative_opt ` / ` always ` | [D2840](#d2840), [D2842](#d2842), [D2971](#d2971) | planned | [checker-024](#family-024) | none |
-| <a id="r166"></a>[R166](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2289) | ` gecode_circuit `, ` gecode_gecode_circuit `, ` fzn_gecode_circuit ` | ` p_circuit ` / ` always ` | [D2821](#d2821) | planned | [checker-023](#family-023) | [unique outputs](#family-023) |
-| <a id="r167"></a>[R167](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2290) | ` gecode_circuit_cost_array `, ` gecode_gecode_circuit_cost_array `, ` fzn_gecode_circuit_cost_array ` | ` p_circuit_cost_array ` / ` always ` | [D2965](#d2965) | planned | [checker-023](#family-023) | [unique outputs](#family-023) |
-| <a id="r168"></a>[R168](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2291) | ` gecode_circuit_cost `, ` gecode_gecode_circuit_cost `, ` fzn_gecode_circuit_cost ` | ` p_circuit_cost ` / ` always ` | [D2966](#d2966) | planned | [checker-023](#family-023) | [unique outputs](#family-023) |
+| <a id="r166"></a>[R166](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2289) | ` gecode_circuit `, ` gecode_gecode_circuit `, ` fzn_gecode_circuit ` | ` p_circuit ` / ` always ` | [D2821](#d2821) | ` gecode_circuit `, ` gecode_gecode_circuit `, ` fzn_gecode_circuit ` | [checker-023](#family-023) | none |
+| <a id="r167"></a>[R167](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2290) | ` gecode_circuit_cost_array `, ` gecode_gecode_circuit_cost_array `, ` fzn_gecode_circuit_cost_array ` | ` p_circuit_cost_array ` / ` always ` | [D2965](#d2965) | ` gecode_circuit_cost_array `, ` gecode_gecode_circuit_cost_array `, ` fzn_gecode_circuit_cost_array ` | [checker-023](#family-023) | argument 3 (selected edge costs); argument 4 (actual cost sum) |
+| <a id="r168"></a>[R168](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2291) | ` gecode_circuit_cost `, ` gecode_gecode_circuit_cost `, ` fzn_gecode_circuit_cost ` | ` p_circuit_cost ` / ` always ` | [D2966](#d2966) | ` gecode_circuit_cost `, ` gecode_gecode_circuit_cost `, ` fzn_gecode_circuit_cost ` | [checker-023](#family-023) | argument 3 (selected matrix cost sum) |
 | <a id="r169"></a>[R169](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2292) | ` gecode_nooverlap `, ` gecode_gecode_nooverlap `, ` fzn_gecode_nooverlap ` | ` p_nooverlap ` / ` always ` | [D2850](#d2850) | planned | [checker-026](#family-026) | [unique outputs](#family-026) |
 | <a id="r170"></a>[R170](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2293) | ` gecode_nooverlap_fzn `, ` gecode_gecode_nooverlap_fzn `, ` fzn_gecode_nooverlap_fzn ` | ` p_nooverlap ` / ` always ` | [D2850](#d2850) | planned | [checker-026](#family-026) | [unique outputs](#family-026) |
 | <a id="r171"></a>[R171](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2294) | ` gecode_precede `, ` gecode_gecode_precede `, ` fzn_gecode_precede ` | ` p_precede ` / ` always ` | [D2936](#d2936) | ` gecode_precede `, ` gecode_gecode_precede `, ` fzn_gecode_precede ` | [checker-020](#family-020) | none |
@@ -9369,7 +9392,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2821"></a>D2821 / 33 | ` predicate gecode_circuit(int: offset, array[int] of var int: x) ` | S outside profile; G direct | planned | [checker-023](#family-023) | [unique outputs](#family-023) |
+| <a id="d2821"></a>D2821 / 33 | ` predicate gecode_circuit(int: offset, array[int] of var int: x) ` | S outside profile; G direct | C (qualified) | [checker-023](#family-023) | none |
 | <a id="d2822"></a>D2822 / 35 | ` predicate fzn_circuit(array[int] of var int: x) ` | wrapper → ` gecode_circuit `, ` index_set `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-778"></a>
@@ -9879,8 +9902,8 @@ Include/resource entry only; see the selection index.
 | <a id="d2962"></a>D2962 / 130 | ` predicate gecode_array_set_element_intersect_in(var set of int: x, array[int] of var set of int: y, var set of int: z, set of int: u) ` | S outside profile; G direct | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
 | <a id="d2963"></a>D2963 / 140 | ` predicate among_seq(array[int] of var int: x, set of int: S, int: l, int: m, int: n) ` | wrapper → ` sliding_among ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d2964"></a>D2964 / 147 | ` predicate among_seq(array[int] of var bool: x, bool: b, int: l, int: m, int: n) ` | wrapper → ` sliding_among ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
-| <a id="d2965"></a>D2965 / 151 | ` predicate gecode_circuit_cost_array(array[int] of int: c, array[int] of var int: x, array[int] of var int: y, var int: z) ` | S outside profile; G direct | planned | [checker-023](#family-023) | [unique outputs](#family-023) |
-| <a id="d2966"></a>D2966 / 153 | ` predicate gecode_circuit_cost(array[int] of int: c, array[int] of var int: x, var int: z) ` | S outside profile; G direct | planned | [checker-023](#family-023) | [unique outputs](#family-023) |
+| <a id="d2965"></a>D2965 / 151 | ` predicate gecode_circuit_cost_array(array[int] of int: c, array[int] of var int: x, array[int] of var int: y, var int: z) ` | S outside profile; G direct | C (qualified) | [checker-023](#family-023) | argument 3 (selected edge costs); argument 4 (actual cost sum) |
+| <a id="d2966"></a>D2966 / 153 | ` predicate gecode_circuit_cost(array[int] of int: c, array[int] of var int: x, var int: z) ` | S outside profile; G direct | C (qualified) | [checker-023](#family-023) | argument 3 (selected matrix cost sum) |
 | <a id="d2967"></a>D2967 / 162 | ` predicate circuit_cost_array(array[int] of int: c, array[int] of var int: x, array[int] of var int: y, var int: z) ` | wrapper → ` gecode_circuit_cost_array `, ` index_set `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d2968"></a>D2968 / 171 | ` predicate circuit_cost(array[int] of int: c, array[int] of var int: x, var int: z) ` | wrapper → ` gecode_circuit_cost `, ` index_set `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d2969"></a>D2969 / 176 | ` predicate gecode_schedule_unary(array[int] of var int: x, array[int] of int: p) ` | S outside profile; G direct | planned | [checker-024](#family-024) | none |
