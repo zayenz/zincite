@@ -3,7 +3,7 @@ schema_version = 1
 id = "checker-004"
 key = "application-model"
 area = "checker"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -26,11 +26,21 @@ Read [the area brief](../brief.md), especially the Checking contract and Testing
 
 ## Done when
 
-- [ ] The custom MiniZinc library/configuration and documented command compile the example to predicates covered by the runtime; the coverage table names accepted predicates, derivation directions and exclusions.
-- [ ] Application-controlled identifiers and payloads survive preparation and identify the affected entities through typed report fields without parsing messages. The example documents the mapping from application state to sufficient primary values.
-- [ ] A feasible edit, an infeasible edit with several violations, and omitted input give the expected reports. The compilation contract documents tested handling of eliminated decisions, domain restrictions, decomposition and symmetry-breaking choices without claiming untested equivalence.
+- [x] The custom MiniZinc library/configuration and documented command compile the example to predicates covered by the runtime; the coverage table names accepted predicates, derivation directions and exclusions.
+- [x] Application-controlled identifiers and payloads survive preparation and identify the affected entities through typed report fields without parsing messages. The example documents the mapping from application state to sufficient primary values.
+- [x] A feasible edit, an infeasible edit with several violations, and omitted input give the expected reports. The compilation contract documents tested handling of eliminated decisions, domain restrictions, decomposition and symmetry-breaking choices without claiming untested equivalence.
 
 ## Validation
 
 - Recompile the example, inspect all emitted predicates/metadata, and compare the reported violations with the intended source constraints directly.
 - Add only focused coverage for metadata/feedback behavior not already exercised; run the Rust workspace checks and both zdev checks when updating records.
+
+## Result
+
+Packaged the MiniZinc annotation library and a scheduling feedback example that maps every structured finding to application jobs. Documented supported predicates, completion directions and tested compiler editing limits.
+
+Validation:
+
+- Independent verification passed against Wd9d6a68650262b50 with unchanged snapshot.
+- Workspace formatting, Clippy with warnings denied and tests passed; both zdev checks passed.
+- MiniZinc compile-only reproduction, all candidate reports, typed application feedback, compiler controls and Cargo package contents passed. No solver ran.

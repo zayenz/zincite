@@ -27,8 +27,71 @@ report, alongside any known violations.
 
 The four saved candidates in `examples/checker-compilation/candidates/` supply
 only primary decisions and cover feasible, infeasible and incomplete reports.
-For the verified offline compilation recipe, read
-[the compilation contract](../../.zdev/checker/background/compilation-contract.md).
+
+## Compile the application model offline
+
+The package includes `minizinc/checker_annotations.mzn`. It declares
+`checker_constraint(string: id, array[int] of int: entities)` for constraints and
+`checker_value` with the same arguments for variables. Application developers
+choose these IDs and integer entity payloads. This example needs no builtin
+override or separate solver configuration file.
+
+From the repository root, using MiniZinc 2.10.1:
+
+```sh
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --globals-dir crates/zincite-check/minizinc --no-output-ozn -D mzn_ignore_symmetry_breaking_constraints=true --output-paths-to-file /tmp/zincite-checker-compilation.paths --output-fzn-to-file /tmp/zincite-checker-compilation.fzn examples/checker-compilation/model.mzn
+cargo run -p zincite-check --example schedule-feedback -- /tmp/zincite-checker-compilation.fzn
+```
+
+`--solver` selects the installed compiler backend; `--compile` starts no solver.
+For a source package outside the checkout, point `--globals-dir` at that
+package's `minizinc/` directory and supply your own model path. Compilation is
+an explicit offline step. Prepare its output once for repeated checks.
+
+Job 1 cuts panels in three hours; job 2 assembles them in two. Starts are hours
+from opening, between 0 and 8, and both jobs must finish by hour 9. Assembly
+starts after cutting finishes. A separate budget limits the sum of start times
+to 10. `starts_early` records whether cutting starts by hour 2 and imposes no
+required truth value.
+
+The [Rust example](examples/schedule-feedback.rs) sends the application's
+complete start array as `AssignmentValue::Array` named `start`. Position 1 maps
+to application job ID 1 and position 2 to job ID 2. The checker derives finishes
+and the early-start flag from those primary decisions. Omitting the whole array
+uses `Assignment::default()`; no placeholder values are needed.
+
+| Application edit | Checker outcome | Application feedback |
+| --- | --- | --- |
+| `[1,4]` | Valid, complete | No findings; finishes are `[4,6]` |
+| `[8,8]` | Invalid, complete | Finish 11 for job 1, finish 10 for job 2, precedence and start budget |
+| Omitted `start` | Incomplete | Unresolved values and blocked checks, no established violation |
+
+For a constraint finding, the example maps `CheckRef::Constraint` through its
+`Application.entities`. For a domain finding, it finds the array position in
+`VariableRef` or its aliases and selects that entry from `checker_value`'s
+entity payload. Both finish findings carry `finish/[1,2]`; their positions
+identify different jobs. The example iterates every violation without grouping
+by ID, chooses wording from `ViolationKind` and typed values, and prints
+completeness independently. It never parses labels, paths or checker-written
+messages to identify jobs.
+
+`-O0` does not preserve every editable value or source constraint. The tested
+controls show these limits:
+
+| Source form | Observed MiniZinc output and checking behavior |
+| --- | --- |
+| Explicit finish equations with `defines_var` | Named arrays survive; the runtime derives both finishes and checks every relation |
+| Finish and unused Boolean initializers | Named finish array and Boolean disappear; precedence uses starts directly; generated annotations cause an explicit preparation error |
+| Labelled `start <= 2` for a `var 0..8` scalar | Domain becomes `0..2`; the source constraint ID and label disappear; `start=8` gives a domain finding with variable metadata |
+| The model's `forall` finish equations | Two `int_lin_eq` constraints share a label and carry distinct `[1]` and `[2]` entity payloads |
+| Optional order symmetry breaker | With the recipe's ignore flag, `[8,1]` passes the control; with the flag false, its emitted `int_lin_le` fails with `job_order/[1,2]` |
+
+Use the ignore flag when an application allows either representative of a
+symmetry. The main model has no symmetry breaker. Inspect each compiled model's
+predicates, declarations and metadata before admitting it; the controls establish
+these source forms, not equivalence for arbitrary MiniZinc models. The detailed
+control sources and observations are in the repository's
+[compilation contract](../../.zdev/checker/background/compilation-contract.md).
 
 ## Library use
 
@@ -62,10 +125,8 @@ this increment provides no parser-free model constructor.
 - Fixed literal initializers, scalar aliases, one-dimensional literal arrays
   indexed by `1..n` (including `1..0`), and same-shape array aliases. Parameters
   must be fixed. Arrays need a literal initializer or array alias.
-- Exactly three direct predicates: `int_lin_eq(a,x,c)`, `int_lin_le(a,x,c)` and
-  `int_le_reif(x,y,b)`. Linear coefficients and bounds are fixed integers;
-  coefficient and operand arrays have equal lengths. Reification checks
-  `b <-> (x <= y)`, including when `b` is false. Half reification is unsupported.
+- Exactly the three predicates in the coverage table below. Linear coefficients
+  and bounds are fixed integers; coefficient and operand arrays have equal lengths.
 - One solve item: `satisfy`, or `minimize`/`maximize` of a scalar integer literal
   or reference. An available objective value appears in the report; the checker
   makes no optimality claim.
@@ -101,6 +162,15 @@ checker support. This is a direct checker for the documented subset, not a
 MiniZinc interpreter or a general FlatZinc solver.
 
 ## Functional completion
+
+This is the complete predicate coverage, including the five constraints emitted
+by the application model:
+
+| Predicate | Direct check | Completion through matching `defines_var` |
+| --- | --- | --- |
+| `int_lin_eq(a,x,c)` | `sum(a[i]*x[i]) = c` | One integer output occurring once with a nonzero coefficient; all other terms known and exact division |
+| `int_lin_le(a,x,c)` | `sum(a[i]*x[i]) <= c` | None |
+| `int_le_reif(x,y,b)` | `b <-> (x <= y)`, including `b=false` | Boolean result `b` from known integer operands `x` and `y` |
 
 Before checking domains and relations, a dependency worklist calculates the
 supported `defines_var` outputs until no new values are available:

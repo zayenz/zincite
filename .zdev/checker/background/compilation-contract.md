@@ -3,8 +3,11 @@
 MiniZinc 2.10.1, build 33348285743, compiles the two-job example into a
 bounded Boolean/integer FlatZinc model. Both editable starts survive, arithmetic
 definitions have explicit forward directions, and each constraint carries an
-application identifier and integer payload. These are compilation findings and
-manual candidate walkthroughs; Zincite has no checker runtime at this stage.
+application identifier and integer payload. Job 1 cuts panels in three hours;
+job 2 assembles them in two. The application supplies their start times. The
+native checker prepares this artifact and checks complete and incomplete
+candidates. The packaged Rust example translates its typed findings into job
+feedback without parsing messages.
 
 ## Reproduce the specimen
 
@@ -12,21 +15,20 @@ From the repository root, with the named MiniZinc version on `PATH`:
 
 ```sh
 minizinc --version
-minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --globals-dir examples/checker-compilation/library --no-output-ozn --output-paths-to-file /tmp/zincite-checker-compilation.paths --output-fzn-to-file examples/checker-compilation/model.fzn examples/checker-compilation/model.mzn
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --globals-dir crates/zincite-check/minizinc --no-output-ozn -D mzn_ignore_symmetry_breaking_constraints=true --output-paths-to-file /tmp/zincite-checker-compilation.paths --output-fzn-to-file examples/checker-compilation/model.fzn examples/checker-compilation/model.mzn
 ```
 
 The driver requires an explicit solver selection for `--compile` in this
 installation. That flag compiles without starting Gecode. `--globals-dir`
-selects the repository library, whose only file declares the two application
-annotations. No builtin override or solver configuration file is needed for
-this example. No candidate file is passed to the compiler: compile once, then
+selects `crates/zincite-check/minizinc/`, packaged with the checker crate. Its
+only file declares the two application annotations. No builtin override or
+solver configuration file is needed for this example. No candidate file is passed to the compiler: compile once, then
 inspect candidates against that same artifact. The `.paths` sidecar goes to
 `/tmp`; the inspected contract uses the annotations already in `model.fzn`.
 
-A second compilation to `/tmp/zincite-checker-recompile.fzn`, with the paths
-sidecar also redirected to `/tmp`, matched the specimen except for its command
-comment. In another checkout, the library comment and absolute `mzn_path`
-prefixes also change. Generated names and locations belong to one compilation.
+The documented command can put both output files under `/tmp` when the caller
+does not need to refresh the archived specimen. In another checkout, the
+library comment and absolute `mzn_path` prefixes also change. Generated names and locations belong to one compilation.
 
 ## Values, addressing and domains
 
@@ -92,10 +94,13 @@ The output declarations have `is_defined_var`, and each defining relation has
 the matching `defines_var`. Every definition is also checked as a relation,
 including when a caller supplies its result. Do not invert inequalities or
 choose missing starts from finish bounds. A derived finish of 11 is available
-to precedence even though it fails its domain. The example needs checked
-integer sums/subtraction; division, mathematical remainder, overflow behavior,
-half reification, globals and partial expressions are outside this experiment.
-No predicate beyond the three above is admitted by these findings.
+to precedence even though it fails its domain. The runtime uses checked `i64`
+products, sums, subtraction and exact division for these definitions. Overflow is a located execution error; nonexact division
+leaves an output unresolved. Half reification, division/remainder predicates,
+globals and partial expressions are outside this dialect.
+The runtime admits exactly the three predicates above; `int_lin_le` has no
+completion direction. The crate README documents declaration, annotation,
+assignment and arithmetic boundaries.
 
 ## Application metadata and locations
 
@@ -127,7 +132,7 @@ arbitrary custom annotations and other decompositions need separate evidence.
 ## Candidate walkthroughs
 
 The files in `examples/checker-compilation/candidates/` contain only literal
-assignments for later checker input. The calculations below inspect the source
+assignments for checker input. The calculations below inspect the source
 relations and the actual emitted coefficient vectors directly, without solving.
 
 | Candidate | Supplied starts | Derived finishes | `starts_early` | Outcome |
@@ -160,16 +165,143 @@ precedence and budget are blocked. Insufficient input is a normal report with
 unresolved values and blocked checks, plus any established violations. It is
 neither an input error nor evidence that a satisfying completion exists.
 
+## Application feedback example
+
+Run `cargo run -p zincite-check --example schedule-feedback -- MODEL.fzn` with
+this compiled artifact. The example prepares once and sends a complete
+`AssignmentValue::Array` named `start` for each edit. App job IDs 1 and 2 match
+array positions 1 and 2. The example uses `Assignment::default()` when the whole
+start array is omitted.
+
+The example checks `[1,4]`, `[8,8]` and omitted input. `[8,8]` derives finishes
+`[11,10]` and a false early-start flag. Both finish domains fail, precedence
+fails because `11-8=3 > 0`, and the budget fails because `8+8=16 > 10`. Its four
+findings form a complete invalid report. The two finish findings share
+`checker_value("finish",[1,2])`; their distinct array alias positions select
+job IDs 1 and 2. The example uses constraint entity payloads directly for the
+other two findings. It reads `CheckRef`, variable aliases/positions and
+`ViolationKind` to choose application wording. It does not parse labels,
+paths or checker-written messages, group by application ID, or check a second
+copy of the scheduling rules.
+
+Omitting all starts yields an incomplete report with no established violation,
+nine unresolved variable references and fourteen blocked checks. These counts
+include the runtime's scalar and array declaration references; they are not
+counts of distinct application jobs. The example displays completeness beside
+findings, independently of their presence.
+
+## Compiler controls and editing limits
+
+These compile-only controls used MiniZinc 2.10.1 build 33348285743 and the same
+`-O0 --keep-paths --globals-dir crates/zincite-check/minizinc --no-output-ozn`
+flags, with all model, FlatZinc and paths files under `/tmp`. No solver ran.
+The observations apply to these sources; they do not establish equivalence for
+arbitrary MiniZinc input.
+
+### Initializer elimination
+
+In a copy of the two-job model, replace the finish declaration and explicit
+finish equations with this initializer, and replace the Boolean declaration
+and explicit equivalence with the second initializer:
+
+```minizinc
+array[Job] of var 0 .. 9: finish :: checker_value("finish", [1, 2]) = [start[job] + duration[job] | job in Job];
+var bool: starts_early :: checker_value("starts_early", [1]) = start[1] <= 2;
+```
+
+Leave starts, precedence, budget and `solve satisfy` as in the specimen.
+The compiler drops the named `finish` array and unused `starts_early` scalar.
+It substitutes starts into precedence, producing
+`int_lin_le([1,-1], [start[1],start[2]], -3)` in scalar form. Two unnamed finish
+variables with domains `3..9` and `2..9` still have arithmetic definitions.
+They carry `var_is_introduced`; their defining constraints carry
+`checker_value("finish",[1,2])` instead of the explicit equations' job-specific
+`checker_constraint` annotations. Preparation rejects the first
+`var_is_introduced` annotation, with exit status 2 and no candidate report.
+`checker_value` on a constraint is also outside the documented contexts. Do not
+remove these annotations or reconstruct missing application values to admit
+this output. The explicit-equation specimen supplies the supported editing
+contract.
+
+### Domain restriction and lost constraint feedback
+
+Compile this complete control with the packaged include:
+
+```minizinc
+include "globals.mzn";
+include "checker_annotations.mzn";
+var 0 .. 8: start :: checker_value("start", [1]);
+% This source restriction can become a narrower declaration domain.
+constraint :: "Latest start"
+(start <= 2) :: checker_constraint("latest_start", [1]);
+solve satisfy;
+```
+
+The output contains `var 0..2: start` with its `checker_value("start",[1])`,
+`mzn_path` and `output_var` annotations, and no constraint. Neither the
+`latest_start` identifier nor its label survives. The runtime accepts the
+output; `start=8;` is invalid and complete with one domain finding, value 8 and
+domain `0..2`. This agrees with the source restriction, but feedback can name
+only the variable/application entity and its emitted domain. The initial
+`0..8` domain is not a promise that every edit inside it passes. The two-job
+specimen also shows inferred finish lower bounds without a domain marker.
+Applications must inspect and check the actual compiled domains.
+
+### `forall` decomposition
+
+The specimen is the decomposition control: its one labelled `forall` emits two
+`int_lin_eq` relations. The label is shared; `checker_constraint("finish",[1])`
+and `checker_constraint("finish",[2])` identify different jobs. The metadata
+and functional directions survive preparation. Supplied wrong finishes are
+checked by those relations, and `[8,8]` demonstrates two distinct domain
+findings sharing value metadata. No finding is dropped because another one
+uses the same application ID.
+
+### Optional symmetry breaking
+
+Compile this complete control twice, once with
+`-D mzn_ignore_symmetry_breaking_constraints=true` and once with the value
+`false`:
+
+```minizinc
+include "globals.mzn";
+include "checker_annotations.mzn";
+array[1 .. 2] of var 0 .. 8: start :: checker_value("start", [1, 2]);
+% The two otherwise interchangeable jobs can be ordered for solving.
+constraint :: "Order interchangeable jobs"
+symmetry_breaking_constraint(start[1] <= start[2]) :: checker_constraint("job_order", [1, 2]);
+solve satisfy;
+```
+
+With `true`, both start scalars and their array alias survive; no constraint
+is emitted. `start=[8,1];` is valid and complete. With `false`, the same
+declarations accompany one `int_lin_le([1,-1], [start[1],start[2]], 0)` in scalar
+form, labelled `Order interchangeable jobs` with `job_order/[1,2]` and a source
+path. The runtime accepts it and reports one complete invalid finding for
+`[8,1]`, with sum 7 and bound 0. Direct evaluation agrees with `8 <= 1` being
+false. Use `true` when the application's edits allow either representative.
+The main scheduling model contains no symmetry breaker; its documented command
+sets this choice explicitly. This does not test other symmetry formulations.
+
 ## Validation and sources
 
-The exact recipe and a temporary-output recompilation succeeded. Direct
-calculations over all four literal fixtures agreed with the source equations
-and all five FlatZinc constraints. The repository formatter's `--check` passed
-for the model, library and candidates. Default linting with the installed
-standard library and `-I examples/checker-compilation/library` exited 0; it
-reported one `index-set-mismatch` analysis limitation for the array access in
-`defines_var`. This is not full lint analysis. No Rust code changed and no
-solver ran.
+The packaged recipe succeeded and emitted only the three admitted predicates,
+with five constraint IDs, labels, paths and the documented definition directions.
+Native CLI runs of all four literal fixtures agreed with their source equations
+and all five FlatZinc constraints. The application example reported the expected
+feasible, four-finding infeasible and omitted-input results. Focused integration
+coverage checks that both finish-domain findings map to distinct positions and
+job IDs despite shared value metadata.
+
+The initializer, domain, decomposition and symmetry controls above were inspected
+directly and checked as described. The repository formatter's `--check` passed
+for the model, packaged library and candidates. Default linting with the installed
+standard library and `-I crates/zincite-check/minizinc` exited 0; it reported one
+`index-set-mismatch` analysis limitation for the array access in `defines_var`.
+This is not full lint analysis. Cargo formatting, Clippy and workspace tests
+passed; Cargo's package file list includes the MiniZinc library and guarded Rust
+example. No compiler or solver runs during checking, and no solver ran during
+this validation.
 
 Primary references are the
 [MiniZinc 2.10.1 FlatZinc specification](https://docs.minizinc.org/en/2.10.1/fzn-spec.html),
@@ -178,6 +310,6 @@ and `std/stdlib/stdlib_ann.mzn` for definition, domain, label and path annotatio
 Both library files are under
 `/Applications/MiniZincIDE.app/Contents/Resources/share/minizinc/` in the inspected
 installation. `minizinc --help` documents the compile-only flags. The saved
-source, local annotation library and unedited emitted `model.fzn` are the
+source, packaged annotation library and unedited emitted `model.fzn` are the
 evidence for this recipe; compiler acceptance alone does not establish a
 general checker dialect.

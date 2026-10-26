@@ -171,6 +171,41 @@ fn insufficient_input_is_independent_of_known_violations() {
 }
 
 #[test]
+fn shared_finish_metadata_identifies_both_job_positions() {
+    let model = prepare("model.fzn", SPECIMEN).unwrap();
+    let report = model.check(&assignment("start=[8,8];")).unwrap();
+    assert!(report.completeness.complete);
+    assert_eq!(report.violations.len(), 4);
+    let jobs: Vec<_> = report
+        .violations
+        .iter()
+        .filter_map(|violation| {
+            let CheckRef::Domain { variable, .. } = &violation.check else {
+                return None;
+            };
+            let application = variable.metadata.application.as_ref().unwrap();
+            assert_eq!(application.id, "finish");
+            assert_eq!(application.entities, [1, 2]);
+            let position = variable
+                .aliases
+                .iter()
+                .find(|alias| alias.name == "finish")
+                .unwrap()
+                .position
+                .unwrap();
+            let ViolationKind::Domain { value } = violation.details else {
+                panic!("expected a domain value")
+            };
+            Some((position, application.entities[position - 1], value))
+        })
+        .collect();
+    assert_eq!(
+        jobs,
+        [(1, 1, Value::Integer(11)), (2, 2, Value::Integer(10))]
+    );
+}
+
+#[test]
 fn definition_chains_use_computed_values_despite_singleton_aliases() {
     let first = "constraint int_lin_eq([1,-1],[middle,input],1)::defines_var(middle);";
     let second = "constraint int_lin_eq([1,-1],[total,narrow],1)::defines_var(total);";
