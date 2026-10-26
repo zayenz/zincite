@@ -4,8 +4,8 @@
 
 - Total: 33
 - Ready: 1
-- Blocked: 23
-- Done: 9
+- Blocked: 22
+- Done: 10
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -18,8 +18,8 @@
 | [checker-007](tasks/007-demonstrate-interactive-graphical-edits-and-structured-feedb.md) | Demonstrate interactive graphical edits and structured feedback | done | checker-004, checker-006 |
 | [checker-008](tasks/008-support-finite-integer-sets-and-one-useful-global-predicate.md) | Support finite integer sets and one useful global predicate | done | checker-004, checker-005, checker-006 |
 | [checker-009](tasks/009-measure-interactive-checking-and-document-the-supported-work.md) | Measure interactive checking and document the supported workflow | done | checker-007, checker-008 |
-| [checker-010](tasks/010-inventory-complete-standard-and-gecode-flatzinc-coverage.md) | Inventory complete standard and Gecode FlatZinc coverage | ready | checker-009 |
-| [checker-011](tasks/011-accept-the-full-flatzinc-text-structure-and-annotations.md) | Accept the full FlatZinc text structure and annotations | blocked | checker-010 |
+| [checker-010](tasks/010-inventory-complete-standard-and-gecode-flatzinc-coverage.md) | Inventory complete standard and Gecode FlatZinc coverage | done | checker-009 |
+| [checker-011](tasks/011-accept-the-full-flatzinc-text-structure-and-annotations.md) | Accept the full FlatZinc text structure and annotations | ready | checker-010 |
 | [checker-012](tasks/012-check-standard-integer-arithmetic-and-derive-its-outputs.md) | Check standard integer arithmetic and derive its outputs | blocked | checker-011 |
 | [checker-013](tasks/013-complete-integer-comparisons-and-linear-reification.md) | Complete integer comparisons and linear reification | blocked | checker-011 |
 | [checker-014](tasks/014-complete-boolean-logic-clauses-and-boolean-linear-constraint.md) | Complete Boolean logic, clauses and Boolean linear constraints | blocked | checker-011, checker-013 |

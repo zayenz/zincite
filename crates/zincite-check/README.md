@@ -4,6 +4,10 @@ A Rust and WebAssembly checker for a small FlatZinc dialect targeting MiniZinc 2
 Prepare a model once, then check candidate assignments repeatedly. Checking
 performs no I/O and starts no compiler or solver.
 
+The [full-library coverage inventory](../../docs/checker-coverage.md) records the
+pinned standard/Gecode signatures, aliases, task owners and include paths for the
+planned expansion. Working support is exactly the subset documented below.
+
 This checkout introduces the checker. Install it locally with
 `cargo install --locked --path crates/zincite-check`, or install the root command
 with `cargo install --locked --path .`. It is not part of the published 0.3.0

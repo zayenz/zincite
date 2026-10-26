@@ -266,6 +266,11 @@ corresponding tasks and coverage checks pass. Keep the same native, serialized
 and parser-free Wasm entry points, structured findings and independent
 completeness contract.
 
+Read the [coverage inventory](../../docs/checker-coverage.md) before extending a
+predicate family or either compiler profile. It records exact source signatures,
+aliases, current support, task ownership and include gaps, with the command that
+checks the table against both pinned source trees.
+
 Use these fixed upstream sources for this expansion:
 
 - MiniZinc **2.10.1**, tag commit

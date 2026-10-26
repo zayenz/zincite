@@ -304,3 +304,19 @@ and analysis from saved records. The [checker report](checker-performance.md)
 gives the workload, timing/memory scopes, measured results and repeat commands.
 These timings address prepared-model edits; formatter save latency includes a
 fresh process and has a separate target.
+
+## FlatZinc coverage inventory
+
+[checker-coverage.py](checker-coverage.py) checks the generated source tables in
+[the coverage inventory](../docs/checker-coverage.md) against clean MiniZinc and
+Gecode Git roots at the fixed revisions documented there:
+
+```sh
+uv run scripts/checker-coverage.py target/checker-upstream/minizinc-2.10.1 target/checker-upstream/gecode-main
+```
+
+It resolves both include profiles, lists absent optional legacy include edges,
+checks exact declarations and registry aliases, and checks current admission
+names. It has no dependencies and does not run a compiler or solver. After
+reviewing a source or ownership change, add `--write` to refresh only the marked
+generated section; edit semantic notes in the authored section.
