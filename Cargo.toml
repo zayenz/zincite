@@ -1,6 +1,6 @@
 [workspace]
-members = [".", "crates/zincite-syntax", "crates/zincite-fmt", "crates/zincite-lint", "crates/zincite-query"]
-default-members = [".", "crates/zincite-syntax", "crates/zincite-fmt", "crates/zincite-lint", "crates/zincite-query"]
+members = [".", "crates/zincite-syntax", "crates/zincite-fmt", "crates/zincite-lint", "crates/zincite-query", "crates/zincite-check"]
+default-members = [".", "crates/zincite-syntax", "crates/zincite-fmt", "crates/zincite-lint", "crates/zincite-query", "crates/zincite-check"]
 resolver = "3"
 
 [workspace.package]
@@ -26,3 +26,4 @@ include = ["/src/**", "/build.rs", "/README.md", "/LICENSE-MIT", "/LICENSE-APACH
 zincite-fmt = { version = "0.3.0", path = "crates/zincite-fmt" }
 zincite-lint = { version = "0.3.0", path = "crates/zincite-lint" }
 zincite-query = { version = "0.3.0", path = "crates/zincite-query" }
+zincite-check = { version = "0.3.0", path = "crates/zincite-check" }

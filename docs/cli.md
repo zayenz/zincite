@@ -59,6 +59,24 @@ The [program reference](reference.md#query-programs) defines the default limits.
 Query output is buffered until evaluation and rendering succeed. If a later
 statement fails, the command produces no partial report on stdout.
 
+## Candidate checking from a checkout
+
+`zincite check` and `zincite-check` share one CLI. They accept two file paths:
+
+```sh
+zincite check [--format text|json] model.fzn candidate.dzn
+zincite-check [--format text|json] model.fzn candidate.dzn
+```
+
+Reports go to stdout; input and execution errors go to stderr without partial
+stdout. The checker reads literal Boolean/integer assignments, checks every
+available domain and supported relation, and reports independent completeness.
+Supply auxiliary values until functional completion is implemented. It starts
+no compiler or solver. The [checker guide](../crates/zincite-check/README.md)
+defines the admitted syntax, three predicates, metadata and exact integer JSON
+encoding. These commands are available from the checkout, outside the published
+0.3.0 packages.
+
 ## Explicit writes
 
 Formatter `--write` and query `--write` require explicit regular files and
@@ -71,11 +89,11 @@ bytes again before replacing the file. Writes retain file permissions.
 
 ## Exit codes
 
-| Code | Formatter | Linter | Query |
-| --- | --- | --- | --- |
-| `0` | Formatting succeeded; check found no changes | No unsuppressed warnings or errors | Complete result |
-| `1` | Check found formatting changes | Unsuppressed warnings | Incomplete semantic report or data candidate |
-| `2` | Input, syntax, configuration, directive, usage or I/O error | Input, syntax, settings, directive, usage, dependency or I/O error | Query, input, model, usage or I/O error |
+| Code | Formatter | Linter | Query | Checker (checkout) |
+| --- | --- | --- | --- | --- |
+| `0` | Formatting succeeded; check found no changes | No unsuppressed warnings or errors | Complete result | Valid, complete candidate |
+| `1` | Check found formatting changes | Unsuppressed warnings | Incomplete semantic report or data candidate | Invalid or incomplete report |
+| `2` | Input, syntax, configuration, directive, usage or I/O error | Input, syntax, settings, directive, usage, dependency or I/O error | Query, input, model, usage or I/O error | Usage, I/O, preparation, assignment or arithmetic error |
 
 Errors take precedence across formatter/linter inputs. A query's empty fragment
 selection succeeds with no source; its count is 0. Lint limitations alone retain

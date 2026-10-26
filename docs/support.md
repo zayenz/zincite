@@ -3,7 +3,7 @@
 Zincite targets MiniZinc 2.10.1 `.mzn` models and assignment-only `.dzn` data.
 The [syntax reference](reference.md#syntax-support) lists accepted constructs
 and differences between the specification and compiler. JSON data and solver
-output are not supported input formats. Code and literals must be UTF-8;
+solution streams are not supported input formats. Code and literals must be UTF-8;
 non-UTF-8 bytes in comments are preserved.
 
 ## Versions and Rust support
@@ -28,6 +28,14 @@ Data edits change the instance. Zincite reparses the candidate and, for
 model-backed construction, checks supported types and array shapes. Those
 checks do not establish satisfiability.
 
+The checkout's candidate checker accepts the explicit FlatZinc subset in the
+[checker guide](../crates/zincite-check/README.md). It checks supplied Boolean
+and integer candidates, reports all available violations and identifies
+unresolved values and blocked checks. It needs supplied auxiliaries until
+functional completion is implemented. A complete valid report establishes
+feasibility of that supported compiled model, without claiming optimality.
+Checking starts no compiler or solver; compilation is a separate offline step.
+
 ## Unknown facts and incomplete analysis
 
 An unknown fact is sometimes the expected result. For example, a parameter
@@ -45,6 +53,7 @@ that case from a check that completed without a finding.
 | Lint warning | A selected rule found something to review. The rule ID and message explain the concern. |
 | Lint limitation | Part of the analysis could not be completed. Use `--show-limitations` for details. |
 | Query with `complete: false` | Available results are included, but the `limitations` list explains what is missing. |
+| Checker invalid/incomplete | A known violation and unresolved work can coexist; read the independent completeness fields. |
 | Input or query error | Fix the reported syntax, configuration, dependency or query problem before using the result. |
 
 Lint exits 1 for warnings and 2 for errors. Limitations alone do not change

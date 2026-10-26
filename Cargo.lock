@@ -84,6 +84,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]
@@ -201,9 +202,19 @@ checksum = "0592e1c9d151f854e6fd382574c3a0855250e1d9b2f99d9281c6e6391af352f1"
 name = "zincite"
 version = "0.3.0"
 dependencies = [
+ "zincite-check",
  "zincite-fmt",
  "zincite-lint",
  "zincite-query",
+]
+
+[[package]]
+name = "zincite-check"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zincite-syntax",
 ]
 
 [[package]]

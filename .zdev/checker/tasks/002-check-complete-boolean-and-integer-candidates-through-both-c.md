@@ -3,7 +3,7 @@ schema_version = 1
 id = "checker-002"
 key = "native-check"
 area = "checker"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "high"
@@ -26,11 +26,22 @@ Read [the area brief](../brief.md), especially the Checking contract and Testing
 
 ## Done when
 
-- [ ] Public preparation/checking APIs and zincite-check / zincite check accept the documented FlatZinc and literal .dzn assignment forms, with located preparation errors for unsupported types, predicates, signatures or malformed references.
-- [ ] The direct-check subset reports all concrete violations in source order, with typed fields, supplied application identifiers/payloads and locations. Input names, duplicates, aliases, types and array shapes are validated; out-of-domain values are violations rather than silently changed.
-- [ ] Text and JSON preserve independent completeness information, unresolved variables and blocked checks, with and without known violations. Insufficient input returns a report. CLI status follows the brief: 0 valid, 1 invalid/incomplete, 2 actual errors; both entry points agree.
+- [x] Public preparation/checking APIs and zincite-check / zincite check accept the documented FlatZinc and literal .dzn assignment forms, with located preparation errors for unsupported types, predicates, signatures or malformed references.
+- [x] The direct-check subset reports all concrete violations in source order, with typed fields, supplied application identifiers/payloads and locations. Input names, duplicates, aliases, types and array shapes are validated; out-of-domain values are violations rather than silently changed.
+- [x] Text and JSON preserve independent completeness information, unresolved variables and blocked checks, with and without known violations. Insufficient input returns a report. CLI status follows the brief: 0 valid, 1 invalid/incomplete, 2 actual errors; both entry points agree.
 
 ## Validation
 
 - Add a few public behavior checks combining complete success, several violations, insufficient input with/without a known violation, and malformed/unsupported input. Include one CLI equivalence check.
 - Document the working command and the admitted direct subset, then run the area brief's Rust workspace checks.
+
+## Result
+
+Implemented and independently verified the native zincite-check library, both CLI forms, three direct predicates, typed all-violation reports and independent completeness.
+
+Validation:
+
+- cargo fmt --all -- --check, cargo clippy --workspace --all-targets -- -D warnings, and cargo test --workspace passed.
+- Public checks covered complete/incomplete candidates, all expected violations, metadata and aliases, fixed/singleton values, assignment validation and checked i64 boundaries.
+- Both CLIs agreed in text/JSON output and statuses; inverse call syntax is rejected with located preparation errors after a verified correction.
+- No-default-features validation excluded syntax/JSON dependencies; both zdev checks passed. Verification snapshot: W96bb0618adcc5517.

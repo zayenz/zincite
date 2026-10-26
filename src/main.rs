@@ -9,6 +9,7 @@ Commands:
     fmt     Format source, check formatting or write explicit files
     lint    Report modelling advice, inspect rules or apply explicit fixes
     query   Inspect source, report JSON/counts or explicitly edit data assignments
+    check   Check candidate values against a prepared FlatZinc subset
 
 Use zincite <COMMAND> --help for command options.
 --version shows the package version and build revision when available.
@@ -22,6 +23,7 @@ fn main() -> ExitCode {
     match command.to_str() {
         Some("fmt") => zincite_fmt::cli::run(arguments.collect(), "zincite fmt"),
         Some("lint") => zincite_lint::cli::run(arguments.collect(), "zincite lint"),
+        Some("check") => zincite_check::cli::run(arguments.collect(), "zincite check"),
         Some("query") => zincite_query::cli::run(arguments.collect(), "zincite query"),
         Some("-h" | "--help") => print_help(),
         Some("--version") => {

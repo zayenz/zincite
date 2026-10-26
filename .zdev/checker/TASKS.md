@@ -4,14 +4,14 @@
 
 - Total: 9
 - Ready: 1
-- Blocked: 7
-- Done: 1
+- Blocked: 6
+- Done: 2
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
 | [checker-001](tasks/001-establish-the-checker-compilation-contract.md) | Establish the checker compilation contract | done | — |
-| [checker-002](tasks/002-check-complete-boolean-and-integer-candidates-through-both-c.md) | Check complete Boolean and integer candidates through both CLIs | ready | checker-001 |
-| [checker-003](tasks/003-complete-candidates-through-supported-functional-definitions.md) | Complete candidates through supported functional definitions | blocked | checker-002 |
+| [checker-002](tasks/002-check-complete-boolean-and-integer-candidates-through-both-c.md) | Check complete Boolean and integer candidates through both CLIs | done | checker-001 |
+| [checker-003](tasks/003-complete-candidates-through-supported-functional-definitions.md) | Complete candidates through supported functional definitions | ready | checker-002 |
 | [checker-004](tasks/004-package-the-checker-library-and-application-feedback-example.md) | Package the checker library and application feedback example | blocked | checker-003 |
 | [checker-005](tasks/005-export-and-load-prepared-models-without-reparsing-source.md) | Export and load prepared models without reparsing source | blocked | checker-003 |
 | [checker-006](tasks/006-expose-a-parser-free-webassembly-checking-api.md) | Expose a parser-free WebAssembly checking API | blocked | checker-005 |

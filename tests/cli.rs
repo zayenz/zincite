@@ -217,9 +217,14 @@ fn help_uses_the_invocation_and_usage_errors_exit_two() {
         assert!(output.status.success() && output.stderr.is_empty());
         let help = String::from_utf8(output.stdout).unwrap();
         assert!(help.starts_with("Usage: zincite <COMMAND>"));
-        assert!(help.contains("fmt") && help.contains("lint") && help.contains("query"));
+        assert!(
+            help.contains("fmt")
+                && help.contains("lint")
+                && help.contains("query")
+                && help.contains("check")
+        );
     }
-    for command in ["fmt", "lint", "query"] {
+    for command in ["fmt", "lint", "query", "check"] {
         let output = run(&[command, "--help"], "");
         assert!(output.status.success() && output.stderr.is_empty());
         let help = String::from_utf8(output.stdout).unwrap();
