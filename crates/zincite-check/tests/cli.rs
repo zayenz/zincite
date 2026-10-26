@@ -504,3 +504,86 @@ fn counting_cli_preserves_typed_conflicts_and_array_definitions_after_loading() 
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn ordering_cli_preserves_completion_exact_indexes_and_typed_faults() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-check-ordering-cli-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let model = directory.join("ordering.fzn");
+    let data = directory.join("candidate.dzn");
+    let artifact = directory.join("ordering.json");
+    std::fs::write(
+        &model,
+        include_str!("../../../examples/checker-compilation/ordering.fzn"),
+    )
+    .unwrap();
+    let export = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+        .args(["--export"])
+        .arg(&artifact)
+        .arg(&model)
+        .output()
+        .unwrap();
+    assert!(
+        export.status.success(),
+        "{}",
+        String::from_utf8_lossy(&export.stderr)
+    );
+    for (candidate, status, complete) in [
+        (
+            "input=[3,1,2];selected=9007199254740994;forward=[7,5,6];",
+            "valid",
+            true,
+        ),
+        (
+            "input=[3,1,2];selected=9007199254740994;forward=[7,5,6];permutation=[-2,-2,9223372036854775807];flags=[true,true,false];",
+            "invalid",
+            true,
+        ),
+        ("flags=[false,false,false];", "invalid", false),
+        ("", "incomplete", false),
+    ] {
+        std::fs::write(&data, candidate).unwrap();
+        let source = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+            .args(["--format", "json"])
+            .arg(&model)
+            .arg(&data)
+            .output()
+            .unwrap();
+        let loaded = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+            .args(["--load", "--format", "json"])
+            .arg(&artifact)
+            .arg(&data)
+            .output()
+            .unwrap();
+        assert_eq!(source.stdout, loaded.stdout);
+        assert!(
+            source.stderr.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&source.stderr)
+        );
+        let report: serde_json::Value = serde_json::from_slice(&source.stdout).unwrap();
+        assert_eq!(report["status"], status);
+        assert_eq!(report["completeness"]["complete"], complete);
+        if status == "valid" {
+            assert_eq!(
+                report["objective"]["argument"]["value"]["value"],
+                "9007199254740994"
+            );
+        }
+        if status == "invalid" {
+            let text = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+                .args(["--load"])
+                .arg(&artifact)
+                .arg(&data)
+                .output()
+                .unwrap();
+            assert!(
+                String::from_utf8(text.stdout)
+                    .unwrap()
+                    .contains("one-hot channel")
+            );
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

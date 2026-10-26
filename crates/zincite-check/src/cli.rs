@@ -192,6 +192,9 @@ pub fn render_text(report: &CheckReport) -> String {
             check_text(&violation.check)
         );
         match &violation.details {
+            ViolationKind::Ordering { finding } => {
+                let _ = writeln!(text, "  {}", ordering_text(finding));
+            }
             ViolationKind::Count {
                 calculated,
                 supplied,
@@ -867,4 +870,92 @@ fn metadata_text(metadata: &Metadata) -> String {
         text.push_str(" [output]");
     }
     text
+}
+
+fn ordering_text(finding: &crate::OrderingFinding) -> String {
+    use crate::OrderingFinding::*;
+    match finding {
+        Distinct { conflicts, .. } => format!(
+            "distinct values conflict at pairs {}",
+            ordering_pairs(conflicts)
+        ),
+        Equal {
+            negated, differing, ..
+        } => format!(
+            "{}all equal; differing pairs {}",
+            if *negated { "not " } else { "" },
+            ordering_pairs(differing)
+        ),
+        Lex {
+            strict,
+            decisive_position,
+            left_length,
+            right_length,
+            ..
+        } => format!(
+            "lexicographic {} fails at position {decisive_position:?}; lengths {left_length}, {right_length}",
+            if *strict { "less" } else { "less or equal" }
+        ),
+        NotEqual { .. } => "array disequality fails: all positions agree".into(),
+        Monotone {
+            decreasing,
+            conflicts,
+            ..
+        } => format!(
+            "{} order fails at pairs {}",
+            if *decreasing {
+                "decreasing"
+            } else {
+                "increasing"
+            },
+            ordering_pairs(conflicts)
+        ),
+        Extremum {
+            maximum,
+            calculated,
+            ..
+        } => format!(
+            "{} should equal {calculated}",
+            if *maximum { "maximum" } else { "minimum" }
+        ),
+        ArgExtremum {
+            maximum,
+            permitted_indexes,
+            ..
+        } => format!(
+            "arg-{} permits indexes {permitted_indexes:?}",
+            if *maximum { "maximum" } else { "minimum" }
+        ),
+        Sort {
+            mismatches, faults, ..
+        } => format!("sort mismatches at {mismatches:?}; permutation faults {faults:?}"),
+        Inverse { faults, .. } => format!("inverse faults {faults:?}"),
+        Channel {
+            offset,
+            true_positions,
+            value,
+            ..
+        } => format!(
+            "one-hot channel offset {offset}; true positions {true_positions:?}; index {}",
+            value
+                .value
+                .as_ref()
+                .map(argument_text)
+                .unwrap_or_else(|| "unresolved".into())
+        ),
+        Precede {
+            first,
+            second,
+            positions,
+            ..
+        } => format!("{second} lacks an earlier {first} at positions {positions:?}"),
+        Member { truth, .. } => format!("membership truth is {truth}; supplied relation conflicts"),
+    }
+}
+fn ordering_pairs(pairs: &[crate::OrderingPair]) -> String {
+    pairs
+        .iter()
+        .map(|pair| format!("({}, {})", pair.first, pair.second))
+        .collect::<Vec<_>>()
+        .join(", ")
 }

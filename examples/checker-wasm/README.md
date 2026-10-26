@@ -105,10 +105,10 @@ edits and job feedback using these bindings and the saved compiled model.
 
 ## Execute the native/Wasm comparison
 
-Build the bindings above, then export eight artifacts with the native CLI. This
+Build the bindings above, then export nine artifacts with the native CLI. This
 setup uses both saved compiled workshop models and a tiny handwritten FlatZinc
 integer/set model, the saved float-core control, a direct selection control,
-a direct set control, a float-function control, and a direct counting control.
+a direct set control, a float-function control, a direct counting control, and a direct ordering/channel control.
 This setup does not run MiniZinc:
 
 ```sh
@@ -151,7 +151,8 @@ target/debug/zincite-check --float-absolute-tolerance 2e-6 --float-relative-tole
 target/debug/zincite-check --export "$checker_run/sets.json" examples/checker-compilation/set-primitives.fzn
 target/debug/zincite-check --float-absolute-tolerance 2e-9 --float-relative-tolerance 3e-9 --export "$checker_run/functions.json" examples/checker-compilation/float-functions.fzn
 target/debug/zincite-check --export "$checker_run/counting.json" examples/checker-compilation/counting.fzn
-node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" examples/checker-wasm/candidates.json target/debug/zincite-check
+target/debug/zincite-check --export "$checker_run/ordering.json" examples/checker-compilation/ordering.fzn
+node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" examples/checker-wasm/candidates.json target/debug/zincite-check
 ```
 
 `smoke.cjs` reads only built bindings, prepared artifacts and typed assignment
@@ -160,7 +161,7 @@ compares every observable report with the native CLI's `--load` path. The CLI
 receives literal `.dzn` assignments made from the same typed values in a temporary
 directory. The consumer removes those temporary assignments when finished.
 
-The thirty-seven named cases cover valid, invalid, incomplete and invalid-with-incomplete
+The forty named cases cover valid, invalid, incomplete and invalid-with-incomplete
 reports, application metadata, Boolean and array input, set definitions and domain
 failures, strict resource conflicts, and the distinct integers 9007199254740992
 and 9007199254740993 as both integers and set endpoints. The exact-value model
@@ -186,10 +187,15 @@ domain error against the native CLI diagnostic. Three counting cases compare cou
 positional-match and reifier completion, typed supplied-output conflicts with
 metadata above 2^53, and missing input. They use direct FlatZinc because the
 compile controls expose dropped GCC definition metadata; compiler-profile closure
-belongs to checker-030/031. A second pass exercises reuse
+belongs to checker-030/031. Three ordering cases compare sorted-array, distinct-input permutation, inverse,
+arg-min, membership-reifier and Boolean channel completion, typed supplied
+conflicts and invalid-with-incomplete input. Arg-min and channel indexes above
+2^53 stay exact strings. Tied arg-extrema and tied permutations have no invented
+output; the native suite checks those distinctions and the converse channel
+and inverse directions. A second pass exercises reuse
 after changing and removing inputs. Small boundary checks also reject a
 malformed artifact, a JSON number supplied as an integer and an unknown assignment
-name. Expected output ends with `Native/Wasm reports and errors agree across 74 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, global findings and input errors verified.` The native suite owns
+name. Expected output ends with `Native/Wasm reports and errors agree across 80 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, global findings and input errors verified.` The native suite owns
 the wider evaluator coverage.
 
 

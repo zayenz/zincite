@@ -199,6 +199,10 @@ impl PreparedModel {
                 return Err(invalid("constraint ordinals must follow executable order"));
             }
             let predicate_name = match &constraint.predicate {
+                Predicate::Ordering(ordering) => {
+                    self.validate_ordering(constraint, ordering)?;
+                    &constraint.reference.predicate
+                }
                 Predicate::Counting(counting) => {
                     self.validate_counting(constraint, counting)?;
                     &constraint.reference.predicate
@@ -340,6 +344,111 @@ impl PreparedModel {
                 return Err(invalid(
                     "constraint report predicate does not match its operation",
                 ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_ordering(
+        &self,
+        constraint: &Constraint,
+        ordering: &Ordering,
+    ) -> Result<(), Diagnostic> {
+        use ordering::DistinctMode;
+        if OrderingName::from_name(&constraint.reference.predicate) != Some(ordering.name()) {
+            return Err(invalid(
+                "ordering predicate name does not match its executable contract",
+            ));
+        }
+        ordering.validate_shape().map_err(invalid)?;
+        let validate = |operands: &[Operand], kind| -> Result<(), Diagnostic> {
+            for operand in operands {
+                self.validate_operand(operand, kind)?;
+            }
+            Ok(())
+        };
+        let element_kind = |boolean| {
+            if boolean {
+                ValueType::Boolean
+            } else {
+                ValueType::Integer
+            }
+        };
+        match ordering {
+            Ordering::Distinct { entries, mode } => {
+                validate(entries, ValueType::Integer)?;
+                if let DistinctMode::Optional(presence) = mode {
+                    validate(presence, ValueType::Boolean)?;
+                }
+            }
+            Ordering::Equal { entries, .. } | Ordering::Precede { entries, .. } => {
+                validate(entries, ValueType::Integer)?
+            }
+            Ordering::Lex {
+                left,
+                right,
+                boolean,
+                ..
+            }
+            | Ordering::NotEqual {
+                left,
+                right,
+                boolean,
+            } => {
+                validate(left, element_kind(*boolean))?;
+                validate(right, element_kind(*boolean))?;
+            }
+            Ordering::Monotone {
+                entries, boolean, ..
+            } => validate(entries, element_kind(*boolean))?,
+            Ordering::Extremum {
+                entries, result, ..
+            } => {
+                validate(entries, ValueType::Integer)?;
+                self.validate_operand(result, ValueType::Integer)?;
+            }
+            Ordering::ArgExtremum {
+                entries,
+                result,
+                boolean,
+                ..
+            } => {
+                validate(entries, element_kind(*boolean))?;
+                self.validate_operand(result, ValueType::Integer)?;
+            }
+            Ordering::Sort {
+                entries,
+                sorted,
+                permutation,
+                ..
+            } => {
+                validate(entries, ValueType::Integer)?;
+                validate(sorted, ValueType::Integer)?;
+                if let Some(permutation) = permutation {
+                    validate(permutation, ValueType::Integer)?;
+                }
+            }
+            Ordering::Inverse {
+                entries, inverse, ..
+            } => {
+                validate(entries, ValueType::Integer)?;
+                validate(inverse, ValueType::Integer)?;
+            }
+            Ordering::Channel { entries, value, .. } => {
+                validate(entries, ValueType::Boolean)?;
+                self.validate_operand(value, ValueType::Integer)?;
+            }
+            Ordering::Member {
+                entries,
+                needle,
+                result,
+                boolean,
+            } => {
+                validate(entries, element_kind(*boolean))?;
+                self.validate_operand(needle, element_kind(*boolean))?;
+                if let Some(result) = result {
+                    self.validate_operand(result, ValueType::Boolean)?;
+                }
             }
         }
         Ok(())

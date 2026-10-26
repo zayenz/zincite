@@ -242,6 +242,49 @@ CURRENT |= {
     )
 }
 
+CURRENT |= {
+    prefix + name
+    for prefix in ("", "gecode_", "fzn_")
+    for name in (
+        "all_different_int",
+        "all_different_offset",
+        "gecode_all_different_offset_fzn",
+        "all_equal_int",
+        "array_int_lt",
+        "array_int_lq",
+        "array_bool_lt",
+        "array_bool_lq",
+        "array_int_minimum",
+        "array_int_maximum",
+        "gecode_minimum_arg_int_offset",
+        "gecode_maximum_arg_int_offset",
+        "gecode_minimum_arg_bool_offset",
+        "gecode_maximum_arg_bool_offset",
+        "sort",
+        "inverse_offsets",
+        "increasing_int",
+        "increasing_bool",
+        "decreasing_int",
+        "decreasing_bool",
+        "gecode_precede",
+        "member_int",
+        "gecode_member_int_reif",
+        "member_bool",
+        "gecode_member_bool_reif",
+        "gecode_array_int_ne",
+        "gecode_not_all_equal_int",
+        "gecode_array_bool_ne",
+        "gecode_bool_int_channel",
+        "gecode_sort_permutation",
+        "gecode_all_different_optional",
+        "gecode_all_different_except",
+        "gecode_arg_min_int",
+        "gecode_arg_max_int",
+        "gecode_arg_min_bool",
+        "gecode_arg_max_bool",
+    )
+}
+
 
 @dataclass(frozen=True)
 class Declaration:
@@ -701,9 +744,23 @@ def output_rule(name: str, task: int, *, wrapper: bool = False) -> str:
         }:
             return "none"
         return "count(s), when equality fixes them"
+    if task == 20:
+        if name in {"array_int_minimum", "array_int_maximum"}:
+            return "argument 1 (extremum)"
+        if "arg_" in name:
+            return "argument 3 (first tie or unique extremum)"
+        if name in {"sort", "fzn_sort"}:
+            return "argument 2 (sorted multiset)"
+        if name == "gecode_sort_permutation":
+            return "argument 2; argument 3 only for distinct inputs"
+        if name == "inverse_offsets":
+            return "either complete inverse side"
+        if name == "gecode_bool_int_channel":
+            return "Boolean array or integer, when unique"
+        return "none"
     if task == 21:
         return "none"
-    if task in {20, 23, 26, 27, 28}:
+    if task in {23, 26, 27, 28}:
         return f"[unique outputs](#family-{task:03})"
     return "compiler lowering; emitted definitions"
 
@@ -843,6 +900,13 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
     admitted |= {
         prefix + name
         for name in re.findall(r'"([a-z_0-9]+)"', counting_names)
+        for prefix in ("", "gecode_", "fzn_")
+    }
+    ordering = (ROOT / "crates/zincite-check/src/ordering.rs").read_text()
+    ordering_names = ordering.split("match base {", 1)[1].split("_ =>", 1)[0]
+    admitted |= {
+        prefix + name
+        for name in re.findall(r'"([a-z_0-9]+)"', ordering_names)
         for prefix in ("", "gecode_", "fzn_")
     }
     if admitted != CURRENT:

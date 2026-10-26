@@ -281,7 +281,9 @@ impl Source<'_> {
             ));
         }
         let parameters: Vec<_> = children[0].child_nodes().collect();
-        let expected = if let Some(counting) = CountingName::from_name(name) {
+        let expected = if let Some(ordering) = OrderingName::from_name(name) {
+            ordering.signature()
+        } else if let Some(counting) = CountingName::from_name(name) {
             counting.signature()
         } else if let Some(selection) = SelectionName::from_name(name) {
             selection.signature()
@@ -1160,10 +1162,13 @@ impl<'a> Lowerer<'a> {
         let args: Vec<_> = call.child_nodes().collect();
         let boolean = BooleanName::from_name(&name);
         let counting = CountingName::from_name(&name);
+        let ordering = OrderingName::from_name(&name);
         let float = FloatName::from_name(&name);
         let selection = SelectionName::from_name(&name);
         let set = SetName::from_name(&name);
-        let arity = if let Some(counting) = counting {
+        let arity = if let Some(ordering) = ordering {
+            ordering.signature().len()
+        } else if let Some(counting) = counting {
             counting.signature().len()
         } else if let Some(selection) = selection {
             selection.arity()
@@ -1195,7 +1200,9 @@ impl<'a> Lowerer<'a> {
                 .source
                 .error(call, format!("'{name}' expects {arity} arguments")));
         }
-        let predicate = if let Some(counting) = counting {
+        let predicate = if let Some(ordering) = ordering {
+            self.ordering_predicate(call, ordering, &args)?
+        } else if let Some(counting) = counting {
             self.counting_predicate(call, counting, &args)?
         } else if let Some(selection) = selection {
             self.selection_predicate(call, selection, &args)?
@@ -1232,6 +1239,145 @@ impl<'a> Lowerer<'a> {
             predicate,
         });
         Ok(())
+    }
+
+    fn ordering_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: OrderingName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        use ordering::DistinctMode;
+        let kind = |boolean| {
+            if boolean {
+                ValueType::Boolean
+            } else {
+                ValueType::Integer
+            }
+        };
+        let ordering = match name {
+            OrderingName::Distinct
+            | OrderingName::OffsetDistinct
+            | OrderingName::OptionalDistinct
+            | OrderingName::ExceptDistinct => {
+                let entries = self.array(
+                    args[usize::from(name == OrderingName::OffsetDistinct)],
+                    ValueType::Integer,
+                )?;
+                let mode = match name {
+                    OrderingName::OffsetDistinct => DistinctMode::Offsets(
+                        self.fixed_array(args[0], ValueType::Integer)?
+                            .iter()
+                            .map(Value::integer)
+                            .collect(),
+                    ),
+                    OrderingName::OptionalDistinct => {
+                        DistinctMode::Optional(self.array(args[1], ValueType::Boolean)?)
+                    }
+                    OrderingName::ExceptDistinct => {
+                        DistinctMode::Except(self.constant_integer(args[1])?)
+                    }
+                    _ => DistinctMode::Plain,
+                };
+                Ordering::Distinct { entries, mode }
+            }
+            OrderingName::Equal | OrderingName::NotAllEqual => Ordering::Equal {
+                entries: self.array(args[0], ValueType::Integer)?,
+                negated: name == OrderingName::NotAllEqual,
+            },
+            OrderingName::Lex { boolean, strict } => Ordering::Lex {
+                left: self.array(args[0], kind(boolean))?,
+                right: self.array(args[1], kind(boolean))?,
+                boolean,
+                strict,
+            },
+            OrderingName::NotEqual { boolean } => Ordering::NotEqual {
+                left: self.array(args[0], kind(boolean))?,
+                right: self.array(args[1], kind(boolean))?,
+                boolean,
+            },
+            OrderingName::Monotone {
+                boolean,
+                decreasing,
+            } => Ordering::Monotone {
+                entries: self.array(args[0], kind(boolean))?,
+                boolean,
+                decreasing,
+            },
+            OrderingName::Extremum { maximum } => Ordering::Extremum {
+                entries: self.array(args[1], ValueType::Integer)?,
+                result: self.scalar(args[0], ValueType::Integer)?,
+                maximum,
+            },
+            OrderingName::ArgExtremum {
+                boolean,
+                maximum,
+                explicit_ties,
+            } => Ordering::ArgExtremum {
+                entries: self.array(args[0], kind(boolean))?,
+                result: self.scalar(args[2], ValueType::Integer)?,
+                boolean,
+                maximum,
+                offset: self.constant_integer(args[1])?,
+                explicit_ties,
+                break_ties: if explicit_ties {
+                    let Operand::Literal(Value::Boolean(flag)) =
+                        self.scalar(args[3], ValueType::Boolean)?
+                    else {
+                        return Err(self
+                            .source
+                            .error(args[3], "arg-extremum tie flag must be fixed"));
+                    };
+                    flag
+                } else {
+                    true
+                },
+            },
+            OrderingName::Sort | OrderingName::SortPermutation => Ordering::Sort {
+                entries: self.array(args[0], ValueType::Integer)?,
+                sorted: self.array(args[1], ValueType::Integer)?,
+                permutation: if name == OrderingName::SortPermutation {
+                    Some(self.array(args[2], ValueType::Integer)?)
+                } else {
+                    None
+                },
+                offset: if name == OrderingName::SortPermutation {
+                    Some(self.constant_integer(args[3])?)
+                } else {
+                    None
+                },
+            },
+            OrderingName::Inverse => Ordering::Inverse {
+                entries: self.array(args[0], ValueType::Integer)?,
+                offset: self.constant_integer(args[1])?,
+                inverse: self.array(args[2], ValueType::Integer)?,
+                inverse_offset: self.constant_integer(args[3])?,
+            },
+            OrderingName::Channel => Ordering::Channel {
+                entries: self.array(args[0], ValueType::Boolean)?,
+                value: self.scalar(args[1], ValueType::Integer)?,
+                offset: self.constant_integer(args[2])?,
+            },
+            OrderingName::Precede => Ordering::Precede {
+                entries: self.array(args[0], ValueType::Integer)?,
+                first: self.constant_integer(args[1])?,
+                second: self.constant_integer(args[2])?,
+            },
+            OrderingName::Member { boolean, reified } => Ordering::Member {
+                entries: self.array(args[0], kind(boolean))?,
+                needle: self.scalar(args[1], kind(boolean))?,
+                boolean,
+                result: if reified {
+                    Some(self.scalar(args[2], ValueType::Boolean)?)
+                } else {
+                    None
+                },
+            },
+        };
+        ordering
+            .validate_shape()
+            .map_err(|message| self.source.error(call, message))?;
+        Ok(Predicate::Ordering(ordering))
     }
 
     fn counting_predicate(

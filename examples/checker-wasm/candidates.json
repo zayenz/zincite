@@ -644,5 +644,235 @@
   },
   "status": "incomplete",
   "complete": false
-}
+},
+    {
+        "name": "ordering-valid",
+        "model": "ordering",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "input",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "integer",
+                                "value": "3"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "1"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "2"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "selected",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740994"
+                        }
+                    }
+                },
+                {
+                    "name": "forward",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "integer",
+                                "value": "7"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "5"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "6"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        "status": "valid",
+        "complete": true
+    },
+    {
+        "name": "ordering-conflict",
+        "model": "ordering",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "input",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "integer",
+                                "value": "3"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "1"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "2"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "selected",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740994"
+                        }
+                    }
+                },
+                {
+                    "name": "forward",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "integer",
+                                "value": "7"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "5"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "6"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "sorted",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "integer",
+                                "value": "1"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "1"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "3"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "permutation",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "integer",
+                                "value": "-2"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "-2"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "9223372036854775807"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "flags",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "boolean",
+                                "value": true
+                            },
+                            {
+                                "kind": "boolean",
+                                "value": true
+                            },
+                            {
+                                "kind": "boolean",
+                                "value": false
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "first_min",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740995"
+                        }
+                    }
+                },
+                {
+                    "name": "member",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": false
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "ordering-incomplete-invalid",
+        "model": "ordering",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "flags",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "boolean",
+                                "value": false
+                            },
+                            {
+                                "kind": "boolean",
+                                "value": false
+                            },
+                            {
+                                "kind": "boolean",
+                                "value": false
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": false
+    }
 ]

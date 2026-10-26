@@ -123,9 +123,18 @@ All other mathematical calls and aliases are planned work.
 | `gecode_among_seq_int/bool(x,membership,q,lower,upper)` | Fixed set/Boolean and bounds; nonempty entries; `1 <= q <= length(x)`; literal registry prefixes | None |
 | `gecode_count_int_fzn(x,value,code,n)`, `gecode_count_matches_fzn(x,values,code,n)` | Fixed code 1–6; positional matches use a fixed array of matching length; literal registry prefixes | `n` for code 1 only |
 
-The checker admits 635 exact names, including 165 Boolean-family names,
+| Distinct/equal/not-all-equal and optional/except/offset distinctness | Actual positions, fixed offsets/exclusion, Boolean presence; equal and unary relations are vacuous, not-all-equal is false for size < 2 | None |
+| Integer/Boolean array lt/lq/ne and increasing/decreasing | Lexicographic proper-prefix order, unequal-length disequality, adjacent non-strict order | None |
+| `array_int_minimum/maximum(result,entries)` | Nonempty integer arrays | Scalar result |
+| Legacy arg-offset forms and `gecode_arg_min/max_int/bool` | Nonnegative offset; fixed newer tie flag; first tied index or any tied index | First tie or unique extremum index |
+| `sort`, `gecode_sort_permutation` | Equal lengths; sorted multiset; source-to-sorted permutation with signed offset | Sorted array; permutation for distinct inputs |
+| `inverse_offsets`, `gecode_bool_int_channel` | Equal inverse lengths and nonnegative offsets; exactly one true channel position with signed offset | Either side when unique |
+| `member_int/bool`, registered member reifiers, `gecode_precede` | Existential equality or earlier fixed value; empty member is false | Member reifier only |
+
+The checker admits 743 exact names, including 165 Boolean-family names,
 108 integer scalar/linear relation spellings, 80 float-core names, 57 selection
-names, 84 set-family names, 54 float-function names and 54 counting-family names.
+names, 84 set-family names, 54 float-function names, 54 counting-family names
+and 108 ordering/channel names.
 The `fzn_disjunctive_strict` declaration is required for that external call.
 The other listed names accept calls without declarations. All matching declarations
 validate signatures, roles and shapes, with call checks for declared domains and
@@ -285,7 +294,7 @@ still use compiler routes; direct support does not certify profile closure
 **checker-017 — finite-set primitives.** The checker supports the 26 assigned
 registry literals with their exact bare, `gecode_` and `fzn_` expansions, plus
 six source-only bare `set_eq/ne/le/lt/subset/superset_imp` names. This is 84 set
-names and 635 admitted names overall. It does not invent prefixed source-only
+names and 743 admitted names overall. It does not invent prefixed source-only
 implications, `equal_imp`, algebra reifiers or cardinality reifiers. Membership
 accepts integers against fixed or variable sets; `int_in` compatibility forms
 require fixed sets. Boolean membership maps false/true to 0/1 against fixed
@@ -383,15 +392,41 @@ invalid standard decomposition annotation; profile closure belongs to
 checker-030/031. The direct FlatZinc control demonstrates runtime completion.
 
 <a id="family-020"></a>
-**checker-020 — order, distinctness and integer channels.** Check lexicographic
-array order/disequality, pairwise distinctness/equality (optional, excluded-value
-and offset forms), increasing/decreasing order, membership, precedence, sorting,
-inverse and integer/Boolean channels. Sorted arrays, extrema, and a complete
-inverse/channel side can be unique outputs. Extremum indexes with `break_ties=true`
-use the first extremum plus offset; with it false, ties permit several indexes,
-so do not choose one. Distinctness, order, membership and precedence alone have no
-chosen witness output. This family also owns the mathematical decreasing
-operations on the missing legacy include paths described below.
+**checker-020 — order, distinctness and integer channels.** The 36 unique
+registry literals admit 108 exact names. Distinctness compares actual positions,
+including aliases; optional absent positions and repeated excluded values do not
+conflict. Offset sums use checked i64 arithmetic. Equal and monotone relations
+are true for empty/singleton arrays; not-all-equal is false. Lexicographic order
+uses the first unequal entry or proper-prefix order; array disequality is true
+for unequal lengths. Precedence requires an earlier first value for every second
+value; equal fixed values cannot occur.
+
+Integer extrema require nonempty arrays and can define their scalar result.
+Legacy arg-offset forms choose the first extremum; newer forms use their fixed
+break_ties flag. False permits every tied index and completion needs a unique
+extremum. Arg and inverse offsets are nonnegative, including empty inverse arrays.
+All mathematical values use checked i64 and exact decimal JSON strings; fixed
+index intervals must fit. No generic solver variable-width limit applies.
+
+Sort defines its sorted multiset, preserving multiplicities. Sort-permutation
+also checks permutation[i]-offset as the sorted position of input[i]; ties permit
+alternative permutations, so completion needs distinct input values. Either
+inverse side derives from the other complete valid permutation. One-hot channel
+defines its Boolean array from an in-range integer or its integer from exactly
+one true entry. Empty sort/inverse arrays pass; empty channels are false. Member
+is existential equality and only its full reifier derives, including false for
+empty arrays. No member witness is chosen. Array annotations identify the exact
+output-slot multiset independently of order, with the corresponding element type;
+predicate positions own calculation and repeated output aliases must agree.
+
+Typed ordering findings aggregate conflicting positions and carry optional
+unavailable operands. The direct [ordering control](../examples/checker-compilation/ordering.fzn)
+exercises unique completion and exact large indexes. The compiler controls and
+observed metadata limits are documented in the checker guide; no profile closure
+is claimed. Missing legacy float/set decreasing includes provide no extracted
+signature. Existing adjacent scalar comparisons and Boolean composition express
+their mathematics, using saved float tolerance and sorted-element set order;
+checker-030/031 own include repair.
 
 <a id="family-021"></a>
 **checker-021 — integer/Boolean tables.** Check tuple membership against flattened
@@ -670,10 +705,10 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 
 | Row / source | Exact accepted spellings | Handler / condition | Signature source(s) or positional contract | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- | --- |
-| <a id="r001"></a>[R001](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2114) | ` all_different_int `, ` gecode_all_different_int `, ` fzn_all_different_int ` | ` p_distinct ` / ` always ` | [D0001](#d0001), [D0018](#d0018), [D2792](#d2792) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r002"></a>[R002](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2115) | ` all_different_offset `, ` gecode_all_different_offset `, ` fzn_all_different_offset ` | ` p_distinctOffset ` / ` always ` | [D3002](#d3002) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r003"></a>[R003](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2116) | ` gecode_all_different_offset_fzn `, ` gecode_gecode_all_different_offset_fzn `, ` fzn_gecode_all_different_offset_fzn ` | ` p_distinctOffset ` / ` always ` | [D3002](#d3002) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r004"></a>[R004](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2117) | ` all_equal_int `, ` gecode_all_equal_int `, ` fzn_all_equal_int ` | ` p_all_equal ` / ` always ` | [D0023](#d0023), [D0028](#d0028), [D2796](#d2796) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="r001"></a>[R001](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2114) | ` all_different_int `, ` gecode_all_different_int `, ` fzn_all_different_int ` | ` p_distinct ` / ` always ` | [D0001](#d0001), [D0018](#d0018), [D2792](#d2792) | ` all_different_int `, ` gecode_all_different_int `, ` fzn_all_different_int ` | [checker-020](#family-020) | none |
+| <a id="r002"></a>[R002](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2115) | ` all_different_offset `, ` gecode_all_different_offset `, ` fzn_all_different_offset ` | ` p_distinctOffset ` / ` always ` | [D3002](#d3002) | ` all_different_offset `, ` gecode_all_different_offset `, ` fzn_all_different_offset ` | [checker-020](#family-020) | none |
+| <a id="r003"></a>[R003](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2116) | ` gecode_all_different_offset_fzn `, ` gecode_gecode_all_different_offset_fzn `, ` fzn_gecode_all_different_offset_fzn ` | ` p_distinctOffset ` / ` always ` | [D3002](#d3002) | ` gecode_all_different_offset_fzn `, ` gecode_gecode_all_different_offset_fzn `, ` fzn_gecode_all_different_offset_fzn ` | [checker-020](#family-020) | none |
+| <a id="r004"></a>[R004](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2117) | ` all_equal_int `, ` gecode_all_equal_int `, ` fzn_all_equal_int ` | ` p_all_equal ` / ` always ` | [D0023](#d0023), [D0028](#d0028), [D2796](#d2796) | ` all_equal_int `, ` gecode_all_equal_int `, ` fzn_all_equal_int ` | [checker-020](#family-020) | none |
 | <a id="r005"></a>[R005](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2118) | ` int_eq `, ` gecode_int_eq `, ` fzn_int_eq ` | ` p_int_eq ` / ` always ` | [D0461](#d0461) | ` int_eq `, ` gecode_int_eq `, ` fzn_int_eq ` | [checker-013](#family-013) | exact single linear/equality slot |
 | <a id="r006"></a>[R006](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2119) | ` int_ne `, ` gecode_int_ne `, ` fzn_int_ne ` | ` p_int_ne ` / ` always ` | [D0471](#d0471) | ` int_ne `, ` gecode_int_ne `, ` fzn_int_ne ` | [checker-013](#family-013) | none |
 | <a id="r007"></a>[R007](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2120) | ` int_ge `, ` gecode_int_ge `, ` fzn_int_ge ` | ` p_int_ge ` / ` always ` | ` int_ge(var int: x, var int: y) ` (handler) | ` int_ge `, ` gecode_int_ge `, ` fzn_int_ge ` | [checker-013](#family-013) | none |
@@ -773,10 +808,10 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r101"></a>[R101](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2215) | ` set_in `, ` gecode_set_in `, ` fzn_set_in ` | ` p_int_in ` / ` !GECODE_HAS_SET_VARS ` | [D0482](#d0482); handler: ` set_in(var bool: x, set of int: s) ` | ` set_in `, ` gecode_set_in `, ` fzn_set_in ` | [checker-017](#family-017) | none |
 | <a id="r102"></a>[R102](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2216) | ` set_in_reif `, ` gecode_set_in_reif `, ` fzn_set_in_reif ` | ` p_int_in_reif ` / ` !GECODE_HAS_SET_VARS ` | [D0499](#d0499); handler: ` set_in_reif(var bool: x, set of int: s, var bool: b) ` | ` set_in_reif `, ` gecode_set_in_reif `, ` fzn_set_in_reif ` | [checker-017](#family-017) | last Boolean (truth) |
 | <a id="r103"></a>[R103](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2217) | ` set_in_imp `, ` gecode_set_in_imp `, ` fzn_set_in_imp ` | ` p_int_in_imp ` / ` !GECODE_HAS_SET_VARS ` | [D3153](#d3153); handler: ` set_in_imp(var bool: x, set of int: s, var bool: b) ` | ` set_in_imp `, ` gecode_set_in_imp `, ` fzn_set_in_imp ` | [checker-017](#family-017) | none (guard) |
-| <a id="r104"></a>[R104](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2220) | ` array_int_lt `, ` gecode_array_int_lt `, ` fzn_array_int_lt ` | ` p_array_int_lt ` / ` always ` | [D2888](#d2888) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r105"></a>[R105](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2221) | ` array_int_lq `, ` gecode_array_int_lq `, ` fzn_array_int_lq ` | ` p_array_int_lq ` / ` always ` | [D2892](#d2892) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r106"></a>[R106](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2222) | ` array_bool_lt `, ` gecode_array_bool_lt `, ` fzn_array_bool_lt ` | ` p_array_bool_lt ` / ` always ` | [D2886](#d2886) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r107"></a>[R107](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2223) | ` array_bool_lq `, ` gecode_array_bool_lq `, ` fzn_array_bool_lq ` | ` p_array_bool_lq ` / ` always ` | [D2890](#d2890) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="r104"></a>[R104](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2220) | ` array_int_lt `, ` gecode_array_int_lt `, ` fzn_array_int_lt ` | ` p_array_int_lt ` / ` always ` | [D2888](#d2888) | ` array_int_lt `, ` gecode_array_int_lt `, ` fzn_array_int_lt ` | [checker-020](#family-020) | none |
+| <a id="r105"></a>[R105](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2221) | ` array_int_lq `, ` gecode_array_int_lq `, ` fzn_array_int_lq ` | ` p_array_int_lq ` / ` always ` | [D2892](#d2892) | ` array_int_lq `, ` gecode_array_int_lq `, ` fzn_array_int_lq ` | [checker-020](#family-020) | none |
+| <a id="r106"></a>[R106](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2222) | ` array_bool_lt `, ` gecode_array_bool_lt `, ` fzn_array_bool_lt ` | ` p_array_bool_lt ` / ` always ` | [D2886](#d2886) | ` array_bool_lt `, ` gecode_array_bool_lt `, ` fzn_array_bool_lt ` | [checker-020](#family-020) | none |
+| <a id="r107"></a>[R107](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2223) | ` array_bool_lq `, ` gecode_array_bool_lq `, ` fzn_array_bool_lq ` | ` p_array_bool_lq ` / ` always ` | [D2890](#d2890) | ` array_bool_lq `, ` gecode_array_bool_lq `, ` fzn_array_bool_lq ` | [checker-020](#family-020) | none |
 | <a id="r108"></a>[R108](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2224) | ` count `, ` gecode_count `, ` fzn_count ` | ` p_count ` / ` always ` | [D0206](#d0206), [D2823](#d2823) | ` count `, ` gecode_count `, ` fzn_count ` | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="r109"></a>[R109](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2225) | ` count_reif `, ` gecode_count_reif `, ` fzn_count_reif ` | ` p_count_reif ` / ` always ` | [D2824](#d2824) | ` count_reif `, ` gecode_count_reif `, ` fzn_count_reif ` | [checker-019](#family-019) | last Boolean (truth) |
 | <a id="r110"></a>[R110](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2226) | ` count_imp `, ` gecode_count_imp `, ` fzn_count_imp ` | ` p_count_imp ` / ` always ` | [D2825](#d2825) | ` count_imp `, ` gecode_count_imp `, ` fzn_count_imp ` | [checker-019](#family-019) | none (guard) |
@@ -790,21 +825,21 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r118"></a>[R118](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2234) | ` gecode_global_cardinality_closed `, ` gecode_gecode_global_cardinality_closed `, ` fzn_gecode_global_cardinality_closed ` | ` p_global_cardinality_closed ` / ` always ` | [D2862](#d2862) | ` gecode_global_cardinality_closed `, ` gecode_gecode_global_cardinality_closed `, ` fzn_gecode_global_cardinality_closed ` | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="r119"></a>[R119](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2236) | ` global_cardinality_low_up `, ` gecode_global_cardinality_low_up `, ` fzn_global_cardinality_low_up ` | ` p_global_cardinality_low_up ` / ` always ` | [D1069](#d1069), [D1096](#d1096), [D2864](#d2864) | ` global_cardinality_low_up `, ` gecode_global_cardinality_low_up `, ` fzn_global_cardinality_low_up ` | [checker-019](#family-019) | none |
 | <a id="r120"></a>[R120](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2238) | ` global_cardinality_low_up_closed `, ` gecode_global_cardinality_low_up_closed `, ` fzn_global_cardinality_low_up_closed ` | ` p_global_cardinality_low_up_closed ` / ` always ` | [D1083](#d1083), [D1098](#d1098), [D2865](#d2865) | ` global_cardinality_low_up_closed `, ` gecode_global_cardinality_low_up_closed `, ` fzn_global_cardinality_low_up_closed ` | [checker-019](#family-019) | none |
-| <a id="r121"></a>[R121](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2240) | ` array_int_minimum `, ` gecode_array_int_minimum `, ` fzn_array_int_minimum ` | ` p_minimum ` / ` always ` | [D0571](#d0571), [D3076](#d3076) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r122"></a>[R122](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2241) | ` array_int_maximum `, ` gecode_array_int_maximum `, ` fzn_array_int_maximum ` | ` p_maximum ` / ` always ` | [D0569](#d0569), [D3073](#d3073) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r123"></a>[R123](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2242) | ` gecode_minimum_arg_int_offset `, ` gecode_gecode_minimum_arg_int_offset `, ` fzn_gecode_minimum_arg_int_offset ` | ` p_minimum_arg ` / ` always ` | [D2809](#d2809) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r124"></a>[R124](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2243) | ` gecode_maximum_arg_int_offset `, ` gecode_gecode_maximum_arg_int_offset `, ` fzn_gecode_maximum_arg_int_offset ` | ` p_maximum_arg ` / ` always ` | [D2805](#d2805) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r125"></a>[R125](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2244) | ` gecode_minimum_arg_bool_offset `, ` gecode_gecode_minimum_arg_bool_offset `, ` fzn_gecode_minimum_arg_bool_offset ` | ` p_minimum_arg_bool ` / ` always ` | [D2807](#d2807) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r126"></a>[R126](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2245) | ` gecode_maximum_arg_bool_offset `, ` gecode_gecode_maximum_arg_bool_offset `, ` fzn_gecode_maximum_arg_bool_offset ` | ` p_maximum_arg_bool ` / ` always ` | [D2803](#d2803) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r127"></a>[R127](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2246) | ` array_int_maximum `, ` gecode_array_int_maximum `, ` fzn_array_int_maximum ` | ` p_maximum ` / ` always ` | [D0569](#d0569), [D3073](#d3073) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="r121"></a>[R121](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2240) | ` array_int_minimum `, ` gecode_array_int_minimum `, ` fzn_array_int_minimum ` | ` p_minimum ` / ` always ` | [D0571](#d0571), [D3076](#d3076) | ` array_int_minimum `, ` gecode_array_int_minimum `, ` fzn_array_int_minimum ` | [checker-020](#family-020) | argument 1 (extremum) |
+| <a id="r122"></a>[R122](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2241) | ` array_int_maximum `, ` gecode_array_int_maximum `, ` fzn_array_int_maximum ` | ` p_maximum ` / ` always ` | [D0569](#d0569), [D3073](#d3073) | ` array_int_maximum `, ` gecode_array_int_maximum `, ` fzn_array_int_maximum ` | [checker-020](#family-020) | argument 1 (extremum) |
+| <a id="r123"></a>[R123](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2242) | ` gecode_minimum_arg_int_offset `, ` gecode_gecode_minimum_arg_int_offset `, ` fzn_gecode_minimum_arg_int_offset ` | ` p_minimum_arg ` / ` always ` | [D2809](#d2809) | ` gecode_minimum_arg_int_offset `, ` gecode_gecode_minimum_arg_int_offset `, ` fzn_gecode_minimum_arg_int_offset ` | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
+| <a id="r124"></a>[R124](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2243) | ` gecode_maximum_arg_int_offset `, ` gecode_gecode_maximum_arg_int_offset `, ` fzn_gecode_maximum_arg_int_offset ` | ` p_maximum_arg ` / ` always ` | [D2805](#d2805) | ` gecode_maximum_arg_int_offset `, ` gecode_gecode_maximum_arg_int_offset `, ` fzn_gecode_maximum_arg_int_offset ` | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
+| <a id="r125"></a>[R125](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2244) | ` gecode_minimum_arg_bool_offset `, ` gecode_gecode_minimum_arg_bool_offset `, ` fzn_gecode_minimum_arg_bool_offset ` | ` p_minimum_arg_bool ` / ` always ` | [D2807](#d2807) | ` gecode_minimum_arg_bool_offset `, ` gecode_gecode_minimum_arg_bool_offset `, ` fzn_gecode_minimum_arg_bool_offset ` | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
+| <a id="r126"></a>[R126](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2245) | ` gecode_maximum_arg_bool_offset `, ` gecode_gecode_maximum_arg_bool_offset `, ` fzn_gecode_maximum_arg_bool_offset ` | ` p_maximum_arg_bool ` / ` always ` | [D2803](#d2803) | ` gecode_maximum_arg_bool_offset `, ` gecode_gecode_maximum_arg_bool_offset `, ` fzn_gecode_maximum_arg_bool_offset ` | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
+| <a id="r127"></a>[R127](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2246) | ` array_int_maximum `, ` gecode_array_int_maximum `, ` fzn_array_int_maximum ` | ` p_maximum ` / ` always ` | [D0569](#d0569), [D3073](#d3073) | ` array_int_maximum `, ` gecode_array_int_maximum `, ` fzn_array_int_maximum ` | [checker-020](#family-020) | argument 1 (extremum) |
 | <a id="r128"></a>[R128](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2247) | ` gecode_regular `, ` gecode_gecode_regular `, ` fzn_gecode_regular ` | ` p_regular ` / ` always ` | [D2907](#d2907) | planned | [checker-022](#family-022) | none |
 | <a id="r129"></a>[R129](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2248) | ` gecode_regular_set `, ` gecode_gecode_regular_set `, ` fzn_gecode_regular_set ` | ` p_regular_set ` / ` always ` | ` gecode_regular_set(array[int] of var int: x, int: Q, int: first_symbol, int: symbols, array[int] of int: d, int: q0, set of int: F) ` (handler) | planned | [checker-022](#family-022) | none |
-| <a id="r130"></a>[R130](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2249) | ` sort `, ` gecode_sort `, ` fzn_sort ` | ` p_sort ` / ` always ` | [D1448](#d1448), [D2919](#d2919) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r131"></a>[R131](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2250) | ` inverse_offsets `, ` gecode_inverse_offsets `, ` fzn_inverse_offsets ` | ` p_inverse_offsets ` / ` always ` | [D2882](#d2882) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r132"></a>[R132](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2251) | ` increasing_int `, ` gecode_increasing_int `, ` fzn_increasing_int ` | ` p_increasing_int ` / ` always ` | [D1159](#d1159), [D1173](#d1173), [D2879](#d2879) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r133"></a>[R133](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2252) | ` increasing_bool `, ` gecode_increasing_bool `, ` fzn_increasing_bool ` | ` p_increasing_bool ` / ` always ` | [D1156](#d1156), [D1169](#d1169), [D2878](#d2878) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r134"></a>[R134](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2253) | ` decreasing_int `, ` gecode_decreasing_int `, ` fzn_decreasing_int ` | ` p_decreasing_int ` / ` always ` | [D0341](#d0341), [D2849](#d2849) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r135"></a>[R135](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2254) | ` decreasing_bool `, ` gecode_decreasing_bool `, ` fzn_decreasing_bool ` | ` p_decreasing_bool ` / ` always ` | [D0337](#d0337), [D2848](#d2848) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="r130"></a>[R130](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2249) | ` sort `, ` gecode_sort `, ` fzn_sort ` | ` p_sort ` / ` always ` | [D1448](#d1448), [D2919](#d2919) | ` sort `, ` gecode_sort `, ` fzn_sort ` | [checker-020](#family-020) | argument 2 (sorted multiset) |
+| <a id="r131"></a>[R131](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2250) | ` inverse_offsets `, ` gecode_inverse_offsets `, ` fzn_inverse_offsets ` | ` p_inverse_offsets ` / ` always ` | [D2882](#d2882) | ` inverse_offsets `, ` gecode_inverse_offsets `, ` fzn_inverse_offsets ` | [checker-020](#family-020) | either complete inverse side |
+| <a id="r132"></a>[R132](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2251) | ` increasing_int `, ` gecode_increasing_int `, ` fzn_increasing_int ` | ` p_increasing_int ` / ` always ` | [D1159](#d1159), [D1173](#d1173), [D2879](#d2879) | ` increasing_int `, ` gecode_increasing_int `, ` fzn_increasing_int ` | [checker-020](#family-020) | none |
+| <a id="r133"></a>[R133](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2252) | ` increasing_bool `, ` gecode_increasing_bool `, ` fzn_increasing_bool ` | ` p_increasing_bool ` / ` always ` | [D1156](#d1156), [D1169](#d1169), [D2878](#d2878) | ` increasing_bool `, ` gecode_increasing_bool `, ` fzn_increasing_bool ` | [checker-020](#family-020) | none |
+| <a id="r134"></a>[R134](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2253) | ` decreasing_int `, ` gecode_decreasing_int `, ` fzn_decreasing_int ` | ` p_decreasing_int ` / ` always ` | [D0341](#d0341), [D2849](#d2849) | ` decreasing_int `, ` gecode_decreasing_int `, ` fzn_decreasing_int ` | [checker-020](#family-020) | none |
+| <a id="r135"></a>[R135](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2254) | ` decreasing_bool `, ` gecode_decreasing_bool `, ` fzn_decreasing_bool ` | ` p_decreasing_bool ` / ` always ` | [D0337](#d0337), [D2848](#d2848) | ` decreasing_bool `, ` gecode_decreasing_bool `, ` fzn_decreasing_bool ` | [checker-020](#family-020) | none |
 | <a id="r136"></a>[R136](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2255) | ` gecode_table_int `, ` gecode_gecode_table_int `, ` fzn_gecode_table_int ` | ` p_table_int ` / ` always ` | [D2930](#d2930) | planned | [checker-021](#family-021) | none |
 | <a id="r137"></a>[R137](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2256) | ` gecode_table_int_reif `, ` gecode_gecode_table_int_reif `, ` fzn_gecode_table_int_reif ` | ` p_table_int_reif ` / ` always ` | [D2932](#d2932) | planned | [checker-021](#family-021) | last Boolean (truth) |
 | <a id="r138"></a>[R138](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2257) | ` gecode_table_int_imp `, ` gecode_gecode_table_int_imp `, ` fzn_gecode_table_int_imp ` | ` p_table_int_imp ` / ` always ` | [D2933](#d2933) | planned | [checker-021](#family-021) | none (guard) |
@@ -840,25 +875,25 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r168"></a>[R168](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2291) | ` gecode_circuit_cost `, ` gecode_gecode_circuit_cost `, ` fzn_gecode_circuit_cost ` | ` p_circuit_cost ` / ` always ` | [D2966](#d2966) | planned | [checker-023](#family-023) | [unique outputs](#family-023) |
 | <a id="r169"></a>[R169](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2292) | ` gecode_nooverlap `, ` gecode_gecode_nooverlap `, ` fzn_gecode_nooverlap ` | ` p_nooverlap ` / ` always ` | [D2850](#d2850) | planned | [checker-026](#family-026) | [unique outputs](#family-026) |
 | <a id="r170"></a>[R170](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2293) | ` gecode_nooverlap_fzn `, ` gecode_gecode_nooverlap_fzn `, ` fzn_gecode_nooverlap_fzn ` | ` p_nooverlap ` / ` always ` | [D2850](#d2850) | planned | [checker-026](#family-026) | [unique outputs](#family-026) |
-| <a id="r171"></a>[R171](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2294) | ` gecode_precede `, ` gecode_gecode_precede `, ` fzn_gecode_precede ` | ` p_precede ` / ` always ` | [D2936](#d2936) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="r171"></a>[R171](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2294) | ` gecode_precede `, ` gecode_gecode_precede `, ` fzn_gecode_precede ` | ` p_precede ` / ` always ` | [D2936](#d2936) | ` gecode_precede `, ` gecode_gecode_precede `, ` fzn_gecode_precede ` | [checker-020](#family-020) | none |
 | <a id="r172"></a>[R172](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2295) | ` nvalue `, ` gecode_nvalue `, ` fzn_nvalue ` | ` p_nvalue ` / ` always ` | [D1361](#d1361), [D2902](#d2902) | ` nvalue `, ` gecode_nvalue `, ` fzn_nvalue ` | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="r173"></a>[R173](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2296) | ` among `, ` gecode_among `, ` fzn_among ` | ` p_among ` / ` always ` | [D0033](#d0033), [D2802](#d2802) | ` among `, ` gecode_among `, ` fzn_among ` | [checker-019](#family-019) | count(s), when equality fixes them |
-| <a id="r174"></a>[R174](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2297) | ` member_int `, ` gecode_member_int `, ` fzn_member_int ` | ` p_member_int ` / ` always ` | [D1293](#d1293), [D1306](#d1306), [D2899](#d2899) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r175"></a>[R175](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2298) | ` gecode_member_int_reif `, ` gecode_gecode_member_int_reif `, ` fzn_gecode_member_int_reif ` | ` p_member_int_reif ` / ` always ` | [D2900](#d2900) | planned | [checker-020](#family-020) | last Boolean (truth) |
-| <a id="r176"></a>[R176](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2299) | ` member_bool `, ` gecode_member_bool `, ` fzn_member_bool ` | ` p_member_bool ` / ` always ` | [D1291](#d1291), [D1302](#d1302), [D2896](#d2896) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r177"></a>[R177](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2300) | ` gecode_member_bool_reif `, ` gecode_gecode_member_bool_reif `, ` fzn_gecode_member_bool_reif ` | ` p_member_bool_reif ` / ` always ` | [D2897](#d2897) | planned | [checker-020](#family-020) | last Boolean (truth) |
+| <a id="r174"></a>[R174](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2297) | ` member_int `, ` gecode_member_int `, ` fzn_member_int ` | ` p_member_int ` / ` always ` | [D1293](#d1293), [D1306](#d1306), [D2899](#d2899) | ` member_int `, ` gecode_member_int `, ` fzn_member_int ` | [checker-020](#family-020) | none |
+| <a id="r175"></a>[R175](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2298) | ` gecode_member_int_reif `, ` gecode_gecode_member_int_reif `, ` fzn_gecode_member_int_reif ` | ` p_member_int_reif ` / ` always ` | [D2900](#d2900) | ` gecode_member_int_reif `, ` gecode_gecode_member_int_reif `, ` fzn_gecode_member_int_reif ` | [checker-020](#family-020) | last Boolean (truth) |
+| <a id="r176"></a>[R176](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2299) | ` member_bool `, ` gecode_member_bool `, ` fzn_member_bool ` | ` p_member_bool ` / ` always ` | [D1291](#d1291), [D1302](#d1302), [D2896](#d2896) | ` member_bool `, ` gecode_member_bool `, ` fzn_member_bool ` | [checker-020](#family-020) | none |
+| <a id="r177"></a>[R177](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2300) | ` gecode_member_bool_reif `, ` gecode_gecode_member_bool_reif `, ` fzn_gecode_member_bool_reif ` | ` p_member_bool_reif ` / ` always ` | [D2897](#d2897) | ` gecode_member_bool_reif `, ` gecode_gecode_member_bool_reif `, ` fzn_gecode_member_bool_reif ` | [checker-020](#family-020) | last Boolean (truth) |
 | <a id="r178"></a>[R178](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2302) | ` gecode_unary_flex `, ` gecode_gecode_unary_flex `, ` fzn_gecode_unary_flex ` | ` p_unary_flex ` / ` always ` | [D2834](#d2834), [D3033](#d3033) | planned | [checker-025](#family-025) | none |
 | <a id="r179"></a>[R179](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2303) | ` gecode_cumulative_flex `, ` gecode_gecode_cumulative_flex `, ` fzn_gecode_cumulative_flex ` | ` p_cumulative_flex ` / ` always ` | [D2835](#d2835), [D3034](#d3034) | planned | [checker-025](#family-025) | none |
 | <a id="r180"></a>[R180](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2304) | ` gecode_cumulatives_flex `, ` gecode_gecode_cumulatives_flex `, ` fzn_gecode_cumulatives_flex ` | ` p_cumulatives ` / ` always ` | [D0318](#d0318), [D0323](#d0323), [D0329](#d0329), [D2837](#d2837), [D2841](#d2841), [D2846](#d2846), [D2847](#d2847), [D3035](#d3035) | planned | [checker-025](#family-025) | none |
 | <a id="r181"></a>[R181](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2305) | ` gecode_unary_flex_optional `, ` gecode_gecode_unary_flex_optional `, ` fzn_gecode_unary_flex_optional ` | ` p_unary_flex_optional ` / ` always ` | [D2856](#d2856), [D3036](#d3036) | planned | [checker-025](#family-025) | none |
 | <a id="r182"></a>[R182](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2306) | ` gecode_cumulative_flex_optional `, ` gecode_gecode_cumulative_flex_optional `, ` fzn_gecode_cumulative_flex_optional ` | ` p_cumulative_flex_optional ` / ` always ` | [D2836](#d2836), [D2843](#d2843), [D3037](#d3037) | planned | [checker-025](#family-025) | none |
-| <a id="r183"></a>[R183](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2307) | ` gecode_array_int_ne `, ` gecode_gecode_array_int_ne `, ` fzn_gecode_array_int_ne ` | ` p_array_int_ne ` / ` always ` | [D3007](#d3007) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r184"></a>[R184](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2308) | ` gecode_not_all_equal_int `, ` gecode_gecode_not_all_equal_int `, ` fzn_gecode_not_all_equal_int ` | ` p_not_all_equal_int ` / ` always ` | [D2797](#d2797), [D3009](#d3009) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r185"></a>[R185](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2309) | ` gecode_array_bool_ne `, ` gecode_gecode_array_bool_ne `, ` fzn_gecode_array_bool_ne ` | ` p_array_bool_ne ` / ` always ` | [D3008](#d3008) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="r183"></a>[R183](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2307) | ` gecode_array_int_ne `, ` gecode_gecode_array_int_ne `, ` fzn_gecode_array_int_ne ` | ` p_array_int_ne ` / ` always ` | [D3007](#d3007) | ` gecode_array_int_ne `, ` gecode_gecode_array_int_ne `, ` fzn_gecode_array_int_ne ` | [checker-020](#family-020) | none |
+| <a id="r184"></a>[R184](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2308) | ` gecode_not_all_equal_int `, ` gecode_gecode_not_all_equal_int `, ` fzn_gecode_not_all_equal_int ` | ` p_not_all_equal_int ` / ` always ` | [D2797](#d2797), [D3009](#d3009) | ` gecode_not_all_equal_int `, ` gecode_gecode_not_all_equal_int `, ` fzn_gecode_not_all_equal_int ` | [checker-020](#family-020) | none |
+| <a id="r185"></a>[R185](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2309) | ` gecode_array_bool_ne `, ` gecode_gecode_array_bool_ne `, ` fzn_gecode_array_bool_ne ` | ` p_array_bool_ne ` / ` always ` | [D3008](#d3008) | ` gecode_array_bool_ne `, ` gecode_gecode_array_bool_ne `, ` fzn_gecode_array_bool_ne ` | [checker-020](#family-020) | none |
 | <a id="r186"></a>[R186](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2310) | ` gecode_inter_distance `, ` gecode_gecode_inter_distance `, ` fzn_gecode_inter_distance ` | ` p_inter_distance ` / ` always ` | [D2999](#d2999) | planned | [checker-029](#family-029) | none |
 | <a id="r187"></a>[R187](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2311) | ` gecode_inter_distance_fzn `, ` gecode_gecode_inter_distance_fzn `, ` fzn_gecode_inter_distance_fzn ` | ` p_inter_distance ` / ` always ` | [D2999](#d2999) | planned | [checker-029](#family-029) | none |
-| <a id="r188"></a>[R188](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2312) | ` gecode_bool_int_channel `, ` gecode_gecode_bool_int_channel `, ` fzn_gecode_bool_int_channel ` | ` p_bool_int_channel ` / ` always ` | [D3003](#d3003) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r189"></a>[R189](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2313) | ` gecode_sort_permutation `, ` gecode_gecode_sort_permutation `, ` fzn_gecode_sort_permutation ` | ` p_sort_permutation ` / ` always ` | [D3004](#d3004) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="r188"></a>[R188](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2312) | ` gecode_bool_int_channel `, ` gecode_gecode_bool_int_channel `, ` fzn_gecode_bool_int_channel ` | ` p_bool_int_channel ` / ` always ` | [D3003](#d3003) | ` gecode_bool_int_channel `, ` gecode_gecode_bool_int_channel `, ` fzn_gecode_bool_int_channel ` | [checker-020](#family-020) | Boolean array or integer, when unique |
+| <a id="r189"></a>[R189](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2313) | ` gecode_sort_permutation `, ` gecode_gecode_sort_permutation `, ` fzn_gecode_sort_permutation ` | ` p_sort_permutation ` / ` always ` | [D3004](#d3004) | ` gecode_sort_permutation `, ` gecode_gecode_sort_permutation `, ` fzn_gecode_sort_permutation ` | [checker-020](#family-020) | argument 2; argument 3 only for distinct inputs |
 | <a id="r190"></a>[R190](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2314) | ` gecode_count_int_fzn `, ` gecode_gecode_count_int_fzn `, ` fzn_gecode_count_int_fzn ` | ` p_count_int ` / ` always ` | [D2826](#d2826), [D2828](#d2828), [D2830](#d2830), [D2832](#d2832), [D3005](#d3005) | ` gecode_count_int_fzn `, ` gecode_gecode_count_int_fzn `, ` fzn_gecode_count_int_fzn ` | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="r191"></a>[R191](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2315) | ` gecode_count_matches_fzn `, ` gecode_gecode_count_matches_fzn `, ` fzn_gecode_count_matches_fzn ` | ` p_count_matches ` / ` always ` | [D3006](#d3006) | ` gecode_count_matches_fzn `, ` gecode_gecode_count_matches_fzn `, ` fzn_gecode_count_matches_fzn ` | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="r192"></a>[R192](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2316) | ` gecode_int_ite `, ` gecode_gecode_int_ite `, ` fzn_gecode_int_ite ` | ` p_int_ite ` / ` always ` | [D2874](#d2874), [D3010](#d3010) | ` gecode_int_ite `, ` gecode_gecode_int_ite `, ` fzn_gecode_int_ite ` | [checker-016](#family-016) | selected result (known index/condition) |
@@ -882,14 +917,14 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r210"></a>[R210](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2334) | ` gecode_minimum_distance_required_fzn `, ` gecode_gecode_minimum_distance_required_fzn `, ` fzn_gecode_minimum_distance_required_fzn ` | ` p_minimum_distance ` / ` always ` | [D3029](#d3029), [D3030](#d3030) | planned | [checker-029](#family-029) | argument 4 (minimum distance) |
 | <a id="r211"></a>[R211](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2335) | ` gecode_int_nroot `, ` gecode_gecode_int_nroot `, ` fzn_gecode_int_nroot ` | ` p_int_nroot ` / ` always ` | [D3031](#d3031) | planned | [checker-029](#family-029) | last result; family domain rule |
 | <a id="r212"></a>[R212](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2336) | ` gecode_nooverlap_optional `, ` gecode_gecode_nooverlap_optional `, ` fzn_gecode_nooverlap_optional ` | ` p_nooverlap_optional ` / ` always ` | [D3038](#d3038) | planned | [checker-026](#family-026) | [unique outputs](#family-026) |
-| <a id="r213"></a>[R213](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2337) | ` gecode_all_different_optional `, ` gecode_gecode_all_different_optional `, ` fzn_gecode_all_different_optional ` | ` p_distinct_optional ` / ` always ` | [D2793](#d2793), [D3000](#d3000) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r214"></a>[R214](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2338) | ` gecode_all_different_except `, ` gecode_gecode_all_different_except `, ` fzn_gecode_all_different_except ` | ` p_distinct_except ` / ` always ` | [D2799](#d2799), [D3001](#d3001) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="r213"></a>[R213](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2337) | ` gecode_all_different_optional `, ` gecode_gecode_all_different_optional `, ` fzn_gecode_all_different_optional ` | ` p_distinct_optional ` / ` always ` | [D2793](#d2793), [D3000](#d3000) | ` gecode_all_different_optional `, ` gecode_gecode_all_different_optional `, ` fzn_gecode_all_different_optional ` | [checker-020](#family-020) | none |
+| <a id="r214"></a>[R214](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2338) | ` gecode_all_different_except `, ` gecode_gecode_all_different_except `, ` fzn_gecode_all_different_except ` | ` p_distinct_except ` / ` always ` | [D2799](#d2799), [D3001](#d3001) | ` gecode_all_different_except `, ` gecode_gecode_all_different_except `, ` fzn_gecode_all_different_except ` | [checker-020](#family-020) | none |
 | <a id="r215"></a>[R215](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2339) | ` gecode_regular_nfa_int_fzn `, ` gecode_gecode_regular_nfa_int_fzn `, ` fzn_gecode_regular_nfa_int_fzn ` | ` p_regular_nfa_int ` / ` always ` | [D2909](#d2909), [D2911](#d2911), [D3032](#d3032) | planned | [checker-022](#family-022) | none |
 | <a id="r216"></a>[R216](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2340) | ` gecode_nooverlap_flex_optional `, ` gecode_gecode_nooverlap_flex_optional `, ` fzn_gecode_nooverlap_flex_optional ` | ` p_nooverlap_flex ` / ` always ` | [D3039](#d3039) | planned | [checker-026](#family-026) | [unique outputs](#family-026) |
-| <a id="r217"></a>[R217](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2341) | ` gecode_arg_min_int `, ` gecode_gecode_arg_min_int `, ` fzn_gecode_arg_min_int ` | ` p_arg_min_int ` / ` always ` | [D3050](#d3050) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r218"></a>[R218](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2342) | ` gecode_arg_max_int `, ` gecode_gecode_arg_max_int `, ` fzn_gecode_arg_max_int ` | ` p_arg_max_int ` / ` always ` | [D3051](#d3051) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r219"></a>[R219](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2343) | ` gecode_arg_min_bool `, ` gecode_gecode_arg_min_bool `, ` fzn_gecode_arg_min_bool ` | ` p_arg_min_bool ` / ` always ` | [D3052](#d3052) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r220"></a>[R220](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2344) | ` gecode_arg_max_bool `, ` gecode_gecode_arg_max_bool `, ` fzn_gecode_arg_max_bool ` | ` p_arg_max_bool ` / ` always ` | [D3053](#d3053) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="r217"></a>[R217](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2341) | ` gecode_arg_min_int `, ` gecode_gecode_arg_min_int `, ` fzn_gecode_arg_min_int ` | ` p_arg_min_int ` / ` always ` | [D3050](#d3050) | ` gecode_arg_min_int `, ` gecode_gecode_arg_min_int `, ` fzn_gecode_arg_min_int ` | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
+| <a id="r218"></a>[R218](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2342) | ` gecode_arg_max_int `, ` gecode_gecode_arg_max_int `, ` fzn_gecode_arg_max_int ` | ` p_arg_max_int ` / ` always ` | [D3051](#d3051) | ` gecode_arg_max_int `, ` gecode_gecode_arg_max_int `, ` fzn_gecode_arg_max_int ` | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
+| <a id="r219"></a>[R219](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2343) | ` gecode_arg_min_bool `, ` gecode_gecode_arg_min_bool `, ` fzn_gecode_arg_min_bool ` | ` p_arg_min_bool ` / ` always ` | [D3052](#d3052) | ` gecode_arg_min_bool `, ` gecode_gecode_arg_min_bool `, ` fzn_gecode_arg_min_bool ` | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
+| <a id="r220"></a>[R220](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2344) | ` gecode_arg_max_bool `, ` gecode_gecode_arg_max_bool `, ` fzn_gecode_arg_max_bool ` | ` p_arg_max_bool ` / ` always ` | [D3053](#d3053) | ` gecode_arg_max_bool `, ` gecode_gecode_arg_max_bool `, ` fzn_gecode_arg_max_bool ` | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
 | <a id="r221"></a>[R221](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2346) | ` gecode_blackbox `, ` gecode_gecode_blackbox `, ` fzn_gecode_blackbox ` | ` p_blackbox ` / ` always ` | [D2765](#d2765) | planned | [checker-031](#family-031) | excluded hook; diagnostic |
 | <a id="r222"></a>[R222](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2347) | ` gecode_blackbox_bounds `, ` gecode_gecode_blackbox_bounds `, ` fzn_gecode_blackbox_bounds ` | ` p_blackbox_bounds ` / ` always ` | [D2767](#d2767) | planned | [checker-031](#family-031) | excluded hook; diagnostic |
 | <a id="r223"></a>[R223](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2729) | ` set_eq `, ` gecode_set_eq `, ` fzn_set_eq ` | ` p_set_eq ` / ` GECODE_HAS_SET_VARS ` | [D0509](#d0509) | ` set_eq `, ` gecode_set_eq `, ` fzn_set_eq ` | [checker-017](#family-017) | either set |
@@ -1844,7 +1879,7 @@ Signatures preserve fixed/variable types, dimensions, argument order and declara
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d0001"></a>D0001 / 10 | ` predicate fzn_all_different_int(array [int] of var int: xs) ` | S decomposition → [D0591](#d0591); G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d0001"></a>D0001 / 10 | ` predicate fzn_all_different_int(array [int] of var int: xs) ` | S decomposition → [D0591](#d0591); G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d0002"></a>D0002 / 11 | ` predicate fzn_all_different_int_opt(array [int] of var opt int: xs) ` | declaration → [D0592](#d0592), [D2794](#d2794) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0003"></a>D0003 / 12 | ` predicate fzn_all_different_set(array [int] of var set of int: xs) ` | declaration → [D0594](#d0594) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0004"></a>D0004 / 13 | ` predicate fzn_alldifferent_except(array [int] of var int: xs, set of int: except) ` | declaration → [D0602](#d0602), [D2800](#d2800) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
@@ -1897,7 +1932,7 @@ Signatures preserve fixed/variable types, dimensions, argument order and declara
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d0018"></a>D0018 / 1 | ` predicate all_different_int(array [int] of var int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D0017](#d0017); G decomposition → [D0017](#d0017) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d0018"></a>D0018 / 1 | ` predicate all_different_int(array [int] of var int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D0017](#d0017); G decomposition → [D0017](#d0017) | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-008"></a>
 ### [S/all_different_set.mzn](https://github.com/MiniZinc/libminizinc/blob/c3448c48e7f05f13805616cfd1b9e94972eef58c/share/minizinc/std/all_different_set.mzn)
@@ -1926,7 +1961,7 @@ Signatures preserve fixed/variable types, dimensions, argument order and declara
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d0023"></a>D0023 / 6 | ` predicate fzn_all_equal_int(array [int] of var int: xs) ` | S decomposition → [D0598](#d0598); G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d0023"></a>D0023 / 6 | ` predicate fzn_all_equal_int(array [int] of var int: xs) ` | S decomposition → [D0598](#d0598); G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d0024"></a>D0024 / 7 | ` predicate fzn_all_equal_set(array [int] of var set of int: xs) ` | declaration → [D0600](#d0600) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0025"></a>D0025 / 12 | ` predicate all_equal(array [$X] of var $$E: xs) ` | wrapper → ` array1d `, ` enum2int `, ` fzn_all_equal_int `, ` length ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0026"></a>D0026 / 18 | ` predicate all_equal(array [$X] of var set of $$E: xs) ` | wrapper → ` array1d `, ` enum2int `, ` fzn_all_equal_set `, ` length ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
@@ -1943,7 +1978,7 @@ Signatures preserve fixed/variable types, dimensions, argument order and declara
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d0028"></a>D0028 / 1 | ` predicate all_equal_int(array [$X] of var int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D0027](#d0027); G decomposition → [D0027](#d0027) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d0028"></a>D0028 / 1 | ` predicate all_equal_int(array [$X] of var int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D0027](#d0027); G decomposition → [D0027](#d0027) | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-014"></a>
 ### [S/all_equal_set.mzn](https://github.com/MiniZinc/libminizinc/blob/c3448c48e7f05f13805616cfd1b9e94972eef58c/share/minizinc/std/all_equal_set.mzn)
@@ -2660,7 +2695,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d0337"></a>D0337 / 1 | ` predicate decreasing_bool(array [$X] of var bool: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D0336](#d0336); G decomposition → [D0336](#d0336) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d0337"></a>D0337 / 1 | ` predicate decreasing_bool(array [$X] of var bool: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D0336](#d0336); G decomposition → [D0336](#d0336) | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-083"></a>
 ### [S/decreasing_float.mzn](https://github.com/MiniZinc/libminizinc/blob/c3448c48e7f05f13805616cfd1b9e94972eef58c/share/minizinc/std/decreasing_float.mzn)
@@ -2688,7 +2723,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d0341"></a>D0341 / 1 | ` predicate decreasing_int(array [$X] of var int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D0340](#d0340); G decomposition → [D0340](#d0340) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d0341"></a>D0341 / 1 | ` predicate decreasing_int(array [$X] of var int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D0340](#d0340); G decomposition → [D0340](#d0340) | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-087"></a>
 ### [S/decreasing_set.mzn](https://github.com/MiniZinc/libminizinc/blob/c3448c48e7f05f13805616cfd1b9e94972eef58c/share/minizinc/std/decreasing_set.mzn)
@@ -3203,9 +3238,9 @@ Include/resource entry only; see the selection index.
 | <a id="d0566"></a>D0566 / 284 | ` predicate array_var_float_element(var int: idx, array [int] of var float: xs, var float: y) ` | S decomposition → [D1958](#d1958); G decomposition → [D1958](#d1958), [D3120](#d3120) | C (qualified) | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="d0567"></a>D0567 / 286 | ` predicate array_var_set_element(var int: idx, array [int] of var set of int: xs, var set of int: y) ` | S decomposition → [D1357](#d1357), [D1959](#d1959); G decomposition → [D1357](#d1357), [D1959](#d1959) | C (qualified) | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="d0568"></a>D0568 / 301 | ` predicate bool_clause_reif(array [int] of var bool: xs, array [int] of var bool: ys, var bool: b) ` | S decomposition → [D1406](#d1406); G direct | C (qualified) | [checker-014](#family-014) | last Boolean (truth) |
-| <a id="d0569"></a>D0569 / 303 | ` predicate array_int_maximum(var int: m, array [int] of var int: xs) ` | S decomposition → [D1407](#d1407); G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d0569"></a>D0569 / 303 | ` predicate array_int_maximum(var int: m, array [int] of var int: xs) ` | S decomposition → [D1407](#d1407); G direct | C (qualified) | [checker-020](#family-020) | argument 1 (extremum) |
 | <a id="d0570"></a>D0570 / 305 | ` predicate array_float_maximum(var float: m, array [int] of var float: xs) ` | S decomposition → [D1408](#d1408); G decomposition → [D3075](#d3075) | C (qualified) | [checker-018](#family-018) | argument 1 (extremum) |
-| <a id="d0571"></a>D0571 / 307 | ` predicate array_int_minimum(var int: m, array [int] of var int: xs) ` | S decomposition → [D1409](#d1409); G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d0571"></a>D0571 / 307 | ` predicate array_int_minimum(var int: m, array [int] of var int: xs) ` | S decomposition → [D1409](#d1409); G direct | C (qualified) | [checker-020](#family-020) | argument 1 (extremum) |
 | <a id="d0572"></a>D0572 / 309 | ` predicate array_float_minimum(var float: m, array [int] of var float: xs) ` | S decomposition → [D1410](#d1410); G decomposition → [D3078](#d3078) | C (qualified) | [checker-018](#family-018) | argument 1 (extremum) |
 | <a id="d0573"></a>D0573 / 325 | ` predicate array_var_bool_element_nonshifted(var int: idx, array [int] of var bool: xs, var bool: y) ` | S decomposition → [D1402](#d1402); G decomposition → [D3068](#d3068) | C (qualified) | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="d0574"></a>D0574 / 330 | ` predicate array_var_int_element_nonshifted(var int: idx, array [int] of var int: xs, var int: y) ` | S decomposition → [D1403](#d1403); G decomposition → [D3069](#d3069) | C (qualified) | [checker-016](#family-016) | selected result (known index/condition) |
@@ -6532,10 +6567,10 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d1156"></a>D1156 / 15 | ` predicate fzn_increasing_bool(array [int] of var bool: xs) ` | S decomposition → [D0874](#d0874), [D0875](#d0875); G decomposition → [D0875](#d0875) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d1156"></a>D1156 / 15 | ` predicate fzn_increasing_bool(array [int] of var bool: xs) ` | S decomposition → [D0874](#d0874), [D0875](#d0875); G decomposition → [D0875](#d0875) | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d1157"></a>D1157 / 16 | ` predicate fzn_increasing_float(array [int] of var float: xs) ` | declaration → [D0877](#d0877) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d1158"></a>D1158 / 17 | ` predicate fzn_increasing_float_opt(array [int] of var opt float: xs) ` | declaration → [D0878](#d0878) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
-| <a id="d1159"></a>D1159 / 18 | ` predicate fzn_increasing_int(array [int] of var int: xs) ` | S decomposition → [D0881](#d0881); G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d1159"></a>D1159 / 18 | ` predicate fzn_increasing_int(array [int] of var int: xs) ` | S decomposition → [D0881](#d0881); G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d1160"></a>D1160 / 19 | ` predicate fzn_increasing_int_opt(array [int] of var opt int: xs) ` | declaration → [D0882](#d0882) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d1161"></a>D1161 / 20 | ` predicate fzn_increasing_set(array [int] of var set of int: xs) ` | declaration → [D0885](#d0885) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d1162"></a>D1162 / 23 | ` predicate increasing(array [$X] of var bool: xs) ` | wrapper → ` array1d `, ` fzn_increasing_bool ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
@@ -6557,7 +6592,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d1169"></a>D1169 / 1 | ` predicate increasing_bool(array [$X] of var bool: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D1168](#d1168); G decomposition → [D1168](#d1168) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d1169"></a>D1169 / 1 | ` predicate increasing_bool(array [$X] of var bool: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D1168](#d1168); G decomposition → [D1168](#d1168) | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-595"></a>
 ### [S/increasing_float.mzn](https://github.com/MiniZinc/libminizinc/blob/c3448c48e7f05f13805616cfd1b9e94972eef58c/share/minizinc/std/increasing_float.mzn)
@@ -6585,7 +6620,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d1173"></a>D1173 / 1 | ` predicate increasing_int(array [$X] of var int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D1172](#d1172); G decomposition → [D1172](#d1172) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d1173"></a>D1173 / 1 | ` predicate increasing_int(array [$X] of var int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D1172](#d1172); G decomposition → [D1172](#d1172) | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-599"></a>
 ### [S/increasing_set.mzn](https://github.com/MiniZinc/libminizinc/blob/c3448c48e7f05f13805616cfd1b9e94972eef58c/share/minizinc/std/increasing_set.mzn)
@@ -6997,9 +7032,9 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d1291"></a>D1291 / 12 | ` predicate fzn_member_bool(array [int] of var bool: x, var bool: y) ` | S decomposition → [D0933](#d0933); G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d1291"></a>D1291 / 12 | ` predicate fzn_member_bool(array [int] of var bool: x, var bool: y) ` | S decomposition → [D0933](#d0933); G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d1292"></a>D1292 / 13 | ` predicate fzn_member_float(array [int] of var float: x, var float: y) ` | declaration → [D0935](#d0935) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
-| <a id="d1293"></a>D1293 / 14 | ` predicate fzn_member_int(array [int] of var int: x, var int: y) ` | S decomposition → [D0937](#d0937); G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d1293"></a>D1293 / 14 | ` predicate fzn_member_int(array [int] of var int: x, var int: y) ` | S decomposition → [D0937](#d0937); G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d1294"></a>D1294 / 15 | ` predicate fzn_member_set(array [int] of var set of int: x, var set of int: y) ` | declaration → [D0939](#d0939) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d1295"></a>D1295 / 16 | ` predicate fzn_set_member(var set of int: x, var int: y) ` | declaration → [D0989](#d0989) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d1296"></a>D1296 / 21 | ` predicate member(array [$X] of var bool: x, var bool: y) ` | wrapper → ` array1d `, ` fzn_member_bool ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
@@ -7020,7 +7055,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d1302"></a>D1302 / 1 | ` predicate member_bool(array [int] of var bool: x, var bool: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D1301](#d1301); G decomposition → [D1301](#d1301) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d1302"></a>D1302 / 1 | ` predicate member_bool(array [int] of var bool: x, var bool: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D1301](#d1301); G decomposition → [D1301](#d1301) | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-650"></a>
 ### [S/member_float.mzn](https://github.com/MiniZinc/libminizinc/blob/c3448c48e7f05f13805616cfd1b9e94972eef58c/share/minizinc/std/member_float.mzn)
@@ -7048,7 +7083,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d1306"></a>D1306 / 1 | ` predicate member_int(array [int] of var $$E: x, var $$E: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D1305](#d1305); G decomposition → [D1305](#d1305) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d1306"></a>D1306 / 1 | ` predicate member_int(array [int] of var $$E: x, var $$E: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D1305](#d1305); G decomposition → [D1305](#d1305) | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-654"></a>
 ### [S/member_set.mzn](https://github.com/MiniZinc/libminizinc/blob/c3448c48e7f05f13805616cfd1b9e94972eef58c/share/minizinc/std/member_set.mzn)
@@ -7420,7 +7455,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d1448"></a>D1448 / 4 | ` predicate fzn_sort(array [int] of var int: xs, array [int] of var int: ys) ` | S decomposition → [D0995](#d0995); G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d1448"></a>D1448 / 4 | ` predicate fzn_sort(array [int] of var int: xs, array [int] of var int: ys) ` | S decomposition → [D0995](#d0995); G direct | C (qualified) | [checker-020](#family-020) | argument 2 (sorted multiset) |
 | <a id="d1449"></a>D1449 / 10 | ` predicate sort(array [$$E] of var $$T: xs, array [$$F] of var $$T: ys) ` | wrapper → ` assert `, ` enum2int `, ` fzn_sort `, ` index2int `, ` length ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 
 <a id="file-693"></a>
@@ -9159,14 +9194,14 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2792"></a>D2792 / 33 | ` predicate fzn_all_different_int(array[int] of var int: x) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2792"></a>D2792 / 33 | ` predicate fzn_all_different_int(array[int] of var int: x) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-759"></a>
 ### [G/fzn_all_different_int_opt.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_all_different_int_opt.mzn)
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2793"></a>D2793 / 33 | ` predicate gecode_all_different_optional( array[int] of var int: x, array[int] of var bool: present, ) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2793"></a>D2793 / 33 | ` predicate gecode_all_different_optional( array[int] of var int: x, array[int] of var bool: present, ) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d2794"></a>D2794 / 38 | ` predicate fzn_all_different_int_opt(array[int] of var opt int: xs) ` | wrapper → ` absent `, ` deopt `, ` fix `, ` gecode_all_different_optional `, ` is_fixed `, ` length `, ` occurs ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d2795"></a>D2795 / 50 | ` predicate fzn_all_different_int_opt_reif( array[int] of var opt int: xs, var bool: b, ) ` | wrapper → ` absent `, ` array1d `, ` deopt `, ` fix `, ` forall `, ` index_set `, ` is_fixed `, ` occurs ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
@@ -9175,14 +9210,14 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2796"></a>D2796 / 33 | ` predicate fzn_all_equal_int(array[int] of var int: x) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2796"></a>D2796 / 33 | ` predicate fzn_all_equal_int(array[int] of var int: x) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-761"></a>
 ### [G/fzn_all_equal_int_reif.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_all_equal_int_reif.mzn)
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2797"></a>D2797 / 33 | ` predicate gecode_not_all_equal_int(array[int] of var int: xs) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2797"></a>D2797 / 33 | ` predicate gecode_not_all_equal_int(array[int] of var int: xs) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d2798"></a>D2798 / 35 | ` predicate fzn_all_equal_int_reif(array[int] of var int: xs, var bool: b) ` | wrapper → ` fix `, ` forall `, ` gecode_not_all_equal_int `, ` index_set `, ` is_fixed `, ` length `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-762"></a>
@@ -9190,7 +9225,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2799"></a>D2799 / 36 | ` predicate gecode_all_different_except(array[int] of var int: x, int: except_value) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2799"></a>D2799 / 36 | ` predicate gecode_all_different_except(array[int] of var int: x, int: except_value) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d2800"></a>D2800 / 38 | ` predicate fzn_alldifferent_except(array[int] of var int: xs, set of int: except) ` | wrapper → ` card `, ` dom_array `, ` forall `, ` fzn_all_different_int `, ` gecode_all_different_except `, ` global_cardinality `, ` has_bounds `, ` index_set `, ` lb_array `, ` length `, ` min `, ` set2array `, ` ub_array ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-763"></a>
@@ -9212,7 +9247,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2803"></a>D2803 / 1 | ` predicate gecode_maximum_arg_bool_offset(array[int] of var bool: x, int: offset, var int: i) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2803"></a>D2803 / 1 | ` predicate gecode_maximum_arg_bool_offset(array[int] of var bool: x, int: offset, var int: i) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
 | <a id="d2804"></a>D2804 / 3 | ` predicate fzn_maximum_arg_bool(array[int] of var bool: x, var int: i) ` | wrapper → ` gecode_maximum_arg_bool_offset `, ` index_set `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-766"></a>
@@ -9220,7 +9255,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2805"></a>D2805 / 1 | ` predicate gecode_maximum_arg_int_offset(array[int] of var int: x, int: offset, var int: i) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2805"></a>D2805 / 1 | ` predicate gecode_maximum_arg_int_offset(array[int] of var int: x, int: offset, var int: i) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
 | <a id="d2806"></a>D2806 / 3 | ` predicate fzn_maximum_arg_int(array[int] of var int: x, var int: i) ` | wrapper → ` gecode_maximum_arg_int_offset `, ` index_set `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-767"></a>
@@ -9228,7 +9263,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2807"></a>D2807 / 1 | ` predicate gecode_minimum_arg_bool_offset(array[int] of var bool: x, int: offset, var int: i) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2807"></a>D2807 / 1 | ` predicate gecode_minimum_arg_bool_offset(array[int] of var bool: x, int: offset, var int: i) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
 | <a id="d2808"></a>D2808 / 3 | ` predicate fzn_minimum_arg_bool(array[int] of var bool: x, var int: i) ` | wrapper → ` gecode_minimum_arg_bool_offset `, ` index_set `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-768"></a>
@@ -9236,7 +9271,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2809"></a>D2809 / 1 | ` predicate gecode_minimum_arg_int_offset(array[int] of var int: x, int: offset, var int: i) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2809"></a>D2809 / 1 | ` predicate gecode_minimum_arg_int_offset(array[int] of var int: x, int: offset, var int: i) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
 | <a id="d2810"></a>D2810 / 3 | ` predicate fzn_minimum_arg_int(array[int] of var int: x, var int: i) ` | wrapper → ` gecode_minimum_arg_int_offset `, ` index_set `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-769"></a>
@@ -9389,14 +9424,14 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2848"></a>D2848 / 33 | ` predicate fzn_decreasing_bool(array[int] of var bool: x) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2848"></a>D2848 / 33 | ` predicate fzn_decreasing_bool(array[int] of var bool: x) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-788"></a>
 ### [G/fzn_decreasing_int.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_decreasing_int.mzn)
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2849"></a>D2849 / 33 | ` predicate fzn_decreasing_int(array[int] of var int: x) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2849"></a>D2849 / 33 | ` predicate fzn_decreasing_int(array[int] of var int: x) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-789"></a>
 ### [G/fzn_diffn.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_diffn.mzn)
@@ -9533,14 +9568,14 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2878"></a>D2878 / 33 | ` predicate fzn_increasing_bool(array[int] of var bool: x) ` | S outside profile; G decomposition → [D0875](#d0875) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2878"></a>D2878 / 33 | ` predicate fzn_increasing_bool(array[int] of var bool: x) ` | S outside profile; G decomposition → [D0875](#d0875) | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-807"></a>
 ### [G/fzn_increasing_int.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_increasing_int.mzn)
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2879"></a>D2879 / 33 | ` predicate fzn_increasing_int(array[int] of var int: x) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2879"></a>D2879 / 33 | ` predicate fzn_increasing_int(array[int] of var int: x) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-808"></a>
 ### [G/fzn_int_set_channel.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_int_set_channel.mzn)
@@ -9555,7 +9590,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2882"></a>D2882 / 33 | ` predicate inverse_offsets(array[int] of var int: f, int: foff, array[int] of var int: invf, int: invfoff) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2882"></a>D2882 / 33 | ` predicate inverse_offsets(array[int] of var int: f, int: foff, array[int] of var int: invf, int: invfoff) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | either complete inverse side |
 | <a id="d2883"></a>D2883 / 36 | ` predicate fzn_inverse(array[int] of var int: f, array[int] of var int: invf) ` | wrapper → ` index_set `, ` inverse_offsets `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-810"></a>
@@ -9571,7 +9606,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2886"></a>D2886 / 33 | ` predicate array_bool_lt(array[int] of var bool: x, array[int] of var bool: y) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2886"></a>D2886 / 33 | ` predicate array_bool_lt(array[int] of var bool: x, array[int] of var bool: y) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d2887"></a>D2887 / 36 | ` predicate fzn_lex_less_bool(array[int] of var bool: x, array[int] of var bool: y) ` | wrapper → ` array_bool_lt ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-812"></a>
@@ -9579,7 +9614,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2888"></a>D2888 / 33 | ` predicate array_int_lt(array[int] of var int: x, array[int] of var int: y) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2888"></a>D2888 / 33 | ` predicate array_int_lt(array[int] of var int: x, array[int] of var int: y) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d2889"></a>D2889 / 36 | ` predicate fzn_lex_less_int(array[int] of var int: x, array[int] of var int: y) ` | wrapper → ` array_int_lt ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-813"></a>
@@ -9587,7 +9622,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2890"></a>D2890 / 33 | ` predicate array_bool_lq(array[int] of var bool: x, array[int] of var bool: y) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2890"></a>D2890 / 33 | ` predicate array_bool_lq(array[int] of var bool: x, array[int] of var bool: y) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d2891"></a>D2891 / 36 | ` predicate fzn_lex_lesseq_bool(array[int] of var bool: x, array[int] of var bool: y) ` | wrapper → ` array_bool_lq ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-814"></a>
@@ -9595,7 +9630,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2892"></a>D2892 / 33 | ` predicate array_int_lq(array[int] of var int: x, array[int] of var int: y) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2892"></a>D2892 / 33 | ` predicate array_int_lq(array[int] of var int: x, array[int] of var int: y) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d2893"></a>D2893 / 36 | ` predicate fzn_lex_lesseq_int(array[int] of var int: x, array[int] of var int: y) ` | wrapper → ` array_int_lq ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-815"></a>
@@ -9611,14 +9646,14 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2896"></a>D2896 / 33 | ` predicate fzn_member_bool(array[int] of var bool: x, var bool: y) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2896"></a>D2896 / 33 | ` predicate fzn_member_bool(array[int] of var bool: x, var bool: y) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-817"></a>
 ### [G/fzn_member_bool_reif.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_member_bool_reif.mzn)
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2897"></a>D2897 / 33 | ` predicate gecode_member_bool_reif(array[int] of var bool: x, var bool: y, var bool: b) ` | S outside profile; G direct | planned | [checker-020](#family-020) | last Boolean (truth) |
+| <a id="d2897"></a>D2897 / 33 | ` predicate gecode_member_bool_reif(array[int] of var bool: x, var bool: y, var bool: b) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | last Boolean (truth) |
 | <a id="d2898"></a>D2898 / 35 | ` predicate fzn_member_bool_reif(array[int] of var bool: x, var bool: y, var bool: b) ` | wrapper → ` gecode_member_bool_reif ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-818"></a>
@@ -9626,14 +9661,14 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2899"></a>D2899 / 33 | ` predicate fzn_member_int(array[int] of var int: x, var int: y) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2899"></a>D2899 / 33 | ` predicate fzn_member_int(array[int] of var int: x, var int: y) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 
 <a id="file-819"></a>
 ### [G/fzn_member_int_reif.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_member_int_reif.mzn)
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2900"></a>D2900 / 33 | ` predicate gecode_member_int_reif(array[int] of var int: x, var int: y, var bool: b) ` | S outside profile; G direct | planned | [checker-020](#family-020) | last Boolean (truth) |
+| <a id="d2900"></a>D2900 / 33 | ` predicate gecode_member_int_reif(array[int] of var int: x, var int: y, var bool: b) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | last Boolean (truth) |
 | <a id="d2901"></a>D2901 / 35 | ` predicate fzn_member_int_reif(array[int] of var int: x, var int: y, var bool: b) ` | wrapper → ` gecode_member_int_reif ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-820"></a>
@@ -9712,7 +9747,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2919"></a>D2919 / 33 | ` predicate fzn_sort(array[int] of var int: x, array[int] of var int: y) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2919"></a>D2919 / 33 | ` predicate fzn_sort(array[int] of var int: x, array[int] of var int: y) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | argument 2 (sorted multiset) |
 
 <a id="file-830"></a>
 ### [G/fzn_sum_pred.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_sum_pred.mzn)
@@ -9771,7 +9806,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2936"></a>D2936 / 33 | ` predicate gecode_precede(array[int] of var int: x, int: s, int: t) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d2936"></a>D2936 / 33 | ` predicate gecode_precede(array[int] of var int: x, int: s, int: t) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d2937"></a>D2937 / 35 | ` predicate fzn_value_precede_int(int: s, int: t, array[int] of var int: x) ` | wrapper → ` gecode_precede ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-837"></a>
@@ -9853,16 +9888,16 @@ Include/resource entry only; see the selection index.
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
 | <a id="d2999"></a>D2999 / 40 | ` predicate gecode_inter_distance_fzn(array[int] of var int: x, var int: distance) ` | S outside profile; G direct | planned | [checker-029](#family-029) | none |
-| <a id="d3000"></a>D3000 / 44 | ` predicate gecode_all_different_optional( array[int] of var int: x, array[int] of var bool: present, ) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d3001"></a>D3001 / 51 | ` predicate gecode_all_different_except(array[int] of var int: x, int: except_value) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d3002"></a>D3002 / 55 | ` predicate gecode_all_different_offset_fzn( array[int] of int: offset, array[int] of var int: x, ) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d3003"></a>D3003 / 61 | ` predicate gecode_bool_int_channel( array[int] of var bool: x, var int: value, int: offset, ) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d3004"></a>D3004 / 68 | ` predicate gecode_sort_permutation( array[int] of var int: x, array[int] of var int: y, array[int] of var int: permutation, int: offset, ) ` | S outside profile; G decomposition → [D2974](#d2974) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d3000"></a>D3000 / 44 | ` predicate gecode_all_different_optional( array[int] of var int: x, array[int] of var bool: present, ) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
+| <a id="d3001"></a>D3001 / 51 | ` predicate gecode_all_different_except(array[int] of var int: x, int: except_value) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
+| <a id="d3002"></a>D3002 / 55 | ` predicate gecode_all_different_offset_fzn( array[int] of int: offset, array[int] of var int: x, ) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
+| <a id="d3003"></a>D3003 / 61 | ` predicate gecode_bool_int_channel( array[int] of var bool: x, var int: value, int: offset, ) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | Boolean array or integer, when unique |
+| <a id="d3004"></a>D3004 / 68 | ` predicate gecode_sort_permutation( array[int] of var int: x, array[int] of var int: y, array[int] of var int: permutation, int: offset, ) ` | S outside profile; G decomposition → [D2974](#d2974) | C (qualified) | [checker-020](#family-020) | argument 2; argument 3 only for distinct inputs |
 | <a id="d3005"></a>D3005 / 76 | ` predicate gecode_count_int_fzn( array[int] of var int: x, var int: value, int: relation, var int: count, ) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="d3006"></a>D3006 / 84 | ` predicate gecode_count_matches_fzn( array[int] of var int: x, array[int] of int: values, int: relation, var int: count, ) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
-| <a id="d3007"></a>D3007 / 92 | ` predicate gecode_array_int_ne(array[int] of var int: x, array[int] of var int: y) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d3008"></a>D3008 / 94 | ` predicate gecode_array_bool_ne(array[int] of var bool: x, array[int] of var bool: y) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d3009"></a>D3009 / 97 | ` predicate gecode_not_all_equal_int(array[int] of var int: x) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d3007"></a>D3007 / 92 | ` predicate gecode_array_int_ne(array[int] of var int: x, array[int] of var int: y) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
+| <a id="d3008"></a>D3008 / 94 | ` predicate gecode_array_bool_ne(array[int] of var bool: x, array[int] of var bool: y) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
+| <a id="d3009"></a>D3009 / 97 | ` predicate gecode_not_all_equal_int(array[int] of var int: x) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | none |
 | <a id="d3010"></a>D3010 / 100 | ` predicate gecode_int_ite(var bool: b, var int: x, var int: y, var int: z) ` | S outside profile; G direct | C (qualified) | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="d3011"></a>D3011 / 102 | ` predicate gecode_bool_ite(var bool: b, var bool: x, var bool: y, var bool: z) ` | S outside profile; G direct | C (qualified) | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="d3012"></a>D3012 / 104 | ` predicate gecode_set_ite( var bool: b, var set of int: x, var set of int: y, var set of int: z, ) ` | S outside profile; G direct | C (qualified) | [checker-016](#family-016) | selected result (known index/condition) |
@@ -9903,10 +9938,10 @@ Include/resource entry only; see the selection index.
 | <a id="d3047"></a>D3047 / 305 | ` predicate gecode_float_array_min(array[int] of var float: x, var float: y) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
 | <a id="d3048"></a>D3048 / 308 | ` predicate gecode_float_array_max(array[int] of var float: x, var float: y) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
 | <a id="d3049"></a>D3049 / 311 | ` predicate gecode_float_pow_base(float: base, var float: x, var float: y) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d3050"></a>D3050 / 315 | ` predicate gecode_arg_min_int( array[int] of var int: x, int: offset, var int: index, bool: break_ties, ) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d3051"></a>D3051 / 322 | ` predicate gecode_arg_max_int( array[int] of var int: x, int: offset, var int: index, bool: break_ties, ) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d3052"></a>D3052 / 329 | ` predicate gecode_arg_min_bool( array[int] of var bool: x, int: offset, var int: index, bool: break_ties, ) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d3053"></a>D3053 / 336 | ` predicate gecode_arg_max_bool( array[int] of var bool: x, int: offset, var int: index, bool: break_ties, ) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d3050"></a>D3050 / 315 | ` predicate gecode_arg_min_int( array[int] of var int: x, int: offset, var int: index, bool: break_ties, ) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
+| <a id="d3051"></a>D3051 / 322 | ` predicate gecode_arg_max_int( array[int] of var int: x, int: offset, var int: index, bool: break_ties, ) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
+| <a id="d3052"></a>D3052 / 329 | ` predicate gecode_arg_min_bool( array[int] of var bool: x, int: offset, var int: index, bool: break_ties, ) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
+| <a id="d3053"></a>D3053 / 336 | ` predicate gecode_arg_max_bool( array[int] of var bool: x, int: offset, var int: index, bool: break_ties, ) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | argument 3 (first tie or unique extremum) |
 | <a id="d3054"></a>D3054 / 344 | ` predicate gecode_set_min(var set of int: s, var int: x) ` | S outside profile; G direct | planned | [checker-027](#family-027) | [unique outputs](#family-027) |
 | <a id="d3055"></a>D3055 / 346 | ` predicate gecode_set_min_reif(var set of int: s, var int: x, var bool: b) ` | S outside profile; G direct | planned | [checker-027](#family-027) | last Boolean (truth) |
 | <a id="d3056"></a>D3056 / 348 | ` predicate gecode_set_min_imp(var set of int: s, var int: x, var bool: b) ` | S outside profile; G direct | planned | [checker-027](#family-027) | none (guard) |
@@ -9938,10 +9973,10 @@ Include/resource entry only; see the selection index.
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
 | <a id="d3072"></a>D3072 / 4 | ` predicate bool_clause_reif(array[int] of var bool: as, array[int] of var bool: bs, var bool: b) ` | S outside profile; G direct | C (qualified) | [checker-014](#family-014) | last Boolean (truth) |
-| <a id="d3073"></a>D3073 / 8 | ` predicate array_int_maximum(var int: m, array[int] of var int: x) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d3073"></a>D3073 / 8 | ` predicate array_int_maximum(var int: m, array[int] of var int: x) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | argument 1 (extremum) |
 | <a id="d3074"></a>D3074 / 10 | ` predicate gecode_float_array_max(array[int] of var float: x, var float: m) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
 | <a id="d3075"></a>D3075 / 12 | ` predicate array_float_maximum(var float: m, array[int] of var float: x) ` | wrapper → ` gecode_float_array_max `, ` length ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
-| <a id="d3076"></a>D3076 / 19 | ` predicate array_int_minimum(var int: m, array[int] of var int: x) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
+| <a id="d3076"></a>D3076 / 19 | ` predicate array_int_minimum(var int: m, array[int] of var int: x) ` | S outside profile; G direct | C (qualified) | [checker-020](#family-020) | argument 1 (extremum) |
 | <a id="d3077"></a>D3077 / 21 | ` predicate gecode_float_array_min(array[int] of var float: x, var float: m) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
 | <a id="d3078"></a>D3078 / 23 | ` predicate array_float_minimum(var float: m, array[int] of var float: x) ` | wrapper → ` gecode_float_array_min `, ` length ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d3079"></a>D3079 / 30 | ` predicate gecode_float_pow(var float: x, int: n, var float: y) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |

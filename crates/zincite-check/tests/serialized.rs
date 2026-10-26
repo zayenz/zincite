@@ -1550,3 +1550,138 @@ fn parser_free_counting_validates_contracts_targets_and_exact_reports() {
         );
     }
 }
+
+#[test]
+fn ordering_parser_free_contract_validation() {
+    let integer = |value: &str| json!({"Literal":{"kind":"integer","value":value}});
+    let mut original = executable();
+    original["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_arg_min_int");
+    original["model"]["constraints"][0]["predicate"] = json!({"Ordering":{"ArgExtremum":{
+        "entries":[integer("3"),integer("1"),integer("1")], "result":{"Variable":0},
+        "boolean":false, "maximum":false, "offset":"9007199254740993", "break_ties":false, "explicit_ties":true
+    }}});
+    let loaded = PreparedModel::from_json(&original.to_string()).unwrap();
+    let report = loaded
+        .check(&Assignment {
+            entries: vec![AssignmentEntry {
+                name: "x".into(),
+                value: AssignmentValue::Scalar(Value::Integer(9_007_199_254_740_995)),
+                location: None,
+            }],
+        })
+        .unwrap();
+    assert_eq!(report.status, Status::Valid);
+    for (pointer, replacement) in [
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("gecode_arg_max_int"),
+        ),
+        (
+            "/model/constraints/0/predicate/Ordering/ArgExtremum/entries",
+            json!([]),
+        ),
+        (
+            "/model/constraints/0/predicate/Ordering/ArgExtremum/boolean",
+            json!(true),
+        ),
+        (
+            "/model/constraints/0/predicate/Ordering/ArgExtremum/offset",
+            json!("-1"),
+        ),
+        (
+            "/model/constraints/0/predicate/Ordering/ArgExtremum/offset",
+            json!("9223372036854775807"),
+        ),
+        (
+            "/model/constraints/0/predicate/Ordering/ArgExtremum/offset",
+            json!(9007199254740992_u64),
+        ),
+        (
+            "/model/constraints/0/predicate/Ordering/ArgExtremum/break_ties",
+            json!("false"),
+        ),
+        (
+            "/model/constraints/0/predicate/Ordering/ArgExtremum/explicit_ties",
+            json!(false),
+        ),
+        (
+            "/model/constraints/0/predicate/Ordering/ArgExtremum/result",
+            json!({"Variable":99}),
+        ),
+    ] {
+        let mut edited = original.clone();
+        *edited.pointer_mut(pointer).unwrap() = replacement;
+        assert!(
+            PreparedModel::from_json(&edited.to_string()).is_err(),
+            "{pointer}"
+        );
+    }
+    for (name, operation) in [
+        (
+            "all_different_offset",
+            json!({"Distinct":{"entries":[integer("1")],"mode":{"Offsets":[]}}}),
+        ),
+        (
+            "gecode_all_different_optional",
+            json!({"Distinct":{"entries":[integer("1")],"mode":{"Optional":[integer("1")]}}}),
+        ),
+        (
+            "sort",
+            json!({"Sort":{"entries":[integer("1")],"sorted":[],"permutation":null,"offset":null}}),
+        ),
+        (
+            "sort",
+            json!({"Sort":{"entries":[],"sorted":[],"permutation":null,"offset":"0"}}),
+        ),
+        (
+            "gecode_sort_permutation",
+            json!({"Sort":{"entries":[],"sorted":[],"permutation":[],"offset":null}}),
+        ),
+        (
+            "inverse_offsets",
+            json!({"Inverse":{"entries":[],"inverse":[],"offset":"-1","inverse_offset":"0"}}),
+        ),
+        (
+            "gecode_bool_int_channel",
+            json!({"Channel":{"entries":[integer("0")],"value":integer("0"),"offset":"0"}}),
+        ),
+        (
+            "gecode_member_int_reif",
+            json!({"Member":{"entries":[],"needle":integer("1"),"boolean":false,"result":integer("1")}}),
+        ),
+    ] {
+        let mut edited = original.clone();
+        edited["model"]["constraints"][0]["reference"]["predicate"] = json!(name);
+        edited["model"]["constraints"][0]["predicate"] = json!({"Ordering":operation});
+        assert!(
+            PreparedModel::from_json(&edited.to_string()).is_err(),
+            "{name}"
+        );
+    }
+}
+
+#[cfg(feature = "prepare")]
+#[test]
+fn ordering_loaded_array_targets_validate_the_complete_output() {
+    let model = zincite_check::prepare(
+        "ordering.fzn",
+        include_str!("../../../examples/checker-compilation/ordering.fzn"),
+    )
+    .unwrap();
+    let original: Json = serde_json::from_str(&model.to_json().unwrap()).unwrap();
+    for replacement in [
+        json!(["y1"]),
+        json!(["y1", "y2", "p3"]),
+        json!("input"),
+        json!("flags"),
+        json!(["y1", "y1", "y2"]),
+    ] {
+        let mut edited = original.clone();
+        edited["model"]["constraints"][0]["reference"]["metadata"]["defines"] = replacement;
+        assert!(PreparedModel::from_json(&edited.to_string()).is_err());
+    }
+    let mut edited = original;
+    edited["model"]["constraints"][6]["predicate"]["Ordering"]["Channel"]["entries"][0] =
+        json!({"Variable":0});
+    assert!(PreparedModel::from_json(&edited.to_string()).is_err());
+}

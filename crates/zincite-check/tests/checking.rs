@@ -3407,3 +3407,478 @@ fn cardinality_outputs_complete_canonical_slots_and_check_supplied_conflicts() {
         );
     }
 }
+
+#[test]
+fn ordering_exact_registry_names_and_signatures() {
+    // Literal registry prefixes also apply to names already beginning with gecode_.
+    let cases = [
+        ("all_different_int", "array[int] of var int: a", "[1,2]"),
+        (
+            "all_different_offset",
+            "array[int] of int: a,array[int] of var int: b",
+            "[0,0],[1,2]",
+        ),
+        (
+            "gecode_all_different_offset_fzn",
+            "array[int] of int: a,array[int] of var int: b",
+            "[0,0],[1,2]",
+        ),
+        ("all_equal_int", "array[int] of var int: a", "[1,1]"),
+        (
+            "array_int_lt",
+            "array[int] of var int: a,array[int] of var int: b",
+            "[1],[2]",
+        ),
+        (
+            "array_int_lq",
+            "array[int] of var int: a,array[int] of var int: b",
+            "[1],[1]",
+        ),
+        (
+            "array_bool_lt",
+            "array[int] of var bool: a,array[int] of var bool: b",
+            "[false],[true]",
+        ),
+        (
+            "array_bool_lq",
+            "array[int] of var bool: a,array[int] of var bool: b",
+            "[true],[true]",
+        ),
+        (
+            "array_int_minimum",
+            "var int: a,array[int] of var int: b",
+            "1,[2,1]",
+        ),
+        (
+            "array_int_maximum",
+            "var int: a,array[int] of var int: b",
+            "2,[2,1]",
+        ),
+        (
+            "gecode_minimum_arg_int_offset",
+            "array[int] of var int: a,int: b,var int: c",
+            "[1,2],5,5",
+        ),
+        (
+            "gecode_maximum_arg_int_offset",
+            "array[int] of var int: a,int: b,var int: c",
+            "[1,2],5,6",
+        ),
+        (
+            "gecode_minimum_arg_bool_offset",
+            "array[int] of var bool: a,int: b,var int: c",
+            "[false,true],5,5",
+        ),
+        (
+            "gecode_maximum_arg_bool_offset",
+            "array[int] of var bool: a,int: b,var int: c",
+            "[false,true],5,6",
+        ),
+        (
+            "sort",
+            "array[int] of var int: a,array[int] of var int: b",
+            "[2,1],[1,2]",
+        ),
+        (
+            "inverse_offsets",
+            "array[int] of var int: a,int: b,array[int] of var int: c,int: d",
+            "[6,5],5,[11,10],10",
+        ),
+        ("increasing_int", "array[int] of var int: a", "[1,1,2]"),
+        (
+            "increasing_bool",
+            "array[int] of var bool: a",
+            "[false,true,true]",
+        ),
+        ("decreasing_int", "array[int] of var int: a", "[2,1,1]"),
+        (
+            "decreasing_bool",
+            "array[int] of var bool: a",
+            "[true,true,false]",
+        ),
+        (
+            "gecode_precede",
+            "array[int] of var int: a,int: b,int: c",
+            "[1,2,2],1,2",
+        ),
+        (
+            "member_int",
+            "array[int] of var int: a,var int: b",
+            "[1,2],2",
+        ),
+        (
+            "gecode_member_int_reif",
+            "array[int] of var int: a,var int: b,var bool: c",
+            "[1,2],3,false",
+        ),
+        (
+            "member_bool",
+            "array[int] of var bool: a,var bool: b",
+            "[false],false",
+        ),
+        (
+            "gecode_member_bool_reif",
+            "array[int] of var bool: a,var bool: b,var bool: c",
+            "[false],true,false",
+        ),
+        (
+            "gecode_array_int_ne",
+            "array[int] of var int: a,array[int] of var int: b",
+            "[],[1]",
+        ),
+        (
+            "gecode_not_all_equal_int",
+            "array[int] of var int: a",
+            "[1,2]",
+        ),
+        (
+            "gecode_array_bool_ne",
+            "array[int] of var bool: a,array[int] of var bool: b",
+            "[false],[true]",
+        ),
+        (
+            "gecode_bool_int_channel",
+            "array[int] of var bool: a,var int: b,int: c",
+            "[false,true],-1,-2",
+        ),
+        (
+            "gecode_sort_permutation",
+            "array[int] of var int: a,array[int] of var int: b,array[int] of var int: c,int: d",
+            "[3,1,2],[1,2,3],[0,-2,-1],-2",
+        ),
+        (
+            "gecode_all_different_optional",
+            "array[int] of var int: a,array[int] of var bool: b",
+            "[1,1],[true,false]",
+        ),
+        (
+            "gecode_all_different_except",
+            "array[int] of var int: a,int: b",
+            "[1,1],1",
+        ),
+        (
+            "gecode_arg_min_int",
+            "array[int] of var int: a,int: b,var int: c,bool: d",
+            "[1,1],5,6,false",
+        ),
+        (
+            "gecode_arg_max_int",
+            "array[int] of var int: a,int: b,var int: c,bool: d",
+            "[1,1],5,5,true",
+        ),
+        (
+            "gecode_arg_min_bool",
+            "array[int] of var bool: a,int: b,var int: c,bool: d",
+            "[false,false],5,6,false",
+        ),
+        (
+            "gecode_arg_max_bool",
+            "array[int] of var bool: a,int: b,var int: c,bool: d",
+            "[true,true],5,5,true",
+        ),
+    ];
+    assert_eq!(cases.len(), 36);
+    for (literal, signature, args) in cases {
+        for prefix in ["", "gecode_", "fzn_"] {
+            let name = format!("{prefix}{literal}");
+            let source =
+                format!("predicate {name}({signature}); constraint {name}({args}); solve satisfy;");
+            let model = prepare(&name, &source).unwrap_or_else(|error| panic!("{name}: {error:?}"));
+            let report = model.check(&Assignment::default()).unwrap();
+            assert_eq!(report.status, Status::Valid, "{name}");
+            let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+            assert_eq!(
+                serde_json::to_value(report).unwrap(),
+                serde_json::to_value(loaded.check(&Assignment::default()).unwrap()).unwrap()
+            );
+        }
+    }
+    for source in [
+        "constraint fzn_all_different_int_reif([1],true);",
+        "constraint fzn_lex_less_int([1],[2]);",
+        "constraint member_int_reif([1],1,true);",
+        "constraint fzn_inverse([1],[1]);",
+        "constraint fzn_decreasing_float([1.0]);",
+        "constraint fzn_decreasing_set([{1}]);",
+        "constraint all_different_offset([0],[1,2]);",
+        "constraint gecode_all_different_optional([1],[]);",
+        "constraint array_int_minimum(1,[]);",
+        "constraint gecode_arg_min_int([],0,0,true);",
+        "constraint gecode_arg_min_int([1],-1,0,true);",
+        "constraint inverse_offsets([],-1,[],0);",
+        "constraint sort([1],[]);",
+        "constraint gecode_sort_permutation([1],[1],[0,1],0);",
+        "constraint gecode_arg_min_int([1,2],9223372036854775807,0,true);",
+        "constraint gecode_bool_int_channel([false,true],0,9223372036854775807);",
+        "var bool: flag; constraint gecode_arg_min_int([1],0,0,flag);",
+        "var int: offset; constraint inverse_offsets([],offset,[],0);",
+        "constraint increasing_bool([1]);",
+        "predicate sort(array[int] of int: a, array[int] of var int: b);",
+        "constraint gecode_arg_min_int([1],0,0,1);",
+    ] {
+        assert!(
+            prepare("bad-ordering", &format!("{source} solve satisfy;")).is_err(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn ordering_empty_optional_order_and_exact_arithmetic() {
+    let model = prepare(
+        "ordering",
+        r#"
+        var int: missing; var bool: needle;
+        constraint all_different_int([missing]);
+        constraint all_equal_int([missing]);
+        constraint increasing_int([missing]);
+        constraint decreasing_bool([needle]);
+        constraint gecode_all_different_optional([missing,1,1],[false,true,false]);
+        constraint gecode_all_different_optional([missing],[needle]);
+        constraint gecode_all_different_optional([missing,missing],[false,needle]);
+        constraint gecode_all_different_except([4,4,1,2],4);
+        constraint gecode_array_int_ne([missing],[]);
+        constraint array_int_lt([],[1]);
+        constraint array_int_lq([],[]);
+        constraint array_bool_lt([false],[false,true]);
+        constraint gecode_precede([1,1],2,3);
+        constraint inverse_offsets([],0,[],3);
+        constraint gecode_sort_permutation([],[],[],-9223372036854775808);
+        constraint gecode_not_all_equal_int([]);
+        constraint gecode_not_all_equal_int([missing]);
+        constraint gecode_array_bool_ne([],[]);
+        constraint member_bool([],needle);
+        constraint gecode_bool_int_channel([],missing,-1);
+        constraint all_different_int([3,3,3]);
+        constraint all_equal_int([1,2,3]);
+        constraint decreasing_int([1,3,2,4]);
+        constraint increasing_bool([true,false,true,false]);
+        constraint array_int_lt([1,2],[1]);
+        constraint array_int_lt([2],[1,4]);
+        constraint gecode_precede([2,1,2],1,2);
+        constraint gecode_precede([3,1,3],3,3);
+        solve satisfy;
+    "#,
+    )
+    .unwrap();
+    let report = model.check(&Assignment::default()).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(!report.completeness.complete);
+    assert!(
+        report
+            .completeness
+            .blocked_checks
+            .iter()
+            .all(|check| !matches!(check.check, CheckRef::Constraint { .. })),
+        "{report:?}"
+    );
+    assert_eq!(report.violations.len(), 13, "{report:?}");
+    let findings = serde_json::to_value(&report).unwrap();
+    assert_eq!(
+        findings["violations"][5]["details"]["finding"]["conflicts"]
+            .as_array()
+            .unwrap()
+            .len(),
+        3
+    );
+    assert!(zincite_check::cli::render_text(&report).contains("(1, 2), (1, 3), (2, 3)"));
+    for call in [
+        "all_different_int([x,x])",
+        "all_different_offset([0,1],[2,1])",
+        "gecode_all_different_optional([1,1],[true,true])",
+        "gecode_all_different_except([1,1],2)",
+        "gecode_minimum_arg_int_offset([1,1],5,6)",
+        "gecode_arg_max_bool([true,true],5,6,true)",
+    ] {
+        let declarations = if call.contains('x') {
+            "var int: x=1;"
+        } else {
+            ""
+        };
+        let result = prepare(
+            "conflict",
+            &format!("{declarations} constraint {call}; solve satisfy;"),
+        )
+        .unwrap()
+        .check(&Assignment::default())
+        .unwrap();
+        assert_eq!(result.status, Status::Invalid, "{call}");
+    }
+    let overflow = prepare(
+        "overflow",
+        "constraint all_different_offset([1],[9223372036854775807]); solve satisfy;",
+    )
+    .unwrap();
+    let error = overflow.check(&Assignment::default()).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert_eq!(error.diagnostics[0].location.as_ref().unwrap().line, 1);
+    let boundary = prepare("bounds", "constraint array_int_minimum(-9223372036854775808,[-9223372036854775808,9223372036854775807]); constraint array_int_maximum(9223372036854775807,[-9223372036854775808,9223372036854775807]); solve satisfy;").unwrap();
+    assert_eq!(
+        boundary.check(&Assignment::default()).unwrap().status,
+        Status::Valid
+    );
+}
+
+#[test]
+fn ordering_sort_inverse_channels_and_unique_completion() {
+    let source = include_str!("../../../examples/checker-compilation/ordering.fzn");
+    let model = prepare("completion", source).unwrap();
+    let candidate = assignment("input=[3,1,2]; selected=9007199254740994; forward=[7,5,6];");
+    let report = model.check(&candidate).unwrap();
+    assert_eq!(report.status, Status::Valid);
+    assert_eq!(
+        serde_json::to_value(&report).unwrap()["objective"]["argument"]["value"]["value"],
+        "9007199254740994"
+    );
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    assert_eq!(
+        serde_json::to_value(&report).unwrap(),
+        serde_json::to_value(loaded.check(&candidate).unwrap()).unwrap()
+    );
+    let tied = model
+        .check(&assignment(
+            "input=[1,1,2]; selected=9007199254740993; forward=[7,5,6];",
+        ))
+        .unwrap();
+    assert_eq!(tied.status, Status::Incomplete);
+    assert!(
+        tied.completeness
+            .unresolved_variables
+            .iter()
+            .any(|variable| variable.name == "any_min")
+    );
+    assert!(
+        tied.completeness
+            .unresolved_variables
+            .iter()
+            .any(|variable| variable.name == "permutation")
+    );
+    let supplied_ties = model.check(&assignment("input=[1,1,2]; selected=9007199254740993; forward=[7,5,6]; permutation=[-1,-2,0]; any_min=9007199254740994;")).unwrap();
+    assert_eq!(supplied_ties.status, Status::Valid);
+    let conflict = model.check(&assignment("input=[3,1,2]; selected=9007199254740994; forward=[7,5,6]; sorted=[1,1,3]; permutation=[-2,-2,9223372036854775807]; backward=[10,11,12]; flags=[true,true,false]; first_min=9007199254740995; member=false;")).unwrap();
+    assert_eq!(conflict.status, Status::Invalid);
+    assert!(conflict.completeness.complete);
+    assert!(conflict.violations.len() >= 6);
+    let text = zincite_check::cli::render_text(&conflict);
+    assert!(text.contains("permutation faults") && text.contains("one-hot channel"));
+    assert_eq!(
+        model.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
+    assert_eq!(model.check(&candidate).unwrap().status, Status::Valid);
+}
+
+#[test]
+fn ordering_bidirectional_outputs_aliases_cycles_and_partial_faults() {
+    for (relation, declarations, candidate) in [
+        (
+            "inverse_offsets(f,5,g,10)::defines_var(f)",
+            "var int: a ::is_defined_var; var int: b ::is_defined_var; var int: c ::is_defined_var; var int: d; var int: e; var int: h; array[1..3] of var int: f = [a,b,c]; array[1..3] of var int: g = [d,e,h];",
+            "g=[12,10,11];",
+        ),
+        (
+            "gecode_bool_int_channel(flags,index,-2)::defines_var(index)",
+            "var bool: a; var bool: b; var bool: c; array[1..3] of var bool: flags = [a,b,c]; var -2..0: index ::is_defined_var;",
+            "flags=[false,true,false];",
+        ),
+        (
+            "sort([2,2],[a,a])::defines_var([a,a])",
+            "var int: a ::is_defined_var;",
+            "",
+        ),
+        (
+            "inverse_offsets([5,5],5,[a,a],10)::defines_var([a,a])",
+            "var int: a ::is_defined_var;",
+            "a=10;",
+        ),
+    ] {
+        let model = prepare(
+            "directions",
+            &format!("{declarations} constraint {relation}; solve satisfy;"),
+        )
+        .unwrap();
+        let report = model.check(&assignment(candidate)).unwrap();
+        assert_eq!(
+            report.status,
+            if relation.starts_with("inverse_offsets([5,5]") {
+                Status::Invalid
+            } else {
+                Status::Valid
+            },
+            "{relation}"
+        );
+    }
+    for source in [
+        "var int: a ::is_defined_var; constraint sort([1,2],[a,a])::defines_var([a,a]);",
+        "var bool: a ::is_defined_var; constraint gecode_bool_int_channel([a,a],1,0)::defines_var([a,a]);",
+        "var int: a ::is_defined_var; constraint sort([a,2],[a,2])::defines_var(a);",
+        "var int: a ::is_defined_var; constraint inverse_offsets([a],0,[a],0)::defines_var(a);",
+        "var int: a ::is_defined_var; constraint member_int([1],a)::defines_var(a);",
+        "var int: a ::is_defined_var; constraint gecode_arg_max_int([1,1],0,a,false)::defines_var(a);",
+    ] {
+        let model = prepare("ambiguous", &format!("{source} solve satisfy;")).unwrap();
+        assert_eq!(
+            model.check(&Assignment::default()).unwrap().status,
+            Status::Incomplete,
+            "{source}"
+        );
+    }
+    let partial = prepare("partial", "var int: missing; var bool: b; constraint inverse_offsets([5,5],5,[missing,missing],10); constraint gecode_bool_int_channel([false,false],missing,0); constraint gecode_bool_int_channel([b],-9223372036854775808,9223372036854775807); constraint gecode_arg_min_int([missing],0,9223372036854775807,false); solve satisfy;").unwrap();
+    let report = partial.check(&Assignment::default()).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert_eq!(report.violations.len(), 4);
+    assert!(!report.completeness.complete);
+    let domain = prepare("domain", "var 0..1: result ::is_defined_var; constraint array_int_maximum(result,[2,3])::defines_var(result); constraint int_le(result,0); solve satisfy;").unwrap().check(&Assignment::default()).unwrap();
+    assert_eq!(domain.violations.len(), 2);
+    let empty = prepare("empty-member", "var bool: missing; var bool: result ::is_defined_var; constraint gecode_member_bool_reif([],missing,result)::defines_var(result); constraint bool_eq(result,false); solve satisfy;").unwrap().check(&Assignment::default()).unwrap();
+    assert_eq!(empty.status, Status::Incomplete);
+    assert!(empty.violations.is_empty());
+    for source in [
+        "var int: a ::is_defined_var; var int: b ::is_defined_var; array[1..2] of var int: x=[a,b]; constraint sort([1,2],x)::defines_var(x); constraint sort([1,2],x)::defines_var(x);",
+        "var bool: a ::is_defined_var; var bool: b ::is_defined_var; array[1..2] of var bool: x=[a,b]; constraint increasing_bool(x)::defines_var(x);",
+        "var int: a ::is_defined_var; var int: b ::is_defined_var; constraint sort([1,2],[a,b])::defines_var([a]);",
+        "array[1..0] of var bool: flags=[]; constraint sort([],[])::defines_var(flags);",
+        "array[1..0] of var int: indexes=[]; var int: index; constraint gecode_bool_int_channel([],index,0)::defines_var(indexes);",
+        "var int: a; var int: b; array[1..2] of var int: x=[a,b]; constraint sort([1,2],x)::defines_var(x);",
+    ] {
+        assert!(
+            prepare("bad-target", &format!("{source} solve satisfy;")).is_err(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn legacy_float_and_set_decreasing_use_adjacent_relations_and_boolean_composition() {
+    let source = r#"
+        var float: left; var float: right;
+        var bool: float_order ::is_defined_var; var bool: set_order ::is_defined_var;
+        var bool: is_subset ::is_defined_var; var bool: decreasing ::is_defined_var;
+        constraint float_le_reif(right,left,float_order)::defines_var(float_order);
+        constraint set_le_reif({1,2,100},{1,9},set_order)::defines_var(set_order);
+        constraint set_subset_reif({1,2,100},{1,9},is_subset)::defines_var(is_subset);
+        constraint array_bool_and([float_order,set_order],decreasing)::defines_var(decreasing);
+        constraint bool_eq(decreasing,true);
+        constraint bool_eq(is_subset,false);
+        constraint float_le_imp(100.0,0.0,false);
+        constraint set_le_imp({9},{1},false);
+        solve satisfy;
+    "#;
+    let mut model = prepare("legacy-decreasing", source).unwrap();
+    let candidate = assignment("left=1.0;right=1.0000000001;");
+    assert_eq!(model.check(&candidate).unwrap().status, Status::Valid);
+    model.set_float_tolerance(zincite_check::FloatTolerance::new(2e-6, 0.0).unwrap());
+    assert_eq!(
+        model
+            .check(&assignment("left=1.0;right=1.000001;"))
+            .unwrap()
+            .status,
+        Status::Valid
+    );
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    assert_eq!(loaded.float_tolerance(), model.float_tolerance());
+    model.set_float_tolerance(zincite_check::FloatTolerance::new(0.0, 0.0).unwrap());
+    let strict = model.check(&candidate).unwrap();
+    assert_eq!(strict.status, Status::Invalid);
+    assert_eq!(strict.violations.len(), 1);
+}

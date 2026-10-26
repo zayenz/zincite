@@ -4,6 +4,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+mod ordering;
+pub use ordering::{
+    IndexFault, InverseFault, InverseSide, OrderingArgument, OrderingFinding, OrderingPair,
+};
+use ordering::{Ordering, OrderingName};
 mod counting;
 pub use counting::{CountPosition, CountSelectorValue, WindowCount};
 use counting::{Counting, CountingName};
@@ -336,6 +341,9 @@ pub struct ArgumentValue {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViolationKind {
+    Ordering {
+        finding: OrderingFinding,
+    },
     Count {
         entries: Vec<ArgumentValue>,
         selector: CountSelectorValue,
@@ -664,6 +672,7 @@ struct Variable {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Predicate {
+    Ordering(Ordering),
     Counting(Counting),
     Element {
         indices: Vec<Operand>,
@@ -895,6 +904,7 @@ impl RelationCondition {
 impl Predicate {
     fn operands(&self) -> Vec<&Operand> {
         match self {
+            Self::Ordering(ordering) => ordering.operands(),
             Self::Counting(counting) => counting.operands(false),
             Self::Element {
                 indices,
@@ -1034,6 +1044,7 @@ impl Predicate {
 
     fn required_operands(&self, values: &[Option<Value>]) -> Vec<&Operand> {
         match self {
+            Self::Ordering(ordering) => ordering.required_operands(values),
             Self::Counting(counting) => counting.operands(true),
             Self::Element {
                 indices,
@@ -1102,6 +1113,7 @@ impl Constraint {
 
 #[derive(Clone, Copy, Debug)]
 enum DefinitionDirection {
+    Ordering,
     Counting,
     Selection,
     FloatEqual { input: usize },
@@ -1338,6 +1350,9 @@ impl PreparedModel {
     ) -> Result<Option<Value>, CheckError> {
         let constraint = &self.constraints[definition.constraint];
         match (&constraint.predicate, definition.direction) {
+            (Predicate::Ordering(ordering), DefinitionDirection::Ordering) => {
+                ordering.derive(definition.output, values, constraint)
+            }
             (Predicate::Counting(counting), DefinitionDirection::Counting) => {
                 counting.derive(definition.output, values, constraint)
             }
@@ -1915,6 +1930,7 @@ impl PreparedModel {
                 .expect("blocked constraints are excluded before evaluation")
         };
         match &constraint.predicate {
+            Predicate::Ordering(ordering) => self.evaluate_ordering(constraint, ordering, values),
             Predicate::Counting(counting) => self.evaluate_counting(constraint, counting, values),
             Predicate::Element {
                 indices,
@@ -2543,6 +2559,7 @@ impl PreparedModel {
             DefinitionTarget::Elements(names) => names.iter().collect(),
         };
         let mut slots = Vec::new();
+        let mut target_kinds = Vec::new();
         let mut array_target = matches!(target, DefinitionTarget::Elements(_));
         for name in names {
             let binding = self
@@ -2555,11 +2572,7 @@ impl PreparedModel {
                 return Err(fail("defines_var needs an assignable variable target"));
             }
             array_target |= binding.is_array;
-            if array_target && binding.kind != ValueType::Integer {
-                return Err(fail(
-                    "array defines_var targets need integer count variables",
-                ));
-            }
+            target_kinds.push(binding.kind);
             for operand in &binding.elements {
                 let Operand::Variable(slot) = operand else {
                     return Err(fail("defines_var needs variable slots"));
@@ -2584,32 +2597,37 @@ impl PreparedModel {
             }
         }
         if array_target {
-            let Predicate::Counting(Counting::Cardinality {
-                counts: counting::CardinalityCounts::Exact(counts),
-                ..
-            }) = &constraint.predicate
-            else {
-                return Err(fail(
-                    "array defines_var targets require exact cardinality counts",
-                ));
+            let outputs: Vec<(&[Operand], ValueType)> = match &constraint.predicate {
+                Predicate::Counting(Counting::Cardinality {
+                    counts: counting::CardinalityCounts::Exact(counts),
+                    ..
+                }) => vec![(counts, ValueType::Integer)],
+                Predicate::Ordering(ordering) => ordering.array_outputs(),
+                _ => Vec::new(),
             };
-            let mut outputs = counts
-                .iter()
-                .map(|count| match count {
-                    Operand::Variable(slot) => Some(*slot),
-                    Operand::Literal(_) => None,
-                })
-                .collect::<Option<Vec<_>>>()
-                .ok_or_else(|| {
-                    fail("array defines_var target must match the cardinality count array")
-                })?;
-            // The annotation identifies slots; the predicate owns their cover positions.
+            // Annotation order identifies slots; predicate positions own the calculation.
             let mut targets = slots.clone();
-            outputs.sort_unstable();
             targets.sort_unstable();
-            if outputs != targets {
+            let matches = outputs.iter().any(|(outputs, kind)| {
+                if target_kinds.iter().any(|target| target != kind) {
+                    return false;
+                }
+                let Some(mut outputs) = outputs
+                    .iter()
+                    .map(|operand| match operand {
+                        Operand::Variable(slot) => Some(*slot),
+                        Operand::Literal(_) => None,
+                    })
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return false;
+                };
+                outputs.sort_unstable();
+                outputs == targets
+            });
+            if !matches {
                 return Err(fail(
-                    "array defines_var target must match the cardinality count array",
+                    "array defines_var target must match a supported complete output array",
                 ));
             }
         } else if slots.len() != 1 {
@@ -2694,6 +2712,9 @@ fn definition_direction(
         return Err(absent());
     }
     match &constraint.predicate {
+        Predicate::Ordering(ordering) => Ok(ordering
+            .can_define(output)
+            .then_some(DefinitionDirection::Ordering)),
         Predicate::Counting(counting) => Ok(counting
             .can_define(output)
             .then_some(DefinitionDirection::Counting)),

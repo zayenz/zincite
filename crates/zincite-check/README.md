@@ -641,7 +641,7 @@ profile or general preservation of editable domains and variables.
 
 All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
 `fzn_` spellings, for 108 integer relation names. The 55 Boolean base names also
-accept those exact prefixes, for 165 Boolean names and 635 admitted names overall.
+accept those exact prefixes, for 165 Boolean names and 743 admitted names overall.
 Prefixed scalar XOR uses three arguments; only bare `bool_xor` also admits the
 two-argument assertion. Matching declarations select one admitted arity and calls
 must use that arity; duplicate declarations diagnose.
@@ -846,3 +846,103 @@ keeps valid scalar markers and a named array target. Both CLI forms and validate
 export/load derive the counts, positional matches and reifier. `x=1;` is valid
 and complete, `x=1; ones=9;` has typed cardinality and count conflicts, and an empty
 candidate is incomplete. The native/Wasm smoke covers these same three edits.
+
+## Ordering and integer channels
+
+The checker adds 108 exact names from 36 registry literals, bringing admission
+to 743 names. Each literal accepts its bare, `gecode_` and `fzn_` expansion,
+including literals already beginning with `gecode_`. See the
+[coverage inventory](../../docs/checker-coverage.md#family-020) for exact names.
+Declarations validate positional fixed/variable roles independently of formal names.
+
+Distinctness checks every position pair, including repeated aliases. Optional
+presence flags exclude absent entries; except-distinct allows duplicates of its
+fixed excluded value. Offset-distinct adds fixed offsets with checked i64 sums.
+All-equal and increasing/decreasing allow empty/singleton arrays and equality;
+not-all-equal is false for empty/singleton arrays. Boolean order is false < true.
+Lexicographic arrays may have different lengths: compare the first unequal pair,
+then proper prefixes. Array disequality is true for different lengths. Precedence
+requires an earlier first value at each second value; equal fixed values cannot
+occur. Member is existential equality, and empty membership is false.
+
+Integer extrema require nonempty arrays and define their first scalar result.
+Legacy `gecode_minimum/maximum_arg_int/bool_offset` forms choose the first tied
+position plus offset. New `gecode_arg_min/max_int/bool` forms use their fixed
+Boolean tie flag: true chooses first; false accepts any tied extremum and defines
+an unsupplied index only for a unique extremum. Offsets for arg-extrema and inverse
+must be nonnegative, including empty inverse arrays. Other offsets may be signed.
+All indexes and offsets use exact checked i64; nonempty fixed intervals must fit.
+Out-of-range candidate indexes yield typed faults without overflowing subtraction.
+
+Sort defines its second array as the sorted multiset of the first. Sort-permutation
+also checks that permutation[i]-offset is the zero-based sorted position of input[i].
+Equal values allow different valid permutations; only distinct inputs determine
+a permutation for completion. Inverse uses forward[i]-offset=j iff
+inverse[j]-inverse_offset=i; either complete valid side defines the other. Empty
+sort and inverse arrays pass. One-hot channel requires exactly one true entry and
+integer=offset+its zero-based position. It derives either side when unique;
+an empty Boolean array makes the relation false. Member defines only its full
+Boolean reifier and never chooses a witness.
+
+`defines_var` accepts scalar targets, named output arrays, or explicit arrays of
+scalar names for sort outputs, sort permutations, either inverse side and the
+Boolean channel array. Targets match the complete output-slot multiset and type,
+independently of annotation order. Repeated aliases derive only if all calculated
+values agree. Input/output cycles await supplied values, supplied outputs are
+checked, and derived domain failures feed downstream checks. The existing GCC
+count-array contract uses the same target validation.
+
+Ordering findings carry typed operands and conflicting pairs, decisive lex
+positions or lengths, extrema/permitted indexes, sort/inverse faults, one-hot true
+positions and membership truth. Unavailable irrelevant operands are explicit.
+Integer report values are decimal strings; structural positions are JSON numbers.
+The [direct control](../../examples/checker-compilation/ordering.fzn) demonstrates
+completion even when compilation drops definition metadata.
+
+The absent legacy float/set decreasing includes have no source signatures to
+admit directly. Adjacent `float_le(right,left)` or `set_le(right,left)` calls,
+combined with Boolean operations/reification, express decreasing mathematics.
+Float comparisons use the model's saved tolerance (zero/zero is strict); set
+order compares sorted elements, rather than subset inclusion. The native test
+uses `{1,2,100} <= {1,9}`, which is true in that order although neither set is a
+subset. False implication guards skip the underlying comparisons. Include repair
+and complete compiler-profile support belong to checker-030/031.
+
+### Compile-only ordering controls
+
+Use the same pinned sources as the coverage helper:
+
+```sh
+mkdir -p target/checker-ordering-controls
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-ordering-controls/standard.paths --output-fzn-to-file target/checker-ordering-controls/standard.fzn examples/checker-compilation/ordering-controls.mzn
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-ordering-controls/gecode.paths --output-fzn-to-file target/checker-ordering-controls/gecode.fzn examples/checker-compilation/ordering-gecode-controls.mzn
+```
+
+Both controls format/default-lint and compile with MiniZinc 2.10.1 without a solver
+run. In the standard profile, sort becomes three element calls, three permutation
+disequalities and two sorted-order inequalities; all-different adds three more
+disequalities. Minimum becomes two `int_min` calls and membership becomes Boolean
+clauses plus three integer equality reifiers. Input/sorted domains stay `1..3`.
+Labels and all four constraint IDs (`sort`, `minimum`, `member`, `distinct`) survive
+on the corresponding decompositions, with `[1,2,3]` payloads. This raw artifact
+also emits `is_defined_var` in constraint context and scalar `defines_var` targets
+without matching variable markers. Preparation diagnoses the malformed metadata;
+it does not silently discard it. This is a compiler-profile limitation.
+
+The Gecode control emits `gecode_sort_permutation`, `gecode_bool_int_channel` and
+`gecode_arg_min_int`. Input/sorted domains stay `1..3`, permutation domains `-2..0`,
+selected `0..2`, and first_min `5..7`. Only `first_min` keeps its scalar
+`is_defined_var`/`defines_var` pair. Array definition targets and scalar markers
+for sorted/permutation/flags disappear. The duplicate sort call collapses with
+its separate permutation ID; the sort, channel and arg_min IDs, labels and entity
+payloads survive. That raw artifact prepares and checks supplied arrays, and can
+derive `first_min`. For input `[3,1,2]`, sorted `[1,2,3]`, permutation `[0,-2,-1]`,
+flags `[false,true,false]` and selected `1`, its candidate is valid and first_min
+is 6. Supplied wrong sorted/permutation/flags/index values yield typed failures;
+all-false flags establish a violation even with other inputs missing.
+
+Source/load reports agree through `zincite-check` and `zincite check` for those
+candidates and for the direct control. The raw standard metadata diagnosis agrees
+through both forms. The direct FlatZinc control supplies the explicit array
+metadata for native and parser-free Wasm completion. These observations do not
+establish include/decomposition closure; checker-030/031 own profile repairs.
