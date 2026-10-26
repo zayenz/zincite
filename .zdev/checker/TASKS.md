@@ -3,9 +3,9 @@
 # Tasks: checker
 
 - Total: 33
-- Ready: 9
-- Blocked: 10
-- Done: 14
+- Ready: 10
+- Blocked: 8
+- Done: 15
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -23,10 +23,10 @@
 | [checker-012](tasks/012-check-standard-integer-arithmetic-and-derive-its-outputs.md) | Check standard integer arithmetic and derive its outputs | done | checker-011 |
 | [checker-013](tasks/013-complete-integer-comparisons-and-linear-reification.md) | Complete integer comparisons and linear reification | done | checker-011 |
 | [checker-014](tasks/014-complete-boolean-logic-clauses-and-boolean-linear-constraint.md) | Complete Boolean logic, clauses and Boolean linear constraints | done | checker-011, checker-013 |
-| [checker-015](tasks/015-add-finite-floats-configurable-tolerance-and-core-float-pred.md) | Add finite floats, configurable tolerance and core float predicates | ready | checker-011, checker-013, checker-014 |
-| [checker-016](tasks/016-support-elements-offsets-and-conditionals-for-every-value-ty.md) | Support elements, offsets and conditionals for every value type | blocked | checker-014, checker-015 |
+| [checker-015](tasks/015-add-finite-floats-configurable-tolerance-and-core-float-pred.md) | Add finite floats, configurable tolerance and core float predicates | done | checker-011, checker-013, checker-014 |
+| [checker-016](tasks/016-support-elements-offsets-and-conditionals-for-every-value-ty.md) | Support elements, offsets and conditionals for every value type | ready | checker-014, checker-015 |
 | [checker-017](tasks/017-complete-standard-finite-set-relations-and-operations.md) | Complete standard finite-set relations and operations | ready | checker-011, checker-014 |
-| [checker-018](tasks/018-complete-float-powers-and-transcendental-operations.md) | Complete float powers and transcendental operations | blocked | checker-015 |
+| [checker-018](tasks/018-complete-float-powers-and-transcendental-operations.md) | Complete float powers and transcendental operations | ready | checker-015 |
 | [checker-019](tasks/019-check-counts-cardinalities-and-value-distributions.md) | Check counts, cardinalities and value distributions | ready | checker-013, checker-014 |
 | [checker-020](tasks/020-check-ordering-distinctness-extrema-and-integer-channels.md) | Check ordering, distinctness, extrema and integer channels | ready | checker-013, checker-014 |
 | [checker-021](tasks/021-check-integer-and-boolean-tables-with-reification.md) | Check integer and Boolean tables with reification | ready | checker-013, checker-014 |

@@ -18,6 +18,20 @@ impl WasmModel {
         Ok(Self { model })
     }
 
+    #[wasm_bindgen(js_name = setFloatTolerance)]
+    pub fn set_float_tolerance(&mut self, absolute: f64, relative: f64) -> Result<(), JsValue> {
+        let tolerance =
+            crate::FloatTolerance::new(absolute, relative).map_err(JsValue::from_str)?;
+        self.model.set_float_tolerance(tolerance);
+        Ok(())
+    }
+
+    #[wasm_bindgen(js_name = floatTolerance)]
+    pub fn float_tolerance(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.model.float_tolerance())
+            .map_err(|error| JsValue::from_str(&error.to_string()))
+    }
+
     /// Check typed assignment JSON and return the shared CheckReport as JSON.
     pub fn check(&self, assignment_json: &str) -> Result<String, JsValue> {
         let assignment: Assignment = serde_json::from_str(assignment_json)

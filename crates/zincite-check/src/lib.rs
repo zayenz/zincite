@@ -12,6 +12,11 @@ pub use arithmetic::ArithmeticOperation;
 mod relations;
 pub use relations::IntegerRelation;
 use relations::{RelationMode, RelationName, checked_sum};
+mod floats;
+use floats::FloatName;
+pub use floats::{
+    FiniteFloat, FloatConversion, FloatMembership, FloatOperation, FloatSet, FloatTolerance,
+};
 mod serialized;
 mod sets;
 pub use sets::IntegerSet;
@@ -30,6 +35,8 @@ pub mod cli;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Value {
+    Float(FiniteFloat),
+    FloatSet(FloatSet),
     IntegerSet(IntegerSet),
     Boolean(bool),
     Integer(
@@ -42,6 +49,13 @@ pub enum Value {
 }
 
 impl Value {
+    fn float(&self) -> FiniteFloat {
+        let Self::Float(value) = self else {
+            unreachable!("admission validates float operands")
+        };
+        *value
+    }
+
     fn integer(&self) -> i64 {
         let Self::Integer(value) = self else {
             unreachable!("preparation validates integer operands")
@@ -67,6 +81,8 @@ impl Value {
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Float(value) => value.fmt(f),
+            Self::FloatSet(value) => value.fmt(f),
             Self::Boolean(value) => value.fmt(f),
             Self::Integer(value) => value.fmt(f),
             Self::IntegerSet(value) => value.fmt(f),
@@ -77,6 +93,8 @@ impl std::fmt::Display for Value {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum ValueType {
+    Float,
+    FloatSet,
     IntegerSet,
     Boolean,
     Integer,
@@ -85,6 +103,8 @@ enum ValueType {
 impl Value {
     fn value_type(&self) -> ValueType {
         match self {
+            Self::Float(_) => ValueType::Float,
+            Self::FloatSet(_) => ValueType::FloatSet,
             Self::Boolean(_) => ValueType::Boolean,
             Self::Integer(_) => ValueType::Integer,
             Self::IntegerSet(_) => ValueType::IntegerSet,
@@ -154,6 +174,12 @@ pub struct ConstraintRef {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Domain {
+    Float,
+    FloatSet,
+    FloatInterval {
+        lower: FiniteFloat,
+        upper: FiniteFloat,
+    },
     IntegerSet {
         upper: Option<IntegerSet>,
     },
@@ -184,9 +210,26 @@ pub enum Domain {
 }
 
 impl Domain {
+    #[cfg(feature = "prepare")]
     fn contains(&self, value: &Value) -> bool {
+        self.contains_with(value, FloatTolerance::new(0.0, 0.0).expect("exact policy"))
+    }
+
+    fn contains_with(&self, value: &Value, tolerance: FloatTolerance) -> bool {
         match (self, value) {
-            (Self::Boolean, Value::Boolean(_)) | (Self::Integer, Value::Integer(_)) => true,
+            (Self::Boolean, Value::Boolean(_))
+            | (Self::Integer, Value::Integer(_))
+            | (Self::Float, Value::Float(_))
+            | (Self::FloatSet, Value::FloatSet(_)) => true,
+            (Self::FloatInterval { lower, upper }, Value::Float(value)) => {
+                tolerance.contains(*value, *lower, *upper)
+            }
+            (
+                Self::Fixed {
+                    value: Value::Float(fixed),
+                },
+                Value::Float(value),
+            ) => tolerance.equal(*fixed, *value),
             (Self::Interval { lower, upper }, Value::Integer(value)) => {
                 (*lower..=*upper).contains(value)
             }
@@ -260,6 +303,41 @@ pub struct ArgumentValue {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViolationKind {
+    FloatRelation {
+        relation: IntegerRelation,
+        left: ArgumentValue,
+        right: ArgumentValue,
+        condition: RelationConditionValue,
+        #[serde(
+            serialize_with = "serialize_optional_integer",
+            deserialize_with = "deserialize_optional_integer"
+        )]
+        code: Option<i64>,
+    },
+    FloatLinear {
+        relation: IntegerRelation,
+        coefficients: Vec<FiniteFloat>,
+        terms: Vec<ArgumentValue>,
+        bound: FiniteFloat,
+        condition: RelationConditionValue,
+        sum: FiniteFloat,
+    },
+    FloatArithmetic {
+        operation: FloatOperation,
+        inputs: Vec<ArgumentValue>,
+        result: ArgumentValue,
+    },
+    FloatConversion {
+        operation: FloatConversion,
+        input: ArgumentValue,
+        result: ArgumentValue,
+    },
+    FloatMembership {
+        membership: FloatMembership,
+        element: ArgumentValue,
+        intervals: Vec<(FiniteFloat, FiniteFloat)>,
+    },
+
     BooleanRelation {
         relation: IntegerRelation,
         left: ArgumentValue,
@@ -475,6 +553,40 @@ struct Variable {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Predicate {
+    FloatRelation {
+        relation: IntegerRelation,
+        left: Operand,
+        right: Operand,
+        condition: RelationCondition,
+        #[serde(
+            serialize_with = "serialize_optional_integer",
+            deserialize_with = "deserialize_optional_integer"
+        )]
+        code: Option<i64>,
+    },
+    FloatLinear {
+        relation: IntegerRelation,
+        coefficients: Vec<FiniteFloat>,
+        terms: Vec<Operand>,
+        bound: FiniteFloat,
+        condition: RelationCondition,
+    },
+    FloatArithmetic {
+        operation: FloatOperation,
+        inputs: Vec<Operand>,
+        result: Operand,
+    },
+    FloatConversion {
+        operation: FloatConversion,
+        input: Operand,
+        result: Operand,
+    },
+    FloatMembership {
+        membership: FloatMembership,
+        element: Operand,
+        intervals: Vec<(FiniteFloat, FiniteFloat)>,
+    },
+
     BooleanRelation {
         relation: IntegerRelation,
         left: Operand,
@@ -623,7 +735,13 @@ impl RelationCondition {
 impl Predicate {
     fn operands(&self) -> Vec<&Operand> {
         match self {
-            Self::BooleanRelation {
+            Self::FloatRelation {
+                left,
+                right,
+                condition,
+                ..
+            }
+            | Self::BooleanRelation {
                 left,
                 right,
                 condition,
@@ -661,12 +779,18 @@ impl Predicate {
                 .chain(condition.operand())
                 .collect(),
             Self::BooleanToInteger { boolean, integer } => vec![boolean, integer],
-            Self::LinearRelation {
+            Self::FloatLinear {
+                terms, condition, ..
+            }
+            | Self::LinearRelation {
                 terms, condition, ..
             } => terms.iter().chain(condition.operand()).collect(),
-            Self::IntegerArithmetic { inputs, result, .. } => {
+            Self::FloatArithmetic { inputs, result, .. }
+            | Self::IntegerArithmetic { inputs, result, .. } => {
                 inputs.iter().chain(std::iter::once(result)).collect()
             }
+            Self::FloatConversion { input, result, .. } => vec![input, result],
+            Self::FloatMembership { element, .. } => vec![element],
             Self::Linear { terms, .. } => terms.iter().collect(),
             Self::ReifiedLessEqual {
                 left,
@@ -694,7 +818,9 @@ impl Predicate {
 
     fn inactive_implication(&self, values: &[Option<Value>]) -> bool {
         match self {
-            Self::BooleanRelation { condition, .. }
+            Self::FloatRelation { condition, .. }
+            | Self::FloatLinear { condition, .. }
+            | Self::BooleanRelation { condition, .. }
             | Self::BooleanLinear { condition, .. }
             | Self::BooleanOperation { condition, .. }
             | Self::BooleanClause { condition, .. }
@@ -734,6 +860,11 @@ impl Constraint {
 
 #[derive(Clone, Copy, Debug)]
 enum DefinitionDirection {
+    FloatEqual { input: usize },
+    FloatReified,
+    FloatLinear { term: usize },
+    FloatArithmetic,
+    FloatConversion,
     BooleanCopy { input: usize, complement: bool },
     BooleanResult,
     BooleanLinearBound,
@@ -762,6 +893,7 @@ struct Definition {
 /// Export with `to_json`; `from_json` validates the executable model before use.
 #[derive(Debug, Serialize)]
 pub struct PreparedModel {
+    float_tolerance: FloatTolerance,
     slots: Vec<Slot>,
     bindings: HashMap<String, Binding>,
     variables: Vec<Variable>,
@@ -774,6 +906,14 @@ pub struct PreparedModel {
 }
 
 impl PreparedModel {
+    pub fn float_tolerance(&self) -> FloatTolerance {
+        self.float_tolerance
+    }
+
+    pub fn set_float_tolerance(&mut self, tolerance: FloatTolerance) {
+        self.float_tolerance = tolerance;
+    }
+
     /// Check every available domain and relation using fresh candidate values.
     /// Missing values produce a normal report, including any known violations.
     pub fn check(&self, assignment: &Assignment) -> Result<CheckReport, CheckError> {
@@ -794,12 +934,13 @@ impl PreparedModel {
                     domain: domain.clone(),
                 };
                 match &values[variable.slot] {
-                    Some(value) if !domain.contains(value) => violations.push(Violation {
-                        check,
-                        details: ViolationKind::Domain {
-                            value: value.clone(),
-                        },
-                    }),
+                    Some(value) if !domain.contains_with(value, self.float_tolerance) => violations
+                        .push(Violation {
+                            check,
+                            details: ViolationKind::Domain {
+                                value: value.clone(),
+                            },
+                        }),
                     None => blocked_checks.push(BlockedCheck {
                         check,
                         missing: vec![variable.reference.clone()],
@@ -949,6 +1090,93 @@ impl PreparedModel {
     ) -> Result<Option<Value>, CheckError> {
         let constraint = &self.constraints[definition.constraint];
         match (&constraint.predicate, definition.direction) {
+            (
+                Predicate::FloatRelation { left, right, .. },
+                DefinitionDirection::FloatEqual { input },
+            ) => Ok([left, right][input].value(values).cloned()),
+            (
+                Predicate::FloatRelation {
+                    relation,
+                    left,
+                    right,
+                    ..
+                },
+                DefinitionDirection::FloatReified,
+            ) => {
+                let (Some(left), Some(right)) = (left.value(values), right.value(values)) else {
+                    return Ok(None);
+                };
+                Ok(Some(Value::Boolean(self.float_tolerance.holds(
+                    *relation,
+                    left.float(),
+                    right.float(),
+                ))))
+            }
+            (
+                Predicate::FloatLinear {
+                    relation,
+                    coefficients,
+                    terms,
+                    bound,
+                    ..
+                },
+                DefinitionDirection::FloatReified,
+            ) => Ok(self
+                .float_sum(constraint, coefficients, terms, None, values)?
+                .map(|sum| Value::Boolean(self.float_tolerance.holds(*relation, sum, *bound)))),
+            (
+                Predicate::FloatLinear {
+                    coefficients,
+                    terms,
+                    bound,
+                    ..
+                },
+                DefinitionDirection::FloatLinear { term },
+            ) => {
+                let Some(sum) =
+                    self.float_sum(constraint, coefficients, terms, Some(term), values)?
+                else {
+                    return Ok(None);
+                };
+                let numerator = floats::finite_result(bound.get() - sum.get())
+                    .map_err(|message| constraint.execution_error(message))?;
+                let value = floats::finite_result(numerator.get() / coefficients[term].get())
+                    .map_err(|message| constraint.execution_error(message))?;
+                Ok(Some(Value::Float(value)))
+            }
+            (
+                Predicate::FloatArithmetic {
+                    operation, inputs, ..
+                },
+                DefinitionDirection::FloatArithmetic,
+            ) => {
+                let Some(inputs) = inputs
+                    .iter()
+                    .map(|input| input.value(values).map(Value::float))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return Ok(None);
+                };
+                Ok(Some(Value::Float(
+                    operation
+                        .calculate(&inputs)
+                        .map_err(|message| constraint.execution_error(message))?,
+                )))
+            }
+            (
+                Predicate::FloatConversion {
+                    operation, input, ..
+                },
+                DefinitionDirection::FloatConversion,
+            ) => input
+                .value(values)
+                .map(|input| {
+                    operation
+                        .calculate(input)
+                        .map_err(|message| constraint.execution_error(message))
+                })
+                .transpose(),
+
             (
                 Predicate::BooleanRelation { left, right, .. },
                 DefinitionDirection::BooleanCopy { input, complement },
@@ -1220,6 +1448,28 @@ impl PreparedModel {
         })
     }
 
+    fn float_sum(
+        &self,
+        constraint: &Constraint,
+        coefficients: &[FiniteFloat],
+        terms: &[Operand],
+        skip: Option<usize>,
+        values: &[Option<Value>],
+    ) -> Result<Option<FiniteFloat>, CheckError> {
+        let terms = coefficients
+            .iter()
+            .zip(terms)
+            .enumerate()
+            .filter(|(index, _)| Some(*index) != skip)
+            .map(|(_, (&coefficient, term))| {
+                term.value(values).map(|value| (coefficient, value.float()))
+            })
+            .collect::<Option<Vec<_>>>();
+        terms
+            .map(|terms| floats::sum(terms).map_err(|message| constraint.execution_error(message)))
+            .transpose()
+    }
+
     fn linear_sum(
         &self,
         constraint: &Constraint,
@@ -1240,7 +1490,7 @@ impl PreparedModel {
                         match value {
                             Value::Integer(value) => *value,
                             Value::Boolean(value) => i64::from(*value),
-                            Value::IntegerSet(_) => {
+                            Value::IntegerSet(_) | Value::Float(_) | Value::FloatSet(_) => {
                                 unreachable!("admission validates linear terms")
                             }
                         },
@@ -1352,6 +1602,107 @@ impl PreparedModel {
                 .expect("blocked constraints are excluded before evaluation")
         };
         match &constraint.predicate {
+            Predicate::FloatRelation {
+                relation,
+                left,
+                right,
+                condition,
+                code,
+            } => {
+                let holds = self.float_tolerance.holds(
+                    *relation,
+                    left.value(values).expect("available operand").float(),
+                    right.value(values).expect("available operand").float(),
+                );
+                Ok(
+                    (!condition.satisfied(holds, values)).then(|| ViolationKind::FloatRelation {
+                        relation: *relation,
+                        left: argument(left),
+                        right: argument(right),
+                        condition: self.condition_value(condition, values),
+                        code: *code,
+                    }),
+                )
+            }
+            Predicate::FloatLinear {
+                relation,
+                coefficients,
+                terms,
+                bound,
+                condition,
+            } => {
+                let sum = self
+                    .float_sum(constraint, coefficients, terms, None, values)?
+                    .expect("available terms");
+                let holds = self.float_tolerance.holds(*relation, sum, *bound);
+                Ok(
+                    (!condition.satisfied(holds, values)).then(|| ViolationKind::FloatLinear {
+                        relation: *relation,
+                        coefficients: coefficients.clone(),
+                        terms: terms.iter().map(argument).collect(),
+                        bound: *bound,
+                        condition: self.condition_value(condition, values),
+                        sum,
+                    }),
+                )
+            }
+            Predicate::FloatArithmetic {
+                operation,
+                inputs,
+                result,
+            } => {
+                let inputs_values: Vec<_> = inputs
+                    .iter()
+                    .map(|input| input.value(values).expect("available operand").float())
+                    .collect();
+                let expected = operation
+                    .calculate(&inputs_values)
+                    .map_err(|message| constraint.execution_error(message))?;
+                Ok((!self.float_tolerance.equal(
+                    expected,
+                    result.value(values).expect("available operand").float(),
+                ))
+                .then(|| ViolationKind::FloatArithmetic {
+                    operation: *operation,
+                    inputs: inputs.iter().map(argument).collect(),
+                    result: argument(result),
+                }))
+            }
+            Predicate::FloatConversion {
+                operation,
+                input,
+                result,
+            } => {
+                let expected = operation
+                    .calculate(input.value(values).expect("available operand"))
+                    .map_err(|message| constraint.execution_error(message))?;
+                let actual = result.value(values).expect("available operand");
+                let equal = match (&expected, actual) {
+                    (Value::Float(a), Value::Float(b)) => self.float_tolerance.equal(*a, *b),
+                    _ => expected == *actual,
+                };
+                Ok((!equal).then(|| ViolationKind::FloatConversion {
+                    operation: *operation,
+                    input: argument(input),
+                    result: argument(result),
+                }))
+            }
+            Predicate::FloatMembership {
+                membership,
+                element,
+                intervals,
+            } => {
+                let value = element.value(values).expect("available operand").float();
+                let holds = intervals
+                    .iter()
+                    .any(|&(lower, upper)| self.float_tolerance.contains(value, lower, upper));
+                Ok((!holds).then(|| ViolationKind::FloatMembership {
+                    membership: *membership,
+                    element: argument(element),
+                    intervals: intervals.clone(),
+                }))
+            }
+
             Predicate::BooleanRelation {
                 relation,
                 left,
@@ -1639,6 +1990,21 @@ impl PreparedModel {
     }
 }
 
+fn serialize_optional_integer<S: serde::Serializer>(
+    value: &Option<i64>,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    value.map(|value| value.to_string()).serialize(serializer)
+}
+
+fn deserialize_optional_integer<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<i64>, D::Error> {
+    Option::<String>::deserialize(deserializer)?
+        .map(|value| value.parse().map_err(serde::de::Error::custom))
+        .transpose()
+}
+
 fn serialize_integer<S: serde::Serializer>(value: &i64, serializer: S) -> Result<S::Ok, S::Error> {
     serializer.collect_str(value)
 }
@@ -1780,6 +2146,51 @@ fn definition_direction(
         return Err(absent());
     }
     match &constraint.predicate {
+        Predicate::FloatRelation {
+            relation,
+            condition,
+            ..
+        } => Ok(match condition {
+            RelationCondition::Plain
+                if *relation == IntegerRelation::Equal && occurrences.len() == 1 =>
+            {
+                Some(DefinitionDirection::FloatEqual {
+                    input: 1 - occurrences[0],
+                })
+            }
+            RelationCondition::Reified { .. } if occurrences.as_slice() == [2] => {
+                Some(DefinitionDirection::FloatReified)
+            }
+            _ => None,
+        }),
+        Predicate::FloatLinear {
+            relation,
+            coefficients,
+            terms,
+            condition,
+            ..
+        } => Ok(match condition {
+            RelationCondition::Plain
+                if *relation == IntegerRelation::Equal
+                    && occurrences.len() == 1
+                    && coefficients[occurrences[0]].get() != 0.0 =>
+            {
+                Some(DefinitionDirection::FloatLinear {
+                    term: occurrences[0],
+                })
+            }
+            RelationCondition::Reified { .. } if occurrences.as_slice() == [terms.len()] => {
+                Some(DefinitionDirection::FloatReified)
+            }
+            _ => None,
+        }),
+        Predicate::FloatArithmetic { inputs, .. } => Ok((occurrences.as_slice() == [inputs.len()])
+            .then_some(DefinitionDirection::FloatArithmetic)),
+        Predicate::FloatConversion { .. } => {
+            Ok((occurrences.as_slice() == [1]).then_some(DefinitionDirection::FloatConversion))
+        }
+        Predicate::FloatMembership { .. } => Ok(None),
+
         Predicate::BooleanRelation {
             relation,
             condition,
@@ -1960,6 +2371,7 @@ fn definition_direction(
 impl Domain {
     fn singleton(&self) -> Option<Value> {
         match self {
+            Self::FloatInterval { lower, upper } if lower == upper => Some(Value::Float(*lower)),
             Self::Interval { lower, upper } if lower == upper => Some(Value::Integer(*lower)),
             Self::Enumeration { values } if values.len() == 1 => Some(Value::Integer(values[0])),
             Self::Fixed { value } => Some(value.clone()),

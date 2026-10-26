@@ -15,6 +15,8 @@ struct ModelFile {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Executable {
+    #[serde(default)]
+    float_tolerance: FloatTolerance,
     slots: Vec<Slot>,
     bindings: HashMap<String, Binding>,
     variables: Vec<Variable>,
@@ -49,6 +51,7 @@ impl PreparedModel {
             )));
         }
         let mut model = Self {
+            float_tolerance: file.model.float_tolerance,
             slots: file.model.slots,
             bindings: file.model.bindings,
             variables: file.model.variables,
@@ -69,13 +72,29 @@ impl PreparedModel {
         self.validate_slots(&seeds)?;
         self.validate_constraints()?;
         if let Some((_, operand)) = &self.objective {
-            self.validate_operand(operand, ValueType::Integer)?;
+            match operand {
+                Operand::Literal(Value::Float(_)) => {
+                    self.validate_operand(operand, ValueType::Float)?
+                }
+                Operand::Variable(slot)
+                    if self
+                        .slots
+                        .get(*slot)
+                        .is_some_and(|slot| slot.kind == ValueType::Float) =>
+                {
+                    self.validate_operand(operand, ValueType::Float)?
+                }
+                _ => self.validate_operand(operand, ValueType::Integer)?,
+            }
         }
         Ok(())
     }
 
     fn validate_bindings(&self) -> Result<(), Diagnostic> {
         for (name, binding) in &self.bindings {
+            if binding.assignable && binding.kind == ValueType::FloatSet {
+                return Err(invalid("assignable float sets are unsupported"));
+            }
             if name.is_empty() || (!binding.is_array && binding.elements.len() != 1) {
                 return Err(invalid("invalid binding name or scalar shape"));
             }
@@ -105,6 +124,11 @@ impl PreparedModel {
             }
             for domain in &variable.domains {
                 let kind = match domain {
+                    Domain::Float => ValueType::Float,
+                    Domain::FloatInterval { .. } => ValueType::Float,
+                    Domain::FloatSet => {
+                        return Err(invalid("assignable float sets are unsupported"));
+                    }
                     Domain::Boolean => ValueType::Boolean,
                     Domain::IntegerSet { .. } => ValueType::IntegerSet,
                     Domain::Fixed { value } => value.value_type(),
@@ -185,6 +209,14 @@ impl PreparedModel {
                 return Err(invalid("constraint ordinals must follow executable order"));
             }
             let predicate_name = match &constraint.predicate {
+                Predicate::FloatRelation { .. }
+                | Predicate::FloatLinear { .. }
+                | Predicate::FloatArithmetic { .. }
+                | Predicate::FloatConversion { .. }
+                | Predicate::FloatMembership { .. } => {
+                    self.validate_float(constraint)?;
+                    &constraint.reference.predicate
+                }
                 Predicate::BooleanRelation { .. }
                 | Predicate::BooleanLinear { .. }
                 | Predicate::BooleanOperation { .. }
@@ -335,6 +367,114 @@ impl PreparedModel {
                     "constraint report predicate does not match its operation",
                 ));
             }
+        }
+        Ok(())
+    }
+
+    fn validate_float(&self, constraint: &Constraint) -> Result<(), Diagnostic> {
+        let mismatch =
+            || invalid("constraint report predicate does not match its float operation or mode");
+        let name = FloatName::from_name(&constraint.reference.predicate).ok_or_else(mismatch)?;
+        let expected = match &constraint.predicate {
+            Predicate::FloatRelation {
+                relation,
+                left,
+                right,
+                condition,
+                code,
+            } => {
+                self.validate_operand(left, ValueType::Float)?;
+                self.validate_operand(right, ValueType::Float)?;
+                self.validate_float_condition(condition)?;
+                if let Some(code) = code {
+                    if floats::coded_relation(*code) != Some(*relation)
+                        || condition.mode() != RelationMode::Implied
+                    {
+                        return Err(invalid("invalid coded float implication"));
+                    }
+                    FloatName::CodedImplication
+                } else {
+                    FloatName::Relation {
+                        relation: *relation,
+                        linear: false,
+                        mode: condition.mode(),
+                    }
+                }
+            }
+            Predicate::FloatLinear {
+                relation,
+                coefficients,
+                terms,
+                condition,
+                ..
+            } => {
+                if coefficients.len() != terms.len() {
+                    return Err(invalid(
+                        "float linear coefficient and term arrays must have equal lengths",
+                    ));
+                }
+                for term in terms {
+                    self.validate_operand(term, ValueType::Float)?;
+                }
+                self.validate_float_condition(condition)?;
+                FloatName::Relation {
+                    relation: *relation,
+                    linear: true,
+                    mode: condition.mode(),
+                }
+            }
+            Predicate::FloatArithmetic {
+                operation,
+                inputs,
+                result,
+            } => {
+                if inputs.len() != operation.input_count() {
+                    return Err(invalid("float arithmetic has the wrong input count"));
+                }
+                for operand in inputs.iter().chain(std::iter::once(result)) {
+                    self.validate_operand(operand, ValueType::Float)?;
+                }
+                FloatName::Arithmetic(*operation)
+            }
+            Predicate::FloatConversion {
+                operation,
+                input,
+                result,
+            } => {
+                self.validate_operand(input, operation.input_type())?;
+                self.validate_operand(result, operation.output_type())?;
+                FloatName::Conversion(*operation)
+            }
+            Predicate::FloatMembership {
+                membership,
+                element,
+                intervals,
+            } => {
+                self.validate_operand(element, ValueType::Float)?;
+                match membership {
+                    FloatMembership::Interval if intervals.len() != 1 => {
+                        return Err(invalid("float interval membership needs one endpoint pair"));
+                    }
+                    FloatMembership::Set
+                        if FloatSet::from_ranges(intervals.clone()).ranges() != intervals =>
+                    {
+                        return Err(invalid("float set ranges must be canonical"));
+                    }
+                    _ => {}
+                }
+                FloatName::Membership(*membership)
+            }
+            _ => return Err(mismatch()),
+        };
+        if name != expected {
+            return Err(mismatch());
+        }
+        Ok(())
+    }
+
+    fn validate_float_condition(&self, condition: &RelationCondition) -> Result<(), Diagnostic> {
+        if let Some(operand) = condition.operand() {
+            self.validate_operand(operand, ValueType::Boolean)?;
         }
         Ok(())
     }

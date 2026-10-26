@@ -303,3 +303,38 @@ fn malformed_text_types_references_metadata_and_hooks_receive_locations() {
         );
     }
 }
+
+#[test]
+fn float_metadata_checks_types_without_executing_search() {
+    for precision in ["0.0", "-0.5", "1e-9"] {
+        let source = format!(
+            r#"
+            predicate float_eq(var float:left,var float:right);
+            predicate float_in(var float:value,float:lower,float:upper);
+            array[1..2] of float:starts=[-0.0,1e-320];
+            var -1e1..2.5:base;
+            var float:alias=base;
+            array[1..2] of var float:values=[base,alias];
+            array[1..2] of var float:copies=values;
+            constraint float_eq(base,alias);
+            constraint float_in(base,-10.0,2.5);
+            solve::seq_search([float_search(copies,{precision},first_fail,indomain_split,complete),warm_start(copies,starts)]) minimize base;
+        "#
+        );
+        assert!(prepare("metadata.fzn", &source).is_ok(), "{source}");
+    }
+    for annotation in [
+        "float_search([x],1,input_order,indomain_split,complete)",
+        "float_search([x],1e999,input_order,indomain_split,complete)",
+        "float_search([x],1e-9,input_order,indomain_min,complete)",
+        "warm_start([x],[1])",
+    ] {
+        assert!(
+            prepare(
+                "bad.fzn",
+                &format!("var float:x;solve::{annotation} satisfy;")
+            )
+            .is_err()
+        );
+    }
+}

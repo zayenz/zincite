@@ -92,6 +92,44 @@ CURRENT |= {
 }
 
 
+CURRENT |= {
+    prefix + "float_" + shape + relation + suffix
+    for prefix in ("", "gecode_", "fzn_")
+    for shape in ("", "lin_")
+    for relation in ("eq", "le", "lt")
+    for suffix in ("", "_reif")
+}
+CURRENT |= {prefix + "float_ne" for prefix in ("", "gecode_", "fzn_")}
+CURRENT |= {
+    "float_" + shape + relation + "_imp"
+    for shape in ("", "lin_")
+    for relation in ("eq", "ne", "le", "lt")
+}
+CURRENT |= {"float_ne_reif", "float_lin_ne", "float_lin_ne_reif"}
+CURRENT |= {
+    prefix + name
+    for prefix in ("", "gecode_", "fzn_")
+    for name in (
+        "float_abs",
+        "float_plus",
+        "float_times",
+        "float_div",
+        "float_min",
+        "float_max",
+        "int2float",
+        "gecode_float_rel_imp_fzn",
+    )
+}
+CURRENT |= {
+    "float_in",
+    "float_dom",
+    "float_set_in",
+    "float_ceil",
+    "float_floor",
+    "float_round",
+}
+
+
 @dataclass(frozen=True)
 class Declaration:
     file: str
@@ -496,6 +534,8 @@ def output_rule(name: str, task: int, *, wrapper: bool = False) -> str:
         return "argument 3 (x -> y)"
     if name in {"array_float_minimum", "array_float_maximum"}:
         return "argument 1 (extremum)"
+    if name == "gecode_float_rel_imp_fzn":
+        return "none (guard)"
     if name.endswith("_imp") and name != "bool_clause_imp":
         return "none (guard)"
     if name.endswith("_reif") or name == "bool_clause_imp":
@@ -667,9 +707,12 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
     relation_names = relations.split("match name {", 1)[1].split("_ =>", 1)[0]
     boolean = (ROOT / "crates/zincite-check/src/boolean.rs").read_text()
     boolean_names = boolean.split("match name {", 1)[1].split("_ =>", 1)[0]
+    floats = (ROOT / "crates/zincite-check/src/floats.rs").read_text()
+    float_names = floats.split("match name {", 1)[1].split("_ =>", 1)[0]
     admitted = set(
         re.findall(
-            r'"([a-z_0-9]+)"', arity + arithmetic_names + relation_names + boolean_names
+            r'"([a-z_0-9]+)"',
+            arity + arithmetic_names + relation_names + boolean_names + float_names,
         )
     )
     if admitted != CURRENT:

@@ -12,6 +12,7 @@ fn executable() -> Json {
     json!({
         "format_version": 1,
         "model": {
+            "float_tolerance": {"absolute":1e-9,"relative":1e-9},
             "slots": [{"kind": "integer", "default": null, "reference": reference}],
             "bindings": {"x": {"elements": [{"Variable": 0}], "is_array": false, "kind": "integer", "assignable": true}},
             "variables": [{"reference": reference, "slot": 0, "domains": [{"kind": "integer"}]}],
@@ -30,9 +31,16 @@ fn executable() -> Json {
 
 #[test]
 fn parser_free_load_and_exact_integer_transport() {
-    let loaded = PreparedModel::from_json(&executable().to_string()).unwrap();
+    let mut legacy = executable();
+    legacy["model"]
+        .as_object_mut()
+        .unwrap()
+        .remove("float_tolerance");
+    let loaded = PreparedModel::from_json(&legacy.to_string()).unwrap();
     let exported: Json = serde_json::from_str(&loaded.to_json().unwrap()).unwrap();
-    assert_eq!(exported, executable());
+    let mut expected = executable();
+    expected["model"]["float_tolerance"] = json!({"absolute":1e-9,"relative":1e-9});
+    assert_eq!(exported, expected);
     let assignment = Assignment {
         entries: vec![AssignmentEntry {
             name: "x".into(),
@@ -738,5 +746,119 @@ fn boolean_round_trips_preserve_reports_exact_values_and_text() {
                 "9007199254740993"
             );
         }
+    }
+}
+
+#[test]
+fn parser_free_float_values_settings_and_predicates_are_validated() {
+    let mut artifact = executable();
+    artifact["model"]["slots"][0]["kind"] = json!("float");
+    artifact["model"]["bindings"]["x"]["kind"] = json!("float");
+    artifact["model"]["variables"][0]["domains"] = json!([{"kind":"float"}]);
+    artifact["model"]["constraints"][0]["reference"]["predicate"] = json!("float_eq");
+    artifact["model"]["constraints"][0]["predicate"] = json!({"FloatRelation":{
+        "relation":"equal","left":{"Variable":0},
+        "right":{"Literal":{"kind":"float","value":0.8455124082255701}},
+        "condition":"Plain","code":null
+    }});
+    let mut model = PreparedModel::from_json(&artifact.to_string()).unwrap();
+    assert_eq!(
+        model.float_tolerance(),
+        zincite_check::FloatTolerance::default()
+    );
+    model.set_float_tolerance(zincite_check::FloatTolerance::new(2e-8, 0.0).unwrap());
+    let json = model.to_json().unwrap();
+    let loaded = PreparedModel::from_json(&json).unwrap();
+    assert_eq!(loaded.float_tolerance(), model.float_tolerance());
+    assert_eq!(loaded.to_json().unwrap(), json);
+    let assignment:Assignment=serde_json::from_value(json!({"entries":[{"name":"x","value":{"kind":"scalar","value":{"kind":"float","value":0.8455124082255701}}}]})).unwrap();
+    assert_eq!(loaded.check(&assignment).unwrap().status, Status::Valid);
+    let mut saved: Json = serde_json::from_str(&json).unwrap();
+    for invalid in [
+        json!({"absolute":-1.0,"relative":0.0}),
+        json!({"absolute":"0","relative":0.0}),
+        json!({"absolute":0.0}),
+        json!({"absolute":0.0,"relative":0.0,"other":0}),
+    ] {
+        saved["model"]["float_tolerance"] = invalid;
+        assert!(PreparedModel::from_json(&saved.to_string()).is_err());
+    }
+    let relation = artifact["model"]["constraints"][0]["predicate"]["FloatRelation"].clone();
+    for (field, value) in [
+        ("left", json!({"Variable":100})),
+        ("right", json!({"Literal":{"kind":"float","value":"1.0"}})),
+        ("condition", json!({"Reified":{"result":{"Variable":0}}})),
+        ("code", json!("7")),
+    ] {
+        let mut broken = artifact.clone();
+        broken["model"]["constraints"][0]["predicate"]["FloatRelation"][field] = value;
+        assert!(
+            PreparedModel::from_json(&broken.to_string()).is_err(),
+            "{field}"
+        );
+    }
+    for name in ["float_ge", "gecode_float_ne_reif", "int_eq", "float_lin_eq"] {
+        let mut broken = artifact.clone();
+        broken["model"]["constraints"][0]["reference"]["predicate"] = json!(name);
+        assert!(
+            PreparedModel::from_json(&broken.to_string()).is_err(),
+            "{name}"
+        );
+    }
+    let mut coded = artifact.clone();
+    coded["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_float_rel_imp_fzn");
+    coded["model"]["constraints"][0]["predicate"]["FloatRelation"] = relation;
+    coded["model"]["constraints"][0]["predicate"]["FloatRelation"]["condition"] =
+        json!({"Implied":{"guard":{"Literal":{"kind":"boolean","value":false}}}});
+    coded["model"]["constraints"][0]["predicate"]["FloatRelation"]["code"] = json!("1");
+    assert!(PreparedModel::from_json(&coded.to_string()).is_ok());
+    coded["model"]["constraints"][0]["predicate"]["FloatRelation"]["code"] = json!(1);
+    assert!(PreparedModel::from_json(&coded.to_string()).is_err());
+    for text in [
+        r#"{"kind":"float","value":1e999}"#,
+        r#"{"kind":"float","value":null}"#,
+        r#"{"kind":"float","value":"NaN"}"#,
+        r#"{"kind":"float_set","value":[[2.0,1.0]]}"#,
+        r#"{"kind":"float_set","value":[[1.0,2.0],[2.0,3.0]]}"#,
+        r#"{"kind":"float_set","value":[[3.0,4.0],[1.0,2.0]]}"#,
+    ] {
+        assert!(serde_json::from_str::<Value>(text).is_err(), "{text}");
+    }
+}
+
+#[cfg(feature = "prepare")]
+#[test]
+fn float_source_export_and_reload_have_identical_reports_and_text() {
+    use zincite_check::{FloatTolerance, parse_assignment, prepare};
+    let mut model = prepare(
+        "roundtrip.fzn",
+        r#"
+        var float:x;
+        var float:y::is_defined_var;
+        var int:integer::is_defined_var;
+        var bool:truth::is_defined_var;
+        constraint float_plus(x,0.8455124082255701,y)::defines_var(y);
+        constraint float_ceil(y,integer)::defines_var(integer);
+        constraint float_lt_reif(y,2.0,truth)::defines_var(truth);
+        constraint float_set_in(x,{0.0,1.0..2.0});
+        constraint float_lin_le([1.0],[y],1.0);
+        solve minimize y;
+    "#,
+    )
+    .unwrap();
+    model.set_float_tolerance(FloatTolerance::new(0.001, 2e-9).unwrap());
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for text in ["x=0.0;", "x=1.5;", "x=0.0;y=20.0;integer=0;truth=true;", ""] {
+        let candidate = parse_assignment("candidate.dzn", text).unwrap();
+        let original = model.check(&candidate).unwrap();
+        let reloaded = loaded.check(&candidate).unwrap();
+        assert_eq!(
+            serde_json::to_value(&original).unwrap(),
+            serde_json::to_value(&reloaded).unwrap()
+        );
+        assert_eq!(
+            zincite_check::cli::render_text(&original),
+            zincite_check::cli::render_text(&reloaded)
+        );
     }
 }

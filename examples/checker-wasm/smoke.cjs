@@ -5,13 +5,15 @@ const { tmpdir } = require("node:os");
 const { resolve, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-assert.equal(process.argv.length, 8,
-    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json CANDIDATES.json NATIVE_CHECKER");
-const [glue, schedule, exact, bench, candidates, native] = process.argv.slice(2).map(path => resolve(path));
+assert.equal(process.argv.length, 9,
+    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json CANDIDATES.json NATIVE_CHECKER");
+const [glue, schedule, exact, bench, floats, candidates, native] = process.argv.slice(2).map(path => resolve(path));
 const { PreparedModel } = require(glue);
-const paths = { schedule, exact, bench };
+const paths = { schedule, exact, bench, floats };
+const defaults = {};
 const models = Object.fromEntries(Object.entries(paths).map(([name, path]) =>
     [name, new PreparedModel(readFileSync(path, "utf8"))]));
+for (const [name, model] of Object.entries(models)) defaults[name] = JSON.parse(model.floatTolerance());
 const cases = JSON.parse(readFileSync(candidates, "utf8"));
 const directory = mkdtempSync(join(tmpdir(), "zincite-wasm-"));
 
@@ -19,6 +21,9 @@ try {
     // The second pass checks fresh completion after changing and removing inputs.
     for (let pass = 0; pass < 2; pass++) {
         for (const candidate of cases) {
+            const tolerance = candidate.tolerance ?? defaults[candidate.model];
+            models[candidate.model].setFloatTolerance(tolerance.absolute, tolerance.relative);
+            assert.deepEqual(JSON.parse(models[candidate.model].floatTolerance()), tolerance);
             const report = JSON.parse(models[candidate.model].check(JSON.stringify(candidate.assignment)));
             assert.equal(report.status, candidate.status, candidate.name);
             assert.equal(report.completeness.complete, candidate.complete, candidate.name);
@@ -34,7 +39,12 @@ try {
     assert.throws(() => models.exact.check(JSON.stringify({ entries: [{
         name: "missing", value: { kind: "scalar", value: { kind: "integer", value: "1" } }
     }] })), error => JSON.parse(error).kind === "assignment");
-    console.log(`Native/Wasm reports agree across ${cases.length * 2} checks; exact integers, arithmetic, relations, Booleans, sets, global findings and input errors verified.`);
+    for (const value of [null, "1.0"]) {
+        assert.throws(() => models.floats.check(JSON.stringify({ entries: [{ name: "x", value: { kind: "scalar", value: { kind: "float", value } } }] })));
+    }
+    assert.throws(() => models.floats.check('{"entries":[{"name":"x","value":{"kind":"scalar","value":{"kind":"float","value":1e999}}}]}'));
+    for (const value of [NaN, Infinity, -1]) assert.throws(() => models.floats.setFloatTolerance(value, 0));
+    console.log(`Native/Wasm reports agree across ${cases.length * 2} checks; finite floats, saved/custom tolerance, exact integers, arithmetic, relations, Booleans, sets, global findings and input errors verified.`);
 } finally {
     for (const model of Object.values(models)) model.free();
     rmSync(directory, { recursive: true, force: true });
@@ -49,7 +59,8 @@ function nativeReport(candidate) {
             : literal(entry.value.value);
         return `${entry.name}=${value};`;
     }).join("\n"));
-    const result = spawnSync(native, ["--load", "--format", "json", paths[candidate.model], assignment],
+    const flags = candidate.tolerance ? ["--float-absolute-tolerance", String(candidate.tolerance.absolute), "--float-relative-tolerance", String(candidate.tolerance.relative)] : [];
+    const result = spawnSync(native, ["--load", "--format", "json", ...flags, paths[candidate.model], assignment],
         { encoding: "utf8" });
     if (result.error) throw result.error;
     assert.equal(result.status, candidate.status === "valid" ? 0 : 1, result.stderr);
@@ -57,6 +68,12 @@ function nativeReport(candidate) {
 }
 
 function literal(value) {
+    if (value.kind === "float") {
+        assert.equal(typeof value.value, "number");
+        assert(Number.isFinite(value.value));
+        const text = String(value.value);
+        return /[.eE]/.test(text) ? text : `${text}.0`;
+    }
     if (value.kind === "boolean") {
         assert.equal(typeof value.value, "boolean");
         return String(value.value);
@@ -82,6 +99,12 @@ function decimal(value) {
 }
 
 function checkDetails(name, report) {
+    if (name === "float-conflict") {
+        for (const kind of ["float_arithmetic", "float_conversion", "float_relation", "float_membership"]) {
+            assert(report.violations.some(finding => finding.details.kind === kind), kind);
+        }
+    }
+    if (name === "float-default") assert.equal(report.objective.argument.value.value, 1.8455124082255701);
     if (name === "exact-arithmetic-conflict") {
         const finding = report.violations.find(finding => finding.details.operation === "add");
         assert.equal(finding.details.kind, "integer_arithmetic");

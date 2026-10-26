@@ -29,6 +29,8 @@ fn command(arguments: Vec<OsString>, invocation: &str) -> Result<(String, u8), S
     let mut mode = InputMode::Source;
     let mut json = false;
     let mut options = true;
+    let mut float_absolute = None;
+    let mut float_relative = None;
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
         match argument.to_str() {
@@ -47,6 +49,22 @@ fn command(arguments: Vec<OsString>, invocation: &str) -> Result<(String, u8), S
                         arguments.next().ok_or("--export expects an output path")?,
                     ))
                 };
+            }
+            Some("--float-absolute-tolerance" | "--float-relative-tolerance") if options => {
+                let text = arguments
+                    .next()
+                    .ok_or("float tolerance option expects a number")?;
+                let value: f64 = text
+                    .to_str()
+                    .ok_or("float tolerance must be UTF-8")?
+                    .parse()
+                    .map_err(|_| "invalid float tolerance")?;
+                crate::FloatTolerance::new(value, 0.0).map_err(str::to_owned)?;
+                if argument == "--float-absolute-tolerance" {
+                    float_absolute = Some(value);
+                } else {
+                    float_relative = Some(value);
+                }
             }
             Some("--format") if options => {
                 json = match arguments.next().as_deref().and_then(|value| value.to_str()) {
@@ -75,13 +93,21 @@ fn command(arguments: Vec<OsString>, invocation: &str) -> Result<(String, u8), S
         std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
     };
     let model_source = read(&paths[0])?;
-    let model = if matches!(mode, InputMode::Load) {
+    let mut model = if matches!(mode, InputMode::Load) {
         PreparedModel::from_json(&model_source)
             .map_err(|error| format!("{}: {}", paths[0].display(), error.message))?
     } else {
         prepare(&paths[0].to_string_lossy(), &model_source)
             .map_err(|errors| diagnostics(&errors))?
     };
+    let saved = model.float_tolerance();
+    model.set_float_tolerance(
+        crate::FloatTolerance::new(
+            float_absolute.unwrap_or(saved.absolute()),
+            float_relative.unwrap_or(saved.relative()),
+        )
+        .map_err(str::to_owned)?,
+    );
     if let InputMode::Export(output) = mode {
         export_model(&model, &output)?;
         return Ok((String::new(), 0));
@@ -124,7 +150,7 @@ fn fail(message: &str) -> ExitCode {
 
 fn help(invocation: &str) -> String {
     format!(
-        "Usage: {invocation} [--format text|json] MODEL.fzn ASSIGNMENT.dzn\n       {invocation} --export MODEL.json MODEL.fzn\n       {invocation} --load [--format text|json] MODEL.json ASSIGNMENT.dzn\n\nCheck a candidate against the supported Boolean, integer and finite integer set FlatZinc subset.\nDerive supported linear-equality, full-reification and set outputs from supplied inputs.\nStrict disjunctive checks accept fixed nonnegative durations.\nMissing inputs or unsupported directions produce an incomplete report.\nNo compiler or solver runs. JSON mathematical integers are decimal strings.\nExport prepares the model and creates a new JSON file, refusing existing paths.\nLoad validates the executable JSON without parsing FlatZinc source.\n\nExit status: 0 valid or exported, 1 invalid or incomplete, 2 input or execution error.\n"
+        "Usage: {invocation} [--format text|json] MODEL.fzn ASSIGNMENT.dzn\n       {invocation} --export MODEL.json MODEL.fzn\n       {invocation} --load [--format text|json] MODEL.json ASSIGNMENT.dzn\n\nCheck a candidate against the supported Boolean, integer, finite float and integer set FlatZinc subset.\nDerive supported linear-equality, full-reification and set outputs from supplied inputs.\nStrict disjunctive checks accept fixed nonnegative durations.\nMissing inputs or unsupported directions produce an incomplete report.\nNo compiler or solver runs. JSON mathematical integers are decimal strings.\nExport prepares the model and creates a new JSON file, refusing existing paths.\nLoad validates the executable JSON without parsing FlatZinc source.\n--float-absolute-tolerance NUMBER and --float-relative-tolerance NUMBER override one saved setting.\nDefaults: 1e-9 each; finite nonnegative settings required; 0/0 gives exact comparisons.\n\nExit status: 0 valid or exported, 1 invalid or incomplete, 2 input or execution error.\n"
     )
 }
 
@@ -166,6 +192,89 @@ pub fn render_text(report: &CheckReport) -> String {
             check_text(&violation.check)
         );
         match &violation.details {
+            ViolationKind::FloatRelation {
+                relation,
+                left,
+                right,
+                condition,
+                ..
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  {} {relation} {}{}",
+                    argument_text(left),
+                    argument_text(right),
+                    condition_text(condition)
+                );
+            }
+            ViolationKind::FloatLinear {
+                relation,
+                coefficients,
+                terms,
+                sum,
+                bound,
+                condition,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  [{}] * [{}] = {sum}; expected {relation} {bound}{}",
+                    coefficients
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    terms
+                        .iter()
+                        .map(argument_text)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    condition_text(condition)
+                );
+            }
+            ViolationKind::FloatArithmetic {
+                operation,
+                inputs,
+                result,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  {operation:?}({}) disagrees with {}",
+                    inputs
+                        .iter()
+                        .map(argument_text)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    argument_text(result)
+                );
+            }
+            ViolationKind::FloatConversion {
+                operation,
+                input,
+                result,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  {operation:?}({}) disagrees with {}",
+                    argument_text(input),
+                    argument_text(result)
+                );
+            }
+            ViolationKind::FloatMembership {
+                membership,
+                element,
+                intervals,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  {} is outside {membership:?} [{}]",
+                    argument_text(element),
+                    intervals
+                        .iter()
+                        .map(|(lower, upper)| format!("{lower}..{upper}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
             ViolationKind::BooleanRelation {
                 relation,
                 left,
@@ -489,6 +598,9 @@ fn check_text(check: &CheckRef) -> String {
 
 fn domain_text(domain: &Domain) -> String {
     match domain {
+        Domain::Float => "float".into(),
+        Domain::FloatSet => "set of float".into(),
+        Domain::FloatInterval { lower, upper } => format!("{lower}..{upper}"),
         Domain::Boolean => "bool".into(),
         Domain::IntegerSet { upper: Some(upper) } => format!("set of {upper}"),
         Domain::IntegerSet { upper: None } => "set of int".into(),

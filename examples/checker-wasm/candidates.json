@@ -121,5 +121,58 @@
     ]},
     "status": "invalid",
     "complete": false
+  },
+  {
+    "name": "float-default",
+    "model": "floats",
+    "assignment": {"entries": [
+      {"name": "x", "value": {"kind": "scalar", "value": {"kind": "float", "value": 1.0}}},
+      {"name": "exact_integer", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "9007199254740993"}}}
+    ]},
+    "status": "valid",
+    "complete": true
+  },
+  {
+    "name": "float-custom",
+    "model": "floats",
+    "assignment": {"entries": [
+      {"name": "x", "value": {"kind": "scalar", "value": {"kind": "float", "value": 1.0001}}},
+      {"name": "exact_integer", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "9007199254740993"}}}
+    ]},
+    "status": "valid",
+    "complete": true,
+    "tolerance": {"absolute": 0.001, "relative": 0.0}
+  },
+  {
+    "name": "float-strict",
+    "model": "floats",
+    "assignment": {"entries": [
+      {"name": "x", "value": {"kind": "scalar", "value": {"kind": "float", "value": 1.0000000001}}},
+      {"name": "exact_integer", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "9007199254740993"}}}
+    ]},
+    "status": "invalid",
+    "complete": true,
+    "tolerance": {"absolute": 0.0, "relative": 0.0}
+  },
+  {
+    "name": "float-conflict",
+    "model": "floats",
+    "assignment": {"entries": [
+      {"name": "x", "value": {"kind": "scalar", "value": {"kind": "float", "value": 0.5}}},
+      {"name": "exact_integer", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "9007199254740993"}}},
+      {"name": "total", "value": {"kind": "scalar", "value": {"kind": "float", "value": 20.0}}},
+      {"name": "rounded", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "0"}}}
+    ]},
+    "status": "invalid",
+    "complete": true
+  },
+  {
+    "name": "float-incomplete",
+    "model": "floats",
+    "assignment": {"entries": [
+      {"name": "exact_integer", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "9007199254740992"}}}
+    ]},
+    "status": "invalid",
+    "complete": false
   }
 ]

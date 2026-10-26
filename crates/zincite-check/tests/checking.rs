@@ -379,7 +379,6 @@ fn aliases_domains_fixed_values_and_input_validation_work_together() {
 #[test]
 fn unsupported_forms_fail_preparation_and_arithmetic_is_checked() {
     for text in [
-        "var float: x; solve satisfy;",
         "var int:x; constraint int_pow_unknown(x,1,x); solve satisfy;",
         "var int:x; constraint int_lin_eq^-1([1],[x],0); solve satisfy;",
         "var int:x; constraint int_lin_eq⁻¹([1],[x],0); solve satisfy;",
@@ -1567,5 +1566,361 @@ fn boolean_source_admission_checks_declarations_arity_shape_and_roles() {
     ] {
         let errors = prepare("bad-boolean.fzn", source).unwrap_err();
         assert!(errors[0].location.is_some(), "{source}");
+    }
+}
+
+#[test]
+fn floats_share_validated_default_custom_and_exact_comparisons() {
+    use zincite_check::{FiniteFloat, FloatTolerance};
+    let f = |value| FiniteFloat::new(value).unwrap();
+    let default = FloatTolerance::default();
+    assert_eq!((default.absolute(), default.relative()), (1e-9, 1e-9));
+    assert!(default.equal(f(1.0), f(1.0 + 5e-10)));
+    assert!(!default.equal(f(1.0), f(1.0 + 2e-9)));
+    assert!(
+        !FloatTolerance::new(0.0, 1.5)
+            .unwrap()
+            .equal(f(f64::MAX), f(-f64::MAX))
+    );
+    assert!(
+        FloatTolerance::new(0.0, 2.0)
+            .unwrap()
+            .equal(f(f64::MAX), f(-f64::MAX))
+    );
+    let tiny = f64::from_bits(1);
+    assert!(
+        !FloatTolerance::new(0.0, 0.5)
+            .unwrap()
+            .equal(f(tiny), f(0.0))
+    );
+    assert!(
+        FloatTolerance::new(0.0, 1.0)
+            .unwrap()
+            .equal(f(tiny), f(0.0))
+    );
+    assert_eq!(f(-0.0).get().to_bits(), 0);
+    for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert!(FiniteFloat::new(value).is_err());
+        assert!(FloatTolerance::new(value, 0.0).is_err());
+        assert!(FloatTolerance::new(0.0, value).is_err());
+    }
+    assert!(FloatTolerance::new(-1.0, 0.0).is_err());
+    let mut model = prepare(
+        "comparisons.fzn",
+        r#"
+        var float:x;
+        var bool:eq::is_defined_var;
+        var bool:ne::is_defined_var;
+        constraint float_eq_reif(x,1.0,eq)::defines_var(eq);
+        constraint float_ne_reif(x,1.0,ne)::defines_var(ne);
+        constraint float_le(x,1.0);
+        constraint float_lt(x,1.0);
+        constraint bool_eq(eq,true);
+        constraint bool_eq(ne,false);
+        solve minimize x;
+    "#,
+    )
+    .unwrap();
+    let candidate = assignment("x=0.9999999995;");
+    let report = model.check(&candidate).unwrap();
+    assert_eq!(report.violations.len(), 1);
+    assert!(matches!(
+        report.violations[0].details,
+        ViolationKind::FloatRelation { .. }
+    ));
+    model.set_float_tolerance(FloatTolerance::new(0.0, 0.0).unwrap());
+    assert_eq!(model.check(&candidate).unwrap().violations.len(), 2);
+    model.set_float_tolerance(FloatTolerance::new(0.01, 0.0).unwrap());
+    assert_eq!(
+        model
+            .check(&assignment("x=1.005;"))
+            .unwrap()
+            .violations
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn float_completion_respects_alias_identity_domains_and_fresh_inputs() {
+    let model = prepare(
+        "completion.fzn",
+        r#"
+        array[1..2] of float:coefficients=[2.0,1.0];
+        var float:x;
+        var float:alias=x;
+        var 0.0..1.0:y::is_defined_var;
+        var float:z::is_defined_var;
+        var float:copied::is_defined_var;
+        var float:repeated::is_defined_var;
+        var float:repeat_alias=repeated;
+        array[1..2] of var float:values=[y,z];
+        constraint float_plus(x,0.5,y)::defines_var(y);
+        constraint float_lin_eq(coefficients,[y,z],5.0)::defines_var(z);
+        constraint float_eq(z,copied)::defines_var(copied);
+        constraint float_eq(repeated,repeat_alias)::defines_var(repeated);
+        constraint float_le(y,1.0);
+        solve minimize copied;
+    "#,
+    )
+    .unwrap();
+    let report = model.check(&assignment("x=1.0;")).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(!report.completeness.complete);
+    assert_eq!(report.violations.len(), 2);
+    assert!(matches!(
+        report.violations[0].details,
+        ViolationKind::Domain { .. }
+    ));
+    assert_eq!(
+        report.objective.unwrap().argument.value,
+        Value::Float(zincite_check::FiniteFloat::new(2.0).unwrap())
+    );
+    assert!(
+        model
+            .check(&assignment("x=1.0;alias=1.0000000001;"))
+            .is_err()
+    );
+    assert_eq!(
+        model
+            .check(&assignment("x=0.0;y=7.0;"))
+            .unwrap()
+            .violations
+            .len(),
+        3
+    );
+    let fresh = model.check(&Assignment::default()).unwrap();
+    assert_eq!(fresh.status, Status::Incomplete);
+    assert!(fresh.objective.is_none());
+    let near = prepare("identity.fzn","var 1.0..1.0000000001:x; var 1.0..1.0:y; var 3.0..2.0:empty; var 2.0..2.0:computed::computed_domain; solve satisfy;").unwrap();
+    assert_eq!(
+        near.check(&Assignment::default())
+            .unwrap()
+            .completeness
+            .unresolved_variables
+            .len(),
+        3
+    );
+    assert_eq!(
+        near.check(&assignment("x=1.0;empty=2.5;computed=100.0;"))
+            .unwrap()
+            .violations
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn float_arithmetic_conversion_and_linear_failures_are_located() {
+    for (call, expected) in [
+        ("float_abs(-2.5,y)", "2.5"),
+        ("float_plus(1.25,2.5,y)", "3.75"),
+        ("float_times(1e-300,1e-300,y)", "0.0"),
+        ("float_div(3.0,2.0,y)", "1.5"),
+        ("float_min(3.0,2.0,y)", "2.0"),
+        ("float_max(-3.0,-2.0,y)", "-2.0"),
+        ("int2float(9007199254740993,y)", "9007199254740992.0"),
+    ] {
+        let model = prepare(
+            "arithmetic.fzn",
+            &format!(
+                "var float:y::is_defined_var;constraint {call}::defines_var(y);solve minimize y;"
+            ),
+        )
+        .unwrap();
+        let expected = assignment(&format!("y={expected};"));
+        assert_eq!(
+            model.check(&expected).unwrap().status,
+            Status::Valid,
+            "{call}"
+        );
+        assert_eq!(
+            serde_json::to_value(model.check(&expected).unwrap().objective).unwrap(),
+            serde_json::to_value(model.check(&Assignment::default()).unwrap().objective).unwrap()
+        );
+    }
+    for (operation, input, expected) in [
+        ("float_ceil", "-1.25", "-1"),
+        ("float_floor", "-1.25", "-2"),
+        ("float_round", "1.5", "2"),
+        ("float_round", "-1.5", "-2"),
+        ("float_round", "0.49999999999999994", "0"),
+        (
+            "float_floor",
+            "-9223372036854775808.0",
+            "-9223372036854775808",
+        ),
+        ("float_ceil", "9223372036854774784.0", "9223372036854774784"),
+    ] {
+        let model=prepare("conversion.fzn",&format!("var int:y::is_defined_var;constraint {operation}({input},y)::defines_var(y);solve minimize y;")).unwrap();
+        assert_eq!(
+            model
+                .check(&assignment(&format!("y={expected};")))
+                .unwrap()
+                .status,
+            Status::Valid
+        );
+        assert_eq!(
+            model
+                .check(&Assignment::default())
+                .unwrap()
+                .objective
+                .unwrap()
+                .argument
+                .value,
+            Value::Integer(expected.parse().unwrap())
+        );
+    }
+    for call in [
+        "float_plus(1e308,1e308,0.0)",
+        "float_times(1e308,2.0,0.0)",
+        "float_div(1.0,-0.0,0.0)",
+        "float_lin_eq([1e308,1e308],[2.0,-2.0],0.0)",
+        "float_floor(9223372036854775808.0,0)",
+        "float_ceil(-9223372036854777856.0,0)",
+    ] {
+        let model = prepare("failure.fzn", &format!("constraint {call};solve satisfy;")).unwrap();
+        let error = model.check(&Assignment::default()).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Execution, "{call}");
+        assert!(error.diagnostics[0].location.is_some());
+    }
+    let model=prepare("exact.fzn","var int:x;var float:y::is_defined_var;constraint int2float(x,y)::defines_var(y);constraint int_eq(x,9007199254740993);constraint float_eq(y,9007199254740992.0);solve satisfy;").unwrap();
+    assert_eq!(
+        model
+            .check(&assignment("x=9007199254740993;"))
+            .unwrap()
+            .status,
+        Status::Valid
+    );
+    assert_eq!(
+        model
+            .check(&assignment("x=9007199254740992;"))
+            .unwrap()
+            .violations
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn float_membership_uses_complete_pairs_and_exact_interval_emptiness() {
+    let model = prepare(
+        "membership.fzn",
+        r#"
+        set of float:allowed={1.0,2.0..3.0,2.5..4.0};
+        array[1..3] of float:endpoints=[1.0,2.0,99.0];
+        var float:x;
+        constraint float_in(x,1.0,4.0);
+        constraint float_dom(x,endpoints);
+        constraint float_set_in(x,allowed);
+        constraint float_dom(x,[]);
+        constraint float_dom(x,[99.0]);
+        constraint float_in(x,1.0000000001,1.0);
+        solve satisfy;
+    "#,
+    )
+    .unwrap();
+    assert_eq!(
+        model
+            .check(&assignment("x=1.0000000001;"))
+            .unwrap()
+            .violations
+            .len(),
+        3
+    );
+    assert_eq!(
+        model
+            .check(&assignment("x=99.0;"))
+            .unwrap()
+            .violations
+            .len(),
+        6
+    );
+    assert_eq!(
+        model.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
+}
+
+#[test]
+fn float_names_conditions_and_source_roles_follow_pinned_signatures() {
+    for prefix in ["", "gecode_", "fzn_"] {
+        for (relation, left, right, truth) in [
+            ("eq", "1.0", "1.0", true),
+            ("ne", "1.0", "2.0", true),
+            ("le", "1.0", "2.0", true),
+            ("lt", "1.0", "1.0", false),
+        ] {
+            let model = prepare(
+                "name.fzn",
+                &format!("constraint {prefix}float_{relation}({left},{right});solve satisfy;"),
+            )
+            .unwrap();
+            assert_eq!(
+                model
+                    .check(&Assignment::default())
+                    .unwrap()
+                    .violations
+                    .is_empty(),
+                truth
+            );
+            if relation != "ne" {
+                let model=prepare("name.fzn",&format!("constraint {prefix}float_{relation}_reif({left},{right},{truth});constraint {prefix}float_lin_{relation}_reif([1.0],[{left}],{right},{truth});solve satisfy;")).unwrap();
+                assert_eq!(
+                    model.check(&Assignment::default()).unwrap().status,
+                    Status::Valid
+                );
+            }
+        }
+    }
+    for prefix in ["", "gecode_", "fzn_"] {
+        for (code, truth) in [
+            (1, false),
+            (2, true),
+            (3, true),
+            (4, true),
+            (5, false),
+            (6, false),
+        ] {
+            let model=prepare("coded.fzn",&format!("var float:x;var bool:guard;constraint {prefix}gecode_float_rel_imp_fzn(x,{code},2.0,guard);solve satisfy;")).unwrap();
+            assert_eq!(
+                model
+                    .check(&assignment("guard=false;"))
+                    .unwrap()
+                    .violations
+                    .len(),
+                0
+            );
+            assert_eq!(
+                model
+                    .check(&assignment("x=1.0;guard=true;"))
+                    .unwrap()
+                    .violations
+                    .is_empty(),
+                truth
+            );
+        }
+    }
+    let inactive=prepare("inactive.fzn","var float:x;constraint float_lin_eq_imp([1e308,1.0],[1e308,x],0.0,false);constraint float_lin_ne_imp([1.0],[x],2.0,false);constraint float_ne_reif(1.0,2.0,false);solve satisfy;").unwrap();
+    let report = inactive.check(&Assignment::default()).unwrap();
+    assert_eq!(report.violations.len(), 1);
+    assert!(!report.completeness.complete);
+    for text in [
+        "constraint float_eq(1,1.0);solve satisfy;",
+        "constraint float_eq(1.0e999,1.0);solve satisfy;",
+        "var set of float:x;solve satisfy;",
+        "constraint float_ge(1.0,2.0);solve satisfy;",
+        "constraint gecode_float_ne_reif(1.0,2.0,true);solve satisfy;",
+        "constraint fzn_float_lin_ne([1.0],[2.0],0.0);solve satisfy;",
+        "constraint gecode_float_rel_imp_fzn(1.0,0,2.0,false);solve satisfy;",
+        "var int:c;constraint gecode_float_rel_imp_fzn(1.0,c,2.0,false);solve satisfy;",
+        "var float:c;constraint float_in(1.0,c,2.0);solve satisfy;",
+        "var float:c;constraint float_lin_eq([c],[1.0],2.0);solve satisfy;",
+        "constraint float_lin_eq([1.0,2.0],[1.0],2.0);solve satisfy;",
+        "predicate float_in(var float:x,var float:l,float:u);solve satisfy;",
+        "predicate float_ceil(var int:x,var float:y);solve satisfy;",
+        "constraint float_sqrt(1.0,1.0);solve satisfy;",
+    ] {
+        assert!(prepare("bad.fzn", text).is_err(), "{text}");
     }
 }

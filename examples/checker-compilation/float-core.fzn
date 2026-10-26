@@ -1,0 +1,18 @@
+var 0.0..2.0: x;
+var int: exact_integer;
+var float: total ::is_defined_var;
+var int: rounded ::is_defined_var;
+var float: converted ::is_defined_var;
+var bool: small ::is_defined_var;
+constraint float_plus(x,0.8455124082255701,total)::defines_var(total);
+constraint float_round(total,rounded)::defines_var(rounded);
+constraint int2float(exact_integer,converted)::defines_var(converted);
+constraint float_lt_reif(total,2.0,small)::defines_var(small);
+constraint float_eq(x,1.0)::checker_constraint("float_target",[9007199254740993]);
+constraint float_dom(x,[0.0,2.0,99.0]);
+constraint float_set_in(x,{1.0,1.5..2.0});
+constraint float_eq(converted,9007199254740992.0);
+constraint int_eq(exact_integer,9007199254740993);
+constraint gecode_float_rel_imp_fzn(total,4,2.0,small);
+constraint float_lin_eq_imp([1e308,1.0],[1e308,x],0.0,false);
+solve minimize total;

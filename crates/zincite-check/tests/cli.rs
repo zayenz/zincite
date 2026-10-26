@@ -167,7 +167,7 @@ fn text_and_json_reports_cover_completeness_statuses_metadata_and_errors() {
         report["violations"][0]["check"]["constraint"]["metadata"]["application"]["entities"][0],
         "9007199254740993"
     );
-    std::fs::write(&model, "var float:x;solve satisfy;").unwrap();
+    std::fs::write(&model, "var string:x;solve satisfy;").unwrap();
     let error = run("text");
     assert_eq!(error.status.code(), Some(2));
     assert!(error.stdout.is_empty());
@@ -262,5 +262,113 @@ fn export_and_load_check_the_same_candidates_and_refuse_overwrites() {
     assert_eq!(error.status.code(), Some(2));
     assert!(error.stdout.is_empty());
     assert!(String::from_utf8_lossy(&error.stderr).contains("format version"));
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn float_cli_flags_save_settings_and_override_only_the_named_component() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-check-floats-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let source = directory.join("floats.fzn");
+    let candidate = directory.join("candidate.dzn");
+    let artifact = directory.join("floats.json");
+    std::fs::write(
+        &source,
+        "var float:x;constraint float_eq(x,1.0);solve minimize x;",
+    )
+    .unwrap();
+    std::fs::write(&candidate, "x=1.001;").unwrap();
+    let run = |args: &[&std::ffi::OsStr]| {
+        Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let os = std::ffi::OsStr::new;
+    assert_eq!(
+        run(&[source.as_os_str(), candidate.as_os_str()])
+            .status
+            .code(),
+        Some(1)
+    );
+    assert_eq!(
+        run(&[
+            os("--float-absolute-tolerance"),
+            os("0.01"),
+            source.as_os_str(),
+            candidate.as_os_str()
+        ])
+        .status
+        .code(),
+        Some(0)
+    );
+    assert_eq!(
+        run(&[
+            os("--float-absolute-tolerance"),
+            os("0.01"),
+            os("--float-relative-tolerance"),
+            os("0"),
+            os("--export"),
+            artifact.as_os_str(),
+            source.as_os_str()
+        ])
+        .status
+        .code(),
+        Some(0)
+    );
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&artifact).unwrap()).unwrap();
+    assert_eq!(
+        json["model"]["float_tolerance"],
+        serde_json::json!({"absolute":0.01,"relative":0.0})
+    );
+    assert_eq!(
+        run(&[os("--load"), artifact.as_os_str(), candidate.as_os_str()])
+            .status
+            .code(),
+        Some(0)
+    );
+    assert_eq!(
+        run(&[
+            os("--load"),
+            os("--float-relative-tolerance"),
+            os("0"),
+            artifact.as_os_str(),
+            candidate.as_os_str()
+        ])
+        .status
+        .code(),
+        Some(0)
+    );
+    assert_eq!(
+        run(&[
+            os("--load"),
+            os("--float-absolute-tolerance"),
+            os("0"),
+            artifact.as_os_str(),
+            candidate.as_os_str()
+        ])
+        .status
+        .code(),
+        Some(1)
+    );
+    for invalid in ["-1", "NaN", "inf", "1e999", "missing"] {
+        assert_eq!(
+            run(&[
+                os("--float-relative-tolerance"),
+                os(invalid),
+                source.as_os_str(),
+                candidate.as_os_str()
+            ])
+            .status
+            .code(),
+            Some(2)
+        );
+    }
+    assert_eq!(
+        run(&[os("--float-absolute-tolerance")]).status.code(),
+        Some(2)
+    );
     std::fs::remove_dir_all(directory).unwrap();
 }

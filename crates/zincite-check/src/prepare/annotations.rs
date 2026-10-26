@@ -232,18 +232,6 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    fn fixed_array(&mut self, node: &SyntaxNode, kind: ValueType) -> Result<Vec<Value>> {
-        self.array(node, kind)?
-            .into_iter()
-            .map(|operand| match operand {
-                Operand::Literal(value) => Ok(value),
-                _ => Err(self
-                    .source
-                    .error(node, "expected an array of fixed parameters")),
-            })
-            .collect()
-    }
-
     fn annotation_array(&mut self, node: &SyntaxNode, role: SearchRole) -> Result<()> {
         if node.kind() != NodeKind::ArrayLiteral {
             return Err(self
@@ -331,6 +319,13 @@ impl Lowerer<'_> {
                 self.search_annotation(args[2], SearchRole::ValueChoice)?;
                 self.search_annotation(args[3], SearchRole::Exploration)?;
             }
+            ("float_search", SearchRole::Search) if args.len() == 5 => {
+                self.array(args[0], ValueType::Float)?;
+                self.constant_float(args[1])?;
+                self.search_annotation(args[2], SearchRole::VariableChoice)?;
+                self.search_annotation(args[3], SearchRole::FloatValueChoice)?;
+                self.search_annotation(args[4], SearchRole::Exploration)?;
+            }
             ("seq_search", SearchRole::Search) if args.len() == 1 => {
                 self.annotation_array(args[0], SearchRole::Search)?
             }
@@ -363,7 +358,7 @@ impl Lowerer<'_> {
                 }
             }
             ("restart_geometric", SearchRole::Search) if args.len() == 2 => {
-                let base = self.annotation_float(args[0])?;
+                let base = self.source.float(args[0])?.get();
                 if base <= 1.0 || self.constant_integer(args[1])? <= 0 {
                     return Err(self.source.error(node, "geometric restart needs a finite base greater than one and a positive scale"));
                 }
@@ -402,6 +397,7 @@ impl Lowerer<'_> {
         values: &SyntaxNode,
     ) -> Result<()> {
         let kinds = [
+            ValueType::Float,
             ValueType::Integer,
             ValueType::Boolean,
             ValueType::IntegerSet,
@@ -418,42 +414,5 @@ impl Lowerer<'_> {
             node,
             "warm start needs matching typed variable and fixed-value arrays",
         ))
-    }
-
-    fn annotation_float(&self, node: &SyntaxNode) -> Result<f64> {
-        let atom = if node.kind() == NodeKind::UnaryExpression {
-            if !self.source.tokens(node).map(|(_, text)| text).eq(["-"]) {
-                return Err(self
-                    .source
-                    .error(node, "expected a literal float annotation argument"));
-            }
-            node.child_nodes().next().unwrap()
-        } else {
-            node
-        };
-        if atom.kind() != NodeKind::Expression
-            || !self
-                .source
-                .tokens(atom)
-                .next()
-                .is_some_and(|(kind, _)| kind == TokenKind::FloatLiteral)
-        {
-            return Err(self
-                .source
-                .error(node, "expected a literal float annotation argument"));
-        }
-        let text = &self.source.parsed.source()[node.range()];
-        let value: f64 = text
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .collect::<String>()
-            .parse()
-            .map_err(|_| self.source.error(node, "invalid float annotation argument"))?;
-        if !value.is_finite() {
-            return Err(self
-                .source
-                .error(node, "float annotation arguments must be finite"));
-        }
-        Ok(value)
     }
 }

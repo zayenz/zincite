@@ -55,7 +55,7 @@ decimal strings, including domain bounds, coefficients, defaults and entity
 payloads. Integer sets use `{ "kind": "integer_set", "value": { "ranges":
 [{ "lower": "1", "upper": "3" }] } }`; an empty set has `ranges: []`. Loading
 rejects reversed, unordered, overlapping or adjacent ranges. The format stays
-at version 1 with additive set value/domain, set operation and strict global
+at version 1 with additive float values/settings/operations, set value/domain, set operation and strict global
 records and integer relation variants. The original `Linear` executable with its
 `equality` Boolean and `ReifiedLessEqual` executable keep their existing shapes. Loading rejects
 incompatible versions, bad references, wrong types and invalid definition
@@ -234,8 +234,8 @@ or a MiniZinc installation.
 
 ## Accepted model and assignment forms
 
-- Scalar Boolean, signed 64-bit integer and finite integer set parameters and
-  variables. Integers use decimal, `0x` hexadecimal or `0o` octal spelling, with
+- Scalar Boolean, signed 64-bit integer, finite binary64 float and finite integer
+  set parameters and variables. Fixed float sets serve membership arguments. Integers use decimal, `0x` hexadecimal or `0o` octal spelling, with
   an optional minus sign. Integer domains use literal inclusive intervals or
   enumerations. A set domain is an upper bound: `var set of 1..3` allows every
   subset, including the empty set. `var set of int` admits finite i64 sets.
@@ -245,11 +245,12 @@ or a MiniZinc installation.
   access such as `values[2]` selects a scalar; bounds and types are checked.
 - Items follow predicate, parameter, variable, constraint, solve order. There
   is exactly one final solve item: `satisfy`, or `minimize`/`maximize` of a scalar
-  integer literal or reference. An available objective value appears in reports;
+  integer or float literal/reference. An available objective value appears in reports;
   the checker makes no optimality claim.
-- Exactly the predicates and aliases in the coverage table below. Linear coefficients
-  are fixed integers; integer-linear bounds are fixed and Boolean-linear bounds
-  accept integer operands. Coefficient and operand arrays have equal lengths.
+- Exactly the predicates and aliases in the coverage table below. Integer and Boolean
+  linear coefficients are fixed integers; integer-linear bounds are fixed integers
+  and Boolean-linear bounds accept integer operands. Float linear coefficients and
+  bounds are fixed finite floats. Coefficient and operand arrays have equal lengths.
   Bodyless declarations for these names validate types, fixed/variable roles and
   scalar/array shapes independently of formal spelling. A declared fixed length
   or restricted domain also constrains calls. `fzn_disjunctive_strict` requires
@@ -273,12 +274,12 @@ or a MiniZinc installation.
   still use `1..n`; no output renderer is provided. MiniZinc output-section
   annotations belong to output items, which are outside FlatZinc preparation.
 - Standard/Gecode search metadata includes `int_search`, `bool_search`,
-  `set_search`, nested `seq_search`, `warm_start`/`warm_start_array`, `int_assign`,
+  `set_search`, `float_search`, nested `seq_search`, `warm_start`/`warm_start_array`, `int_assign`,
   integer/Boolean/set/float default searches, restart strategies and
   `relax_and_reconstruct`. Referenced arrays, fixed values, lengths and strategy
   roles are validated recursively. `restart_geometric` accepts a finite float
-  literal base greater than one and a positive integer scale; this annotation
-  constant does not introduce mathematical float values.
+  literal base greater than one and a positive integer scale. Float search precision
+  is a finite fixed float metadata argument, separate from checker tolerance.
 - Propagation metadata on constraints includes `domain`, `bounds`,
   `domain_propagation`, `bounds_propagation`, `value_propagation`, and Gecode's
   basic, advanced, full and decomposed propagation choices. Introduced-variable,
@@ -309,15 +310,110 @@ on other aliases still apply; fixed initializers still supply their exact value.
 The existing executable format expresses this distinction without extra fields,
 so validated loading and parser-free Wasm checking use the same rules.
 
-Mathematical floats, other set operations, includes, output expressions, computed
+Other set operations, includes, output expressions, computed
 initializers/objectives, additional predicates and unknown semantic annotations
 are rejected explicitly. External executable/DLL callbacks and restart-history
 hooks also diagnose; the checker does not execute search or external code.
 Syntax acceptance by the shared parser does not imply checker support.
 
+## Float policy
+
+Finite binary64 floats work as scalars, domains, arrays, aliases, objectives and
+assignments. Decimal and exponent literals preserve their parsed binary64 value;
+NaN and infinities diagnose. Signed zero becomes positive zero. No implicit
+integer-to-float conversion occurs. JSON floats use finite numbers, for example
+`{"kind":"float","value":1.25}`; integers keep decimal strings.
+
+Each prepared model owns `FloatTolerance`: absolute and relative tolerance both
+default to `1e-9`. Settings must be finite and nonnegative. Zero/zero gives exact
+checking. Equality is
+`abs(a-b) <= max(absolute,relative*max(abs(a),abs(b)))`.
+The binary64 evaluation first accepts exact equality, then a finite absolute
+distance within the absolute setting. If the relative setting is nonzero, let
+`m=max(abs(a),abs(b))` and compare `abs(a-b)/m` with that setting. When subtraction
+overflows, use `abs(a*0.5-b*0.5)/(m*0.5)` instead. Boundary results follow these
+operations; no overflowing threshold is formed. Disequality is the complement.
+Strict less means raw `a<b` and unequal; non-strict less means raw `a<b` or equal.
+Greater comparisons mirror these rules. This policy governs comparisons,
+reification, implication, float result checks and runtime domain membership.
+
+Alias contradictions, fixed/default identity and singleton eligibility use exact
+values. Tolerance supplies no missing value. A near-singleton interval supplies
+no default. Reversed intervals are empty before tolerant membership checks.
+`float_dom(x,endpoints)` uses complete consecutive pairs; it ignores an odd
+trailing endpoint, and empty data denotes an empty union. `float_set_in` accepts
+fixed sets of singleton/range alternatives; their executable transport is an
+ordered nonoverlapping range list. Assignable float sets are unsupported.
+
+Arithmetic checks every required intermediate for finiteness, in source order
+for linear multiplication and accumulation, starting from zero. Underflow is
+allowed. Zero divisors and nonfinite intermediates produce located execution
+errors. Only `int2float` converts i64 values, with nearest-even binary64 rounding.
+Distinct integers above `2^53` can convert to the same float while their original
+integer values stay distinct. `float_ceil`, `float_floor` and `float_round` produce
+exact i64 outputs; round ties go away from zero. Results must lie in
+`[-2^63,2^63)` before casting, with an exclusive upper boundary.
+
+Supported spellings are bare `float_{eq,ne,le,lt}` and `float_lin_{eq,ne,le,lt}`,
+with `_reif` and `_imp` forms. The registered scalar/linear eq/le/lt forms and
+reifiers, scalar ne, `float_abs`, `float_plus`, `float_times`, `float_div`,
+`float_min`, `float_max` and `int2float` also accept their exact `gecode_` and
+`fzn_` aliases. Other float-core names have only their bare spelling.
+`gecode_float_rel_imp_fzn(x,code,y,guard)` also accepts the literal aliases
+`gecode_gecode_float_rel_imp_fzn` and `fzn_gecode_float_rel_imp_fzn`. Codes 1–6
+mean equal, not equal, less-or-equal, less, greater-or-equal and greater.
+A false guard skips missing numerical operands/calculations; it is never an
+output. Float membership and ceil/floor/round have only bare names. Roots,
+powers, transcendental operations and float conditionals are outside float-core.
+
+Rust callers configure the model directly:
+
+```rust
+use zincite_check::{FloatTolerance, prepare};
+let mut model = prepare("model.fzn", "var float:x; solve minimize x;").unwrap();
+assert_eq!(model.float_tolerance(), FloatTolerance::default());
+model.set_float_tolerance(FloatTolerance::new(1e-6, 1e-8).unwrap());
+model.set_float_tolerance(FloatTolerance::new(0.0, 0.0).unwrap()); // exact
+```
+
+Both CLI entry points accept `--float-absolute-tolerance NUMBER` and
+`--float-relative-tolerance NUMBER`. Each option changes only its named setting.
+Source checking/export starts from defaults; loading starts from saved settings.
+New version-1 exports save both settings; old version-1 artifacts without them
+load with defaults. For example, after building the native binaries:
+
+```sh
+target/debug/zincite-check --float-absolute-tolerance 1e-6 examples/checker-compilation/float-core.fzn examples/checker-compilation/candidates/float-valid.dzn
+target/debug/zincite check --float-absolute-tolerance 0 --float-relative-tolerance 0 examples/checker-compilation/float-core.fzn examples/checker-compilation/candidates/float-valid.dzn
+target/debug/zincite-check --float-relative-tolerance 0 --export target/float-core.json examples/checker-compilation/float-core.fzn
+target/debug/zincite-check --load --float-absolute-tolerance 1e-6 target/float-core.json examples/checker-compilation/candidates/float-valid.dzn
+```
+
+Two small compiler controls exercise these primitives and Gecode's coded guard.
+With the pinned clean library roots from the coverage inventory, compile them
+without running a solver:
+
+```sh
+mkdir -p target/checker-float-controls
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-float-controls/primitive.paths --output-fzn-to-file target/checker-float-controls/primitive.fzn examples/checker-compilation/float-primitives.mzn
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-float-controls/coded.paths --output-fzn-to-file target/checker-float-controls/coded.fzn examples/checker-compilation/float-implication.mzn
+```
+
+The primitive candidate `x=1.0; total=1.25; rounded=2; small=true;` is valid;
+changing `rounded` to 1 fails the compiled ceiling relations. The coded candidate
+`x=1.0; guard=true;` is valid; `x=2.5; guard=true;` violates the guarded ordering.
+These controls cover emitted definitions, paths, labels and float search metadata;
+they do not establish complete standard/Gecode compiler profiles.
+
+Wasm uses `setFloatTolerance(absolute,relative)` with the same validation;
+`floatTolerance()` returns the current settings as JSON. The saved policy and
+correctly rounded finite transport give identical native/Wasm reports; the smoke
+compares reports exactly. Search precision never changes checker tolerance.
+
 ## Functional completion
 
-This is the complete predicate coverage, including the constraints emitted
+The float-core names and directions are listed in the float policy above.
+The table below covers integer, Boolean and set operations, including constraints emitted
 by both application models:
 
 | Predicate | Direct check | Completion through matching `defines_var` |
@@ -358,7 +454,7 @@ by both application models:
 
 All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
 `fzn_` spellings, for 108 integer relation names. The 55 Boolean base names also
-accept those exact prefixes, for 165 Boolean names and 312 admitted names overall.
+accept those exact prefixes, for 165 Boolean names and 392 admitted names overall.
 Prefixed scalar XOR uses three arguments; only bare `bool_xor` also admits the
 two-argument assertion. Matching declarations select one admitted arity and calls
 must use that arity; duplicate declarations diagnose.

@@ -326,6 +326,40 @@ before exposing them. The same explicit settings must govern native, CLI and
 Wasm checking; never round integer payloads through floats. Tolerance must not
 invent values for unresolved variables or conceal unsupported operations.
 
+For float-core, default absolute and relative tolerances are both `1e-9`.
+Both settings must be finite and nonnegative; zero/zero gives exact checking.
+Equality is `abs(a-b) <= max(absolute, relative * max(abs(a),abs(b)))`.
+Evaluate it with exact equality first, then a finite absolute-distance check,
+then a scaled relative-distance check. Use `abs(a-b)/m` for finite distance,
+where `m=max(abs(a),abs(b))`; if subtraction overflows, use
+`abs(a*0.5-b*0.5)/(m*0.5)`. Skip the relative check when its setting is zero.
+Boundary results follow these binary64 operations; never compare an infinite
+distance with an overflowing threshold. Disequality is the complement.
+Strict less means raw `a<b` and unequal; non-strict less means raw `a<b` or
+equal. Mirror these rules for greater comparisons and use them for checked
+float outputs, domains, reification and implication.
+
+The prepared model owns its validated settings and exports both explicitly.
+Old version-1 artifacts without settings use the documented defaults. Rust,
+CLI and Wasm configuration changes the same model policy; a CLI option changes
+only its named component. Float values use finite JSON numbers with correctly
+rounded binary64 parsing. Normalize signed zero to positive zero. Alias,
+singleton and default identity stays exact; tolerance supplies no missing value.
+Arithmetic checks each required intermediate for finiteness, permits underflow,
+and reports zero division and nonfinite results as located execution errors.
+Integer payloads keep their decimal strings. Only explicit `int2float` converts
+them, with nearest-even binary64 rounding. Ceil/floor/round produce exact integer
+outputs; round ties go away from zero. Check the converted result against the
+inclusive `-2^63` and exclusive `2^63` limits before casting.
+
+Float interval emptiness uses exact bounds before tolerant membership checks.
+Reversed declaration intervals are empty and supply no default. `float_dom`
+uses complete consecutive endpoint pairs and ignores an odd trailing endpoint;
+empty data denotes an empty union. Fixed float-set transport requires canonical
+ordered, nonoverlapping ranges and rejects reversed entries. Keep search
+precision metadata separate from checker tolerance. The checker guide documents
+the public settings APIs, supported spellings and entry-point examples.
+
 Both library profiles need reproducible offline compilation commands. The
 standard profile uses MiniZinc's own decompositions plus a small Zincite library
 declaring supported primitives. The Gecode profile uses the pinned upstream

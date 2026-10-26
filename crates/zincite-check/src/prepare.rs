@@ -159,7 +159,91 @@ impl Source<'_> {
         ) {
             return self.integer_set(node).map(Value::IntegerSet);
         }
+        if self.is_float_literal(node) {
+            return self.float(node).map(Value::Float);
+        }
         self.integer(node).map(Value::Integer)
+    }
+
+    fn is_float_literal(&self, node: &SyntaxNode) -> bool {
+        let atom = if node.kind() == NodeKind::UnaryExpression {
+            node.child_nodes().next().unwrap_or(node)
+        } else {
+            node
+        };
+        atom.kind() == NodeKind::Expression
+            && self
+                .tokens(atom)
+                .next()
+                .is_some_and(|(kind, _)| kind == TokenKind::FloatLiteral)
+    }
+
+    fn float(&self, node: &SyntaxNode) -> Result<FiniteFloat> {
+        let (negative, atom) = if node.kind() == NodeKind::UnaryExpression {
+            if !self.tokens(node).map(|(_, text)| text).eq(["-"]) {
+                return Err(self.error(node, "expected a signed decimal float literal"));
+            }
+            (
+                true,
+                node.child_nodes()
+                    .next()
+                    .ok_or_else(|| self.error(node, "expected a float literal"))?,
+            )
+        } else {
+            (false, node)
+        };
+        if atom.kind() != NodeKind::Expression {
+            return Err(self.error(node, "expected a decimal float literal"));
+        }
+        let tokens: Vec<_> = self.tokens(atom).collect();
+        let [(TokenKind::FloatLiteral, text)] = tokens.as_slice() else {
+            return Err(self.error(node, "expected a decimal float literal"));
+        };
+        if text.starts_with("0x") {
+            return Err(self.error(node, "hexadecimal float literals are unsupported"));
+        }
+        let value: f64 = text
+            .parse()
+            .map_err(|_| self.error(node, "invalid decimal float literal"))?;
+        FiniteFloat::new(if negative { -value } else { value })
+            .map_err(|message| self.error(node, message))
+    }
+
+    fn float_interval(&self, node: &SyntaxNode) -> Result<(FiniteFloat, FiniteFloat)> {
+        let bounds: Vec<_> = node.child_nodes().collect();
+        if node.kind() != NodeKind::RangeExpression
+            || bounds.len() != 2
+            || !self.tokens(node).map(|(_, text)| text).eq([".."])
+        {
+            return Err(self.error(node, "expected a literal float interval"));
+        }
+        Ok((self.float(bounds[0])?, self.float(bounds[1])?))
+    }
+
+    fn float_set(&self, node: &SyntaxNode) -> Result<FloatSet> {
+        let ranges = if node.kind() == NodeKind::SetLiteral {
+            node.child_nodes()
+                .map(|value| {
+                    if value.kind() == NodeKind::RangeExpression {
+                        self.float_interval(value)
+                    } else {
+                        let value = self.float(value)?;
+                        Ok((value, value))
+                    }
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else {
+            vec![self.float_interval(node)?]
+        };
+        Ok(FloatSet::from_ranges(ranges))
+    }
+
+    fn typed_literal(&self, node: &SyntaxNode, kind: ValueType) -> Result<Value> {
+        if kind == ValueType::FloatSet {
+            self.float_set(node).map(Value::FloatSet)
+        } else {
+            self.literal(node)
+        }
     }
 
     fn integer_set(&self, node: &SyntaxNode) -> Result<IntegerSet> {
@@ -197,7 +281,9 @@ impl Source<'_> {
             ));
         }
         let parameters: Vec<_> = children[0].child_nodes().collect();
-        let expected = if let Some(boolean) = BooleanName::from_name(name) {
+        let expected = if let Some(float) = FloatName::from_name(name) {
+            float.signature()
+        } else if let Some(boolean) = BooleanName::from_name(name) {
             boolean
                 .signature(parameters.len())
                 .ok_or_else(|| self.error(node, "predicate declaration has the wrong arity"))?
@@ -467,7 +553,10 @@ impl Source<'_> {
         let is_var = tokens.first() == Some(&TokenKind::Var);
         let base_tokens = if is_var { &tokens[1..] } else { &tokens[..] };
         let valid_tokens = match node.kind() {
-            NodeKind::ScalarType => matches!(base_tokens, [TokenKind::Int] | [TokenKind::Bool]),
+            NodeKind::ScalarType => matches!(
+                base_tokens,
+                [TokenKind::Int] | [TokenKind::Bool] | [TokenKind::Float]
+            ),
             NodeKind::SetType => base_tokens == [TokenKind::Set, TokenKind::Of],
             NodeKind::DomainType => base_tokens.is_empty(),
             _ => false,
@@ -480,6 +569,9 @@ impl Source<'_> {
             NodeKind::ScalarType if tokens.contains(&TokenKind::Int) => {
                 (ValueType::Integer, Domain::Integer)
             }
+            NodeKind::ScalarType if tokens.contains(&TokenKind::Float) => {
+                (ValueType::Float, Domain::Float)
+            }
             NodeKind::ScalarType if tokens.contains(&TokenKind::Bool) => {
                 (ValueType::Boolean, Domain::Boolean)
             }
@@ -488,6 +580,20 @@ impl Source<'_> {
                     .child_nodes()
                     .next()
                     .ok_or_else(|| self.error(node, "expected an integer set type"))?;
+                if element.kind() == NodeKind::ScalarType
+                    && self.tokens(element).map(|(_, text)| text).eq(["float"])
+                {
+                    if is_var {
+                        return Err(self.error(node, "assignable float sets are unsupported"));
+                    }
+                    return Ok(TypeSpec {
+                        kind: ValueType::FloatSet,
+                        domain: Domain::FloatSet,
+                        is_var,
+                        length: None,
+                        is_array: false,
+                    });
+                }
                 let upper = if element.kind() == NodeKind::ScalarType
                     && self.tokens(element).map(|(_, text)| text).eq(["int"])
                 {
@@ -508,6 +614,20 @@ impl Source<'_> {
                     .child_nodes()
                     .next()
                     .ok_or_else(|| self.error(node, "expected a literal integer domain"))?;
+                if expression.kind() == NodeKind::RangeExpression
+                    && expression
+                        .child_nodes()
+                        .any(|bound| self.is_float_literal(bound))
+                {
+                    let (lower, upper) = self.float_interval(expression)?;
+                    return Ok(TypeSpec {
+                        kind: ValueType::Float,
+                        domain: Domain::FloatInterval { lower, upper },
+                        is_var,
+                        length: None,
+                        is_array: false,
+                    });
+                }
                 let domain = if expression.kind() == NodeKind::SetLiteral {
                     let mut values: Vec<_> = expression
                         .child_nodes()
@@ -572,7 +692,11 @@ impl<'a> Source<'a> {
             && (!annotations.is_empty()
                 || !matches!(
                     ty.domain,
-                    Domain::Boolean | Domain::Integer | Domain::IntegerSet { upper: None }
+                    Domain::Float
+                        | Domain::FloatSet
+                        | Domain::Boolean
+                        | Domain::Integer
+                        | Domain::IntegerSet { upper: None }
                 ))
         {
             return Err(self.error(
@@ -687,6 +811,7 @@ impl<'a> Lowerer<'a> {
                 definitions: Vec::new(),
                 dependents: Vec::new(),
                 objective: None,
+                float_tolerance: FloatTolerance::default(),
             },
         })
     }
@@ -743,6 +868,8 @@ impl<'a> Lowerer<'a> {
                 .is_some_and(|node| self.source.name(node).as_deref() == Ok("computed_domain"))
         }) {
             ty.domain = match ty.kind {
+                ValueType::Float => Domain::Float,
+                ValueType::FloatSet => Domain::FloatSet,
                 ValueType::Integer => Domain::Integer,
                 ValueType::Boolean => Domain::Boolean,
                 ValueType::IntegerSet => Domain::IntegerSet { upper: None },
@@ -785,10 +912,16 @@ impl<'a> Lowerer<'a> {
                 }
                 initializer
                     .child_nodes()
-                    .map(|node| self.source.literal(node).map(Operand::Literal))
+                    .map(|node| {
+                        self.source
+                            .typed_literal(node, ty.kind)
+                            .map(Operand::Literal)
+                    })
                     .collect::<Result<Vec<_>>>()?
             } else {
-                vec![Operand::Literal(self.source.literal(initializer)?)]
+                vec![Operand::Literal(
+                    self.source.typed_literal(initializer, ty.kind)?,
+                )]
             };
             if ty.length.is_some_and(|length| length != values.len()) {
                 return Err(self.source.error(
@@ -956,7 +1089,7 @@ impl<'a> Lowerer<'a> {
             }
             binding.elements[0].clone()
         } else {
-            Operand::Literal(self.source.literal(node)?)
+            Operand::Literal(self.source.typed_literal(node, kind)?)
         };
         let actual = match &operand {
             Operand::Literal(value) => value.value_type(),
@@ -1013,7 +1146,10 @@ impl<'a> Lowerer<'a> {
         let name = self.source.name(call)?;
         let args: Vec<_> = call.child_nodes().collect();
         let boolean = BooleanName::from_name(&name);
-        let arity = if let Some(boolean) = boolean {
+        let float = FloatName::from_name(&name);
+        let arity = if let Some(float) = float {
+            float.signature().len()
+        } else if let Some(boolean) = boolean {
             boolean.mode_for_arity(args.len()).ok_or_else(|| {
                 self.source
                     .error(call, format!("'{name}' has an unsupported argument count"))
@@ -1038,7 +1174,9 @@ impl<'a> Lowerer<'a> {
                 .source
                 .error(call, format!("'{name}' expects {arity} arguments")));
         }
-        let predicate = if let Some(boolean) = boolean {
+        let predicate = if let Some(float) = float {
+            self.float_predicate(call, float, &args)?
+        } else if let Some(boolean) = boolean {
             self.boolean_predicate(call, boolean, &args)?
         } else if let Some(operation) = ArithmeticOperation::from_name(&name) {
             self.integer_arithmetic(operation, &args)?
@@ -1093,6 +1231,136 @@ impl<'a> Lowerer<'a> {
             predicate,
         });
         Ok(())
+    }
+
+    fn fixed_array(&mut self, node: &SyntaxNode, kind: ValueType) -> Result<Vec<Value>> {
+        self.array(node, kind)?
+            .into_iter()
+            .map(|operand| match operand {
+                Operand::Literal(value) => Ok(value),
+                _ => Err(self
+                    .source
+                    .error(node, "expected an array of fixed parameters")),
+            })
+            .collect()
+    }
+
+    fn constant_float(&mut self, node: &SyntaxNode) -> Result<FiniteFloat> {
+        match self.scalar(node, ValueType::Float)? {
+            Operand::Literal(Value::Float(value)) => Ok(value),
+            _ => Err(self.source.error(node, "expected a fixed float parameter")),
+        }
+    }
+
+    fn float_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: FloatName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        Ok(match name {
+            FloatName::Relation {
+                relation,
+                linear,
+                mode,
+            } => {
+                let condition = match mode {
+                    RelationMode::Plain => RelationCondition::Plain,
+                    RelationMode::Reified => RelationCondition::Reified {
+                        result: self.scalar(args[args.len() - 1], ValueType::Boolean)?,
+                    },
+                    RelationMode::Implied => RelationCondition::Implied {
+                        guard: self.scalar(args[args.len() - 1], ValueType::Boolean)?,
+                    },
+                };
+                if linear {
+                    let coefficients = self
+                        .fixed_array(args[0], ValueType::Float)?
+                        .iter()
+                        .map(Value::float)
+                        .collect::<Vec<_>>();
+                    let terms = self.array(args[1], ValueType::Float)?;
+                    if coefficients.len() != terms.len() {
+                        return Err(self.source.error(
+                            call,
+                            "linear coefficient and variable arrays must have equal lengths",
+                        ));
+                    }
+                    Predicate::FloatLinear {
+                        relation,
+                        coefficients,
+                        terms,
+                        bound: self.constant_float(args[2])?,
+                        condition,
+                    }
+                } else {
+                    Predicate::FloatRelation {
+                        relation,
+                        left: self.scalar(args[0], ValueType::Float)?,
+                        right: self.scalar(args[1], ValueType::Float)?,
+                        condition,
+                        code: None,
+                    }
+                }
+            }
+            FloatName::CodedImplication => {
+                let code = self.constant_integer(args[1])?;
+                let relation = floats::coded_relation(code).ok_or_else(|| {
+                    self.source
+                        .error(args[1], "float relation code must be in 1..6")
+                })?;
+                Predicate::FloatRelation {
+                    relation,
+                    left: self.scalar(args[0], ValueType::Float)?,
+                    right: self.scalar(args[2], ValueType::Float)?,
+                    condition: RelationCondition::Implied {
+                        guard: self.scalar(args[3], ValueType::Boolean)?,
+                    },
+                    code: Some(code),
+                }
+            }
+            FloatName::Arithmetic(operation) => Predicate::FloatArithmetic {
+                operation,
+                inputs: args[..operation.input_count()]
+                    .iter()
+                    .map(|arg| self.scalar(arg, ValueType::Float))
+                    .collect::<Result<_>>()?,
+                result: self.scalar(args[operation.input_count()], ValueType::Float)?,
+            },
+            FloatName::Conversion(operation) => Predicate::FloatConversion {
+                operation,
+                input: self.scalar(args[0], operation.input_type())?,
+                result: self.scalar(args[1], operation.output_type())?,
+            },
+            FloatName::Membership(membership) => {
+                let element = self.scalar(args[0], ValueType::Float)?;
+                let intervals = match membership {
+                    FloatMembership::Interval => {
+                        vec![(self.constant_float(args[1])?, self.constant_float(args[2])?)]
+                    }
+                    FloatMembership::Domain => self
+                        .fixed_array(args[1], ValueType::Float)?
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|pair| (pair[0].float(), pair[1].float()))
+                        .collect(),
+                    FloatMembership::Set => {
+                        let Operand::Literal(Value::FloatSet(set)) =
+                            self.scalar(args[1], ValueType::FloatSet)?
+                        else {
+                            return Err(self.source.error(args[1], "expected a fixed float set"));
+                        };
+                        set.ranges().to_vec()
+                    }
+                };
+                Predicate::FloatMembership {
+                    membership,
+                    element,
+                    intervals,
+                }
+            }
+        })
     }
 
     fn boolean_predicate(
@@ -1320,7 +1588,7 @@ impl<'a> Lowerer<'a> {
     fn slot_fits_domain(&self, slot: usize, formal: &Domain) -> bool {
         if matches!(
             formal,
-            Domain::Boolean | Domain::Integer | Domain::IntegerSet { upper: None }
+            Domain::Float | Domain::Boolean | Domain::Integer | Domain::IntegerSet { upper: None }
         ) {
             return true;
         }
@@ -1331,6 +1599,25 @@ impl<'a> Lowerer<'a> {
             .filter(|variable| variable.slot == slot)
             .flat_map(|variable| &variable.domains);
         match formal {
+            Domain::FloatInterval { lower, upper } => {
+                let mut actual_lower = -f64::MAX;
+                let mut actual_upper = f64::MAX;
+                for domain in domains {
+                    let restriction = match domain {
+                        Domain::FloatInterval { lower, upper } => Some((lower.get(), upper.get())),
+                        Domain::Fixed {
+                            value: Value::Float(value),
+                        } => Some((value.get(), value.get())),
+                        _ => None,
+                    };
+                    if let Some((lower, upper)) = restriction {
+                        actual_lower = actual_lower.max(lower);
+                        actual_upper = actual_upper.min(upper);
+                    }
+                }
+                actual_lower > actual_upper
+                    || (lower.get() <= actual_lower && actual_upper <= upper.get())
+            }
             Domain::Interval { .. } | Domain::Enumeration { .. } => {
                 let mut actual = IntegerSet::interval(i64::MIN, i64::MAX);
                 for domain in domains {
@@ -1413,7 +1700,9 @@ impl<'a> Lowerer<'a> {
                     self.source
                         .error(node, "expected a scalar integer objective")
                 })?;
-            let objective = self.scalar(objective, ValueType::Integer)?;
+            let objective = self
+                .scalar(objective, ValueType::Integer)
+                .or_else(|_| self.scalar(objective, ValueType::Float))?;
             let direction = if node.kind() == NodeKind::SolveMinimize {
                 ObjectiveDirection::Minimize
             } else {
