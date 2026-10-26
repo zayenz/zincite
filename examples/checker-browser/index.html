@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workshop schedule · Zincite</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="project">Zincite / local checker example</p>
+      <h1>Workshop schedule</h1>
+      <p>Cut the panels, then assemble them. Move each start time to plan the work;
+        both jobs must finish by hour 9. Their start times must add up to 10 or less.</p>
+    </header>
+
+    <form id="schedule-form">
+      <fieldset id="editor" disabled>
+        <legend>Edit the workday</legend>
+        <div class="presets" aria-label="Example schedules">
+          <button type="button" data-starts="1,4">Initial plan</button>
+          <button type="button" data-starts="8,8">Both start at 8</button>
+          <button type="button" data-starts="2,5">Recover with 2 and 5</button>
+        </div>
+        <p class="axis-help">Hours from opening. The shaded area starts at closing time.</p>
+        <div class="schedule">
+          <div class="axis" aria-hidden="true">
+            <span>0</span><span>3</span><span>6</span><span>9 · close</span><span>12</span>
+          </div>
+          <section class="job" id="job-1" aria-labelledby="job-title-1">
+            <div class="job-label">
+              <h2 id="job-title-1">Cut panels</h2>
+              <p>Job 1 · 3 hours</p>
+            </div>
+            <div class="track" role="img" aria-label="Cut panels schedule">
+              <div class="bar cutting"></div>
+              <span class="unsupplied" hidden>Start not supplied</span>
+            </div>
+            <div class="job-edit">
+              <label for="start-1">Cut panels start <output for="start-1" id="hour-1">1</output></label>
+              <input id="start-1" type="range" min="0" max="8" step="1" value="1"
+                aria-describedby="job-summary-1 job-findings-1">
+              <p id="job-summary-1">Hours 1–4</p>
+              <p class="job-findings" id="job-findings-1"></p>
+            </div>
+          </section>
+          <section class="job" id="job-2" aria-labelledby="job-title-2">
+            <div class="job-label">
+              <h2 id="job-title-2">Assemble panels</h2>
+              <p>Job 2 · 2 hours</p>
+            </div>
+            <div class="track" role="img" aria-label="Assemble panels schedule">
+              <div class="bar assembly"></div>
+              <span class="unsupplied" hidden>Start not supplied</span>
+            </div>
+            <div class="job-edit">
+              <label for="start-2">Assemble panels start <output for="start-2" id="hour-2">4</output></label>
+              <input id="start-2" type="range" min="0" max="8" step="1" value="4"
+                aria-describedby="job-summary-2 job-findings-2">
+              <p id="job-summary-2">Hours 4–6</p>
+              <p class="job-findings" id="job-findings-2"></p>
+            </div>
+          </section>
+        </div>
+        <label class="omit"><input type="checkbox" id="omit-starts"> Omit start times from the check</label>
+      </fieldset>
+    </form>
+
+    <section class="feedback" aria-labelledby="feedback-title" data-status="loading">
+      <h2 id="feedback-title" aria-live="polite">Loading the schedule…</h2>
+      <p id="feedback-summary">Loading the local model and checker.</p>
+      <ol id="findings"></ol>
+    </section>
+
+    <details>
+      <summary>Developer details</summary>
+      <p id="completeness">No report yet.</p>
+      <p>The page loads one prepared model. Each edit supplies a fresh assignment;
+        checking runs locally in WebAssembly.</p>
+      <h3>Assignment</h3>
+      <pre id="assignment"></pre>
+      <h3>Check report</h3>
+      <pre id="report"></pre>
+    </details>
+    <footer>This is a two-job example using the saved MiniZinc model, not a scheduling solver.</footer>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

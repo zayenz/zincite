@@ -3,7 +3,7 @@ schema_version = 1
 id = "checker-007"
 key = "browser-example"
 area = "checker"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -26,11 +26,21 @@ Read [the area brief](../brief.md), especially the Checking contract and Testing
 
 ## Done when
 
-- [ ] The page loads the prepared model once and checks repeated graphical edits locally, mapping violations to the affected entities without parsing checker-written text.
-- [ ] The example demonstrates valid edits, several simultaneous violations and recovery after another edit without stale findings. A small omitted-input example demonstrates structured incompleteness.
-- [ ] The documented local build/serve/run workflow works in an actual browser, with no compiler/solver/network service needed for checking. Preparation and runtime/report costs can be measured separately by the following performance task.
+- [x] The page loads the prepared model once and checks repeated graphical edits locally, mapping violations to the affected entities without parsing checker-written text.
+- [x] The example demonstrates valid edits, several simultaneous violations and recovery after another edit without stale findings. A small omitted-input example demonstrates structured incompleteness.
+- [x] The documented local build/serve/run workflow works in an actual browser, with no compiler/solver/network service needed for checking. Preparation and runtime/report costs can be measured separately by the following performance task.
 
 ## Validation
 
 - Exercise the named interactions in a real browser, including keyboard use and feedback after successive edits; compare those reports with the native example.
 - Reuse the Wasm smoke checks and run the Rust workspace checks if Rust changes. Do not add a broad UI test suite.
+
+## Result
+
+Added a local graphical workshop schedule that reuses one Wasm model, maps every structured finding to jobs, allows infeasible edits and shows ordinary incomplete reports.
+
+Validation:
+
+- Independent full browser review passed after one documentation correction and focused recheck at unchanged snapshot Wda0a3e090203a408.
+- Actual browser valid, four-finding invalid, recovery and omitted-input reports matched native JSON. Keyboard controls, narrow layout, feedback replacement and local-only loading checks passed.
+- Existing Node/Wasm smoke passed twelve comparisons. Parser-free build and dependency inspection passed; no Rust source changed. Whitespace checks passed.

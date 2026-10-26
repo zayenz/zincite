@@ -89,9 +89,9 @@ const model = new PreparedModel(preparedJson);
 // Use model.check(...) as above; call model.free() when finished.
 ```
 
-The browser caller controls loading and presentation. This example supplies the
-bindings and an executable Node consumer; a graphical editing page is separate
-work.
+The browser caller controls loading and presentation. The
+[local workshop schedule](../checker-browser/README.md) demonstrates graphical
+edits and job feedback using these bindings and the saved compiled model.
 
 ## Execute the native/Wasm comparison
 

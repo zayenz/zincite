@@ -1,0 +1,75 @@
+:root {
+  font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  color: #20353b;
+  background: #edf2f4;
+  font-synthesis: none;
+  line-height: 1.5;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 1160px; margin: 0 auto; padding: 40px 32px; }
+header { max-width: 720px; margin-bottom: 32px; }
+.project { font-size: .9rem; color: #485f68; margin: 0 0 14px; }
+h1 { font-size: clamp(2.2rem, 5vw, 3.8rem); line-height: 1.1; letter-spacing: -.04em; margin: 0 0 20px; }
+h2, h3, p { margin: 0; }
+header > p:last-child { font-size: 1.1rem; }
+fieldset { margin: 0; padding: 24px; border: 0; background: #fff; border-radius: 8px; }
+legend { float: left; width: 100%; font-weight: 650; font-size: 1.25rem; margin-bottom: 16px; }
+.presets { clear: both; display: flex; flex-wrap: wrap; gap: 8px; }
+button { font: inherit; color: inherit; padding: 8px 14px; background: #edf2f4; border: 1px solid #a8b9c0; border-radius: 4px; cursor: pointer; }
+button:hover { background: #dce7ec; }
+:focus-visible { outline: 3px solid #4364a4; outline-offset: 4px; }
+.axis-help { margin: 24px 0 12px; color: #485f68; font-size: .9rem; }
+.schedule { --label-width: 170px; --edit-width: 225px; --gap: 24px; }
+.axis { display: flex; justify-content: space-between; margin-left: calc(var(--label-width) + var(--gap)); margin-right: calc(var(--edit-width) + var(--gap)); font-size: .8rem; color: #485f68; }
+.axis span { width: 0; white-space: nowrap; }
+.axis span:last-child { transform: translateX(-1.25em); }
+.job { display: grid; grid-template-columns: var(--label-width) minmax(0, 1fr) var(--edit-width); gap: var(--gap); align-items: center; padding: 24px 0; border-bottom: 1px solid #d9e2e6; }
+.job-label h2 { font-size: 1.05rem; }
+.job-label p { color: #485f68; font-size: .9rem; }
+.track { height: 92px; position: relative; background: repeating-linear-gradient(to right, transparent 0, transparent calc(25% - 1px), #b9c9cf calc(25% - 1px), #b9c9cf 25%), linear-gradient(to right, #edf2f4 75%, #e0d9dc 75%); border-inline: 1px solid #b9c9cf; }
+.track::after { content: ""; position: absolute; left: 75%; top: 0; bottom: 0; border-left: 2px dashed #6f5259; pointer-events: none; }
+.bar { position: absolute; top: 15px; height: 62px; border-radius: 3px; z-index: 1; }
+.cutting { background: #147d80; }
+.assembly { background: #4364a4; }
+.job.has-findings .bar { box-shadow: 0 0 0 3px #a42c35; }
+.job.has-findings .job-findings { color: #a42c35; font-weight: 600; }
+.job-edit label { display: flex; justify-content: space-between; gap: 8px; font-size: .9rem; font-weight: 600; }
+output { font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 100%; margin: 12px 0 4px; accent-color: #147d80; }
+#start-2 { accent-color: #4364a4; }
+.job-edit p { font-size: .85rem; }
+.job-findings { min-height: 1.5em; }
+.omit { display: flex; align-items: center; gap: 8px; width: fit-content; margin-top: 24px; font-size: .95rem; }
+.omit input { width: 18px; height: 18px; accent-color: #147d80; }
+.unsupplied { position: absolute; inset: 0; display: grid; place-items: center; font-size: .85rem; color: #485f68; }
+[hidden] { display: none !important; }
+.feedback { margin: 24px 0; padding: 20px 24px; border-left: 5px solid #147d80; background: white; }
+.feedback h2 { font-size: 1.3rem; margin-bottom: 4px; }
+.feedback[data-status="invalid"], .feedback[data-status="error"] { border-color: #a42c35; }
+.feedback[data-status="incomplete"] { border-color: #6f5259; }
+#findings { padding-left: 24px; margin: 16px 0 0; }
+#findings:empty { display: none; }
+#findings li + li { margin-top: 10px; }
+.finding-jobs { display: block; font-weight: 650; font-size: .9rem; }
+details { border-top: 1px solid #a8b9c0; padding-top: 18px; }
+summary { cursor: pointer; width: fit-content; }
+details p { margin-top: 12px; max-width: 75ch; }
+details h3 { font-size: 1rem; margin-top: 20px; }
+pre { padding: 16px; overflow: auto; max-height: 360px; background: white; font-size: .8rem; }
+footer { font-size: .85rem; color: #485f68; margin-top: 28px; }
+@media (max-width: 850px) {
+  main { padding: 24px 16px; }
+  fieldset { padding: 20px 16px; }
+  .schedule { --label-width: 130px; --edit-width: 170px; --gap: 16px; }
+}
+@media (max-width: 680px) {
+  .axis { margin: 0; padding-top: 12px; }
+  .job { grid-template-columns: 1fr; gap: 12px; }
+  .job-label { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  .track { height: 80px; }
+  .bar { top: 10px; height: 60px; }
+  .job-edit { max-width: 100%; }
+  .axis-help { max-width: 32ch; }
+  .feedback { padding: 16px; }
+}
