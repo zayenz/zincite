@@ -1,0 +1,55 @@
+[
+  {
+    "name": "feasible",
+    "model": "schedule",
+    "assignment": {"entries": [
+      {"name": "start", "value": {"kind": "array", "value": [{"kind": "integer", "value": "1"}, {"kind": "integer", "value": "4"}]}},
+      {"name": "starts_early", "value": {"kind": "scalar", "value": {"kind": "boolean", "value": true}}}
+    ]},
+    "status": "valid",
+    "complete": true
+  },
+  {
+    "name": "infeasible",
+    "model": "schedule",
+    "assignment": {"entries": [
+      {"name": "start", "value": {"kind": "array", "value": [{"kind": "integer", "value": "8"}, {"kind": "integer", "value": "5"}]}}
+    ]},
+    "status": "invalid",
+    "complete": true
+  },
+  {
+    "name": "incomplete",
+    "model": "schedule",
+    "assignment": {"entries": []},
+    "status": "incomplete",
+    "complete": false
+  },
+  {
+    "name": "incomplete-invalid",
+    "model": "schedule",
+    "assignment": {"entries": [
+      {"name": "X_INTRODUCED_17_", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "8"}}}
+    ]},
+    "status": "invalid",
+    "complete": false
+  },
+  {
+    "name": "exact-valid",
+    "model": "exact",
+    "assignment": {"entries": [
+      {"name": "x", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "9007199254740993"}}}
+    ]},
+    "status": "valid",
+    "complete": true
+  },
+  {
+    "name": "exact-invalid",
+    "model": "exact",
+    "assignment": {"entries": [
+      {"name": "x", "value": {"kind": "scalar", "value": {"kind": "integer", "value": "9007199254740992"}}}
+    ]},
+    "status": "invalid",
+    "complete": true
+  }
+]

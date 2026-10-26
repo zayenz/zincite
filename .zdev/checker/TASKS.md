@@ -3,9 +3,9 @@
 # Tasks: checker
 
 - Total: 9
-- Ready: 1
-- Blocked: 3
-- Done: 5
+- Ready: 2
+- Blocked: 1
+- Done: 6
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -14,7 +14,7 @@
 | [checker-003](tasks/003-complete-candidates-through-supported-functional-definitions.md) | Complete candidates through supported functional definitions | done | checker-002 |
 | [checker-004](tasks/004-package-the-checker-library-and-application-feedback-example.md) | Package the checker library and application feedback example | done | checker-003 |
 | [checker-005](tasks/005-export-and-load-prepared-models-without-reparsing-source.md) | Export and load prepared models without reparsing source | done | checker-003 |
-| [checker-006](tasks/006-expose-a-parser-free-webassembly-checking-api.md) | Expose a parser-free WebAssembly checking API | ready | checker-005 |
-| [checker-007](tasks/007-demonstrate-interactive-graphical-edits-and-structured-feedb.md) | Demonstrate interactive graphical edits and structured feedback | blocked | checker-004, checker-006 |
-| [checker-008](tasks/008-support-finite-integer-sets-and-one-useful-global-predicate.md) | Support finite integer sets and one useful global predicate | blocked | checker-004, checker-005, checker-006 |
+| [checker-006](tasks/006-expose-a-parser-free-webassembly-checking-api.md) | Expose a parser-free WebAssembly checking API | done | checker-005 |
+| [checker-007](tasks/007-demonstrate-interactive-graphical-edits-and-structured-feedb.md) | Demonstrate interactive graphical edits and structured feedback | ready | checker-004, checker-006 |
+| [checker-008](tasks/008-support-finite-integer-sets-and-one-useful-global-predicate.md) | Support finite integer sets and one useful global predicate | ready | checker-004, checker-005, checker-006 |
 | [checker-009](tasks/009-measure-interactive-checking-and-document-the-supported-work.md) | Measure interactive checking and document the supported workflow | blocked | checker-007, checker-008 |

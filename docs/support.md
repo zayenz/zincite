@@ -39,7 +39,10 @@ Checking starts no compiler or solver; compilation is a separate offline step.
 The checker can export prepared models as versioned JSON, validate and load
 them without parsing FlatZinc, and check through the same runtime. Mathematical
 integers use exact decimal strings. The loader and checking API also work
-without the optional syntax dependency; browser bindings are not yet available.
+without the optional syntax dependency. The optional Wasm bindings expose that
+same API to JavaScript with typed assignment JSON. The
+[Wasm example](../examples/checker-wasm/README.md) documents parser-free builds
+and compares Node.js/Wasm reports with native checking.
 
 ## Unknown facts and incomplete analysis
 

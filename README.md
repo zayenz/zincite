@@ -84,6 +84,9 @@ Export a prepared model to versioned JSON and load it for checking without
 parsing the FlatZinc again. See the [checker guide](crates/zincite-check/README.md)
 for local installation, working commands, structured reports and exact coverage. Supported linear
 equality and full reification definitions derive auxiliaries from primary decisions.
+Parser-free WebAssembly bindings load the same prepared artifacts and check typed
+assignment JSON. The [Wasm example](examples/checker-wasm/README.md) includes
+Node.js and browser builds and an executable comparison with native reports.
 The checker is not part of the published 0.3.0 packages.
 
 ## Exit codes

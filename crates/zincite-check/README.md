@@ -1,6 +1,6 @@
 # zincite-check
 
-A native Rust checker for a small FlatZinc dialect targeting MiniZinc 2.10.1.
+A Rust and WebAssembly checker for a small FlatZinc dialect targeting MiniZinc 2.10.1.
 Prepare a model once, then check candidate assignments repeatedly. Checking
 performs no I/O and starts no compiler or solver.
 
@@ -147,8 +147,16 @@ parser and CLI. `PreparedModel::from_json` and `check` also work with
 `zincite-check = { version = "0.3.0", default-features = false }` when using
 this checkout. Supply `Assignment` values directly in that build. `from_json`
 returns a `Diagnostic` on malformed input; `PreparedModel` does not implement
-`Deserialize`, so deserialization cannot bypass admission checks. WebAssembly
-bindings are later work.
+`Deserialize`, so deserialization cannot bypass admission checks.
+
+The optional `wasm` feature exposes a JavaScript `PreparedModel` constructor and
+`check` method through wasm-bindgen. Build it with `--no-default-features` to
+exclude parsing and the native CLI. Typed assignment JSON and report JSON use
+the shared Rust records and exact decimal integer strings. The
+[Wasm example](../../examples/checker-wasm/README.md) gives repeatable builds for
+Node.js and browser ES modules, the assignment format, and an executable
+native/Wasm report comparison. It loads exported artifacts without source files
+or a MiniZinc installation.
 
 ## Accepted model and assignment forms
 
@@ -176,8 +184,9 @@ bindings are later work.
 
 Names are unquoted FlatZinc identifiers. `.dzn` assignments contain only Boolean
 or signed decimal integer literals, or one-dimensional arrays of those literals.
-No missing-value placeholders, expressions, indexed assignment targets, JSON
-input or solver solution streams are accepted. A partial candidate names the
+No missing-value placeholders, expressions, indexed assignment targets or solver
+solution streams are accepted. Native CLI assignment input uses `.dzn`; the
+Wasm API accepts typed assignment JSON. A partial candidate names the
 available scalars; an array assignment must supply every element.
 
 Unknown names, duplicate entries, contradictory explicit assignments through

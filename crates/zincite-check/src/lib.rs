@@ -6,6 +6,9 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 mod serialized;
 
+#[cfg(all(feature = "wasm", target_arch = "wasm32"))]
+mod wasm;
+
 #[cfg(feature = "prepare")]
 mod prepare;
 #[cfg(feature = "prepare")]
@@ -154,13 +157,15 @@ impl Domain {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum AssignmentValue {
     Scalar(Value),
     Array(Vec<Value>),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AssignmentEntry {
     pub name: String,
     pub value: AssignmentValue,
@@ -168,7 +173,8 @@ pub struct AssignmentEntry {
 }
 
 /// Entries keep their written order so duplicate names can be diagnosed.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Assignment {
     pub entries: Vec<AssignmentEntry>,
 }
