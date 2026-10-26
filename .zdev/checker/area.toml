@@ -1,0 +1,7 @@
+schema_version = 1
+tag = "checker"
+title = "Interactive FlatZinc checker"
+objective = "Complete application-supplied decisions into a full candidate assignment and report every constraint violation through structured native Rust and WebAssembly results."
+branch = "festure/checker"
+lifecycle = "open"
+base_commit = "2c7a25a68569e1a925d6c8be7745edf00808c113"
