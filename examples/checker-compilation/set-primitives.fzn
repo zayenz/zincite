@@ -1,0 +1,20 @@
+% Direct checker specimen; set-primitives.mzn is the separate compile-only control.
+var set of int: left;
+var set of int: right;
+var set of int: difference ::is_defined_var;
+var set of int: changed ::is_defined_var;
+var int: size ::is_defined_var;
+var bool: member ::is_defined_var;
+var bool: ordered ::is_defined_var;
+constraint fzn_set_diff(left,right,difference)::defines_var(difference)::checker_constraint("difference",[9007199254740993]);
+constraint gecode_set_symdiff(left,right,changed)::defines_var(changed);
+constraint set_card(changed,size)::defines_var(size);
+constraint set_in_reif(9007199254740993,difference,member)::defines_var(member);
+constraint set_lt_reif(difference,right,ordered)::defines_var(ordered);
+constraint bool_eq(member,true);
+constraint bool_eq(ordered,false);
+constraint gecode_set_rel_imp_fzn(left,8,right,true)::checker_constraint("native_order",[1,2]);
+constraint set_subset_imp(left,right,false);
+constraint int_in(true,{1});
+constraint set_le(right,left)::checker_constraint("sorted_order",[2,1]);
+solve minimize size;

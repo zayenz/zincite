@@ -5,11 +5,11 @@ const { tmpdir } = require("node:os");
 const { resolve, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-assert.equal(process.argv.length, 10,
-    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json CANDIDATES.json NATIVE_CHECKER");
-const [glue, schedule, exact, bench, floats, selection, candidates, native] = process.argv.slice(2).map(path => resolve(path));
+assert.equal(process.argv.length, 11,
+    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json CANDIDATES.json NATIVE_CHECKER");
+const [glue, schedule, exact, bench, floats, selection, sets, candidates, native] = process.argv.slice(2).map(path => resolve(path));
 const { PreparedModel } = require(glue);
-const paths = { schedule, exact, bench, floats, selection };
+const paths = { schedule, exact, bench, floats, selection, sets };
 const defaults = {};
 const models = Object.fromEntries(Object.entries(paths).map(([name, path]) =>
     [name, new PreparedModel(readFileSync(path, "utf8"))]));
@@ -99,6 +99,24 @@ function decimal(value) {
 }
 
 function checkDetails(name, report) {
+    if (name === "sets-valid") assert.equal(report.objective.argument.value.value, "2");
+    if (name === "sets-swapped") {
+        const order = report.violations.find(finding => finding.details.native_code === "8");
+        assert.equal(order.details.kind, "set_relation");
+        assert.equal(order.details.relation, "characteristic_less");
+        assert.equal(order.details.left.value.value.ranges[0].lower, "9007199254740992");
+        assert.equal(order.check.constraint.metadata.application.id, "native_order");
+        assert(report.violations.some(finding => finding.details.relation === "less_equal"));
+    }
+    if (name === "sets-conflict") {
+        for (const kind of ["set_operation", "set_membership", "set_cardinality"]) {
+            assert(report.violations.some(finding => finding.details.kind === kind), kind);
+        }
+    }
+    if (name === "sets-incomplete-invalid") {
+        assert(report.violations.some(finding => finding.details.kind === "boolean_relation"));
+        assert(report.completeness.blocked_checks.length > 0);
+    }
     if (name === "selection-saved") assert.equal(report.objective.argument.value.value, "7");
     if (name === "selection-conflict") {
         for (const kind of ["element_mismatch", "conditional_mismatch"]) {

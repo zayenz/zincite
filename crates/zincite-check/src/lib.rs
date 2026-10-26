@@ -22,7 +22,8 @@ pub use selection::ElementLayout;
 use selection::{SelectionForm, SelectionName, SelectionPosition};
 mod serialized;
 mod sets;
-pub use sets::IntegerSet;
+pub use sets::{IntegerSet, SetOperation, SetRelation};
+use sets::{SetKind, SetName};
 
 #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 mod wasm;
@@ -71,6 +72,14 @@ impl Value {
             unreachable!("admission validates Boolean operands")
         };
         *value
+    }
+
+    fn membership_element(&self) -> i64 {
+        match self {
+            Self::Integer(value) => *value,
+            Self::Boolean(value) => i64::from(*value),
+            _ => unreachable!("admission validates membership elements"),
+        }
     }
 
     fn set(&self) -> &IntegerSet {
@@ -410,6 +419,25 @@ pub enum ViolationKind {
         inputs: Vec<ArgumentValue>,
         result: ArgumentValue,
     },
+    SetRelation {
+        relation: SetRelation,
+        left: ArgumentValue,
+        right: ArgumentValue,
+        condition: RelationConditionValue,
+        #[serde(serialize_with = "serialize_optional_integer")]
+        native_code: Option<i64>,
+    },
+    SetMembership {
+        element: ArgumentValue,
+        set: ArgumentValue,
+        condition: RelationConditionValue,
+    },
+    SetOperation {
+        operation: SetOperation,
+        left: ArgumentValue,
+        right: ArgumentValue,
+        result: ArgumentValue,
+    },
     SetIn {
         element: ArgumentValue,
         set: ArgumentValue,
@@ -676,6 +704,28 @@ enum Predicate {
         inputs: Vec<Operand>,
         result: Operand,
     },
+    SetRelation {
+        relation: SetRelation,
+        left: Operand,
+        right: Operand,
+        condition: RelationCondition,
+        #[serde(
+            serialize_with = "serialize_optional_integer",
+            deserialize_with = "deserialize_optional_integer"
+        )]
+        native_code: Option<i64>,
+    },
+    SetMembership {
+        element: Operand,
+        set: Operand,
+        condition: RelationCondition,
+    },
+    SetOperation {
+        operation: SetOperation,
+        left: Operand,
+        right: Operand,
+        result: Operand,
+    },
     SetIn {
         element: Operand,
         set: Operand,
@@ -783,7 +833,13 @@ impl Predicate {
                 else_value,
                 result,
             } => vec![condition, then_value, else_value, result],
-            Self::FloatRelation {
+            Self::SetRelation {
+                left,
+                right,
+                condition,
+                ..
+            }
+            | Self::FloatRelation {
                 left,
                 right,
                 condition,
@@ -840,7 +896,13 @@ impl Predicate {
             Self::FloatConversion { input, result, .. } => vec![input, result],
             Self::FloatMembership { element, .. } => vec![element],
             Self::Linear { terms, .. } => terms.iter().collect(),
-            Self::ReifiedLessEqual {
+            Self::SetOperation {
+                left,
+                right,
+                result,
+                ..
+            }
+            | Self::ReifiedLessEqual {
                 left,
                 right,
                 result,
@@ -855,12 +917,37 @@ impl Predicate {
                 right,
                 result,
             } => vec![left, right, result],
+            Self::SetMembership {
+                element,
+                set,
+                condition,
+            } => [element, set]
+                .into_iter()
+                .chain(condition.operand())
+                .collect(),
             Self::SetIn { element, set } => vec![element, set],
             Self::SetEqual { left, right } | Self::SetSubset { left, right } => vec![left, right],
             Self::SetCardinality { set, cardinality } => vec![set, cardinality],
             Self::DisjunctiveStrict { starts, durations } => {
                 starts.iter().chain(durations).collect()
             }
+        }
+    }
+
+    fn set_truth(&self, values: &[Option<Value>]) -> Option<bool> {
+        match self {
+            Self::SetRelation {
+                relation,
+                left,
+                right,
+                ..
+            } => Some(relation.holds(left.value(values)?.set(), right.value(values)?.set())),
+            Self::SetMembership { element, set, .. } => Some(
+                set.value(values)?
+                    .set()
+                    .contains(element.value(values)?.membership_element()),
+            ),
+            _ => unreachable!("only conditioned set predicates calculate truth"),
         }
     }
 
@@ -888,7 +975,9 @@ impl Predicate {
 
     fn inactive_implication(&self, values: &[Option<Value>]) -> bool {
         match self {
-            Self::FloatRelation { condition, .. }
+            Self::SetRelation { condition, .. }
+            | Self::SetMembership { condition, .. }
+            | Self::FloatRelation { condition, .. }
             | Self::FloatLinear { condition, .. }
             | Self::BooleanRelation { condition, .. }
             | Self::BooleanLinear { condition, .. }
@@ -951,6 +1040,8 @@ enum DefinitionDirection {
     SetCardinality,
     SetUnion,
     SetIntersection,
+    SetOperation,
+    SetReified,
 }
 
 #[derive(Debug)]
@@ -1478,6 +1569,26 @@ impl PreparedModel {
                 };
                 Ok(Some(Value::Boolean(left <= right)))
             }
+            (
+                Predicate::SetRelation { .. } | Predicate::SetMembership { .. },
+                DefinitionDirection::SetReified,
+            ) => Ok(constraint.predicate.set_truth(values).map(Value::Boolean)),
+            (
+                Predicate::SetOperation {
+                    operation,
+                    left,
+                    right,
+                    ..
+                },
+                DefinitionDirection::SetOperation,
+            ) => {
+                let (Some(left), Some(right)) = (left.value(values), right.value(values)) else {
+                    return Ok(None);
+                };
+                Ok(Some(Value::IntegerSet(
+                    operation.calculate(left.set(), right.set()),
+                )))
+            }
             (Predicate::SetEqual { left, right }, DefinitionDirection::SetEqual { input }) => {
                 Ok([left, right][input].value(values).cloned())
             }
@@ -2002,8 +2113,70 @@ impl PreparedModel {
                     }),
                 )
             }
+            Predicate::SetRelation {
+                relation,
+                left,
+                right,
+                condition,
+                native_code,
+            } => {
+                let truth = constraint
+                    .predicate
+                    .set_truth(values)
+                    .expect("available operands");
+                Ok(
+                    (!condition.satisfied(truth, values)).then(|| ViolationKind::SetRelation {
+                        relation: *relation,
+                        left: argument(left),
+                        right: argument(right),
+                        condition: self.condition_value(condition, values),
+                        native_code: *native_code,
+                    }),
+                )
+            }
+            Predicate::SetMembership {
+                element,
+                set,
+                condition,
+            } => {
+                let truth = constraint
+                    .predicate
+                    .set_truth(values)
+                    .expect("available operands");
+                Ok(
+                    (!condition.satisfied(truth, values)).then(|| ViolationKind::SetMembership {
+                        element: argument(element),
+                        set: argument(set),
+                        condition: self.condition_value(condition, values),
+                    }),
+                )
+            }
+            Predicate::SetOperation {
+                operation,
+                left,
+                right,
+                result,
+            } => {
+                let expected = operation.calculate(
+                    left.value(values).expect("available operand").set(),
+                    right.value(values).expect("available operand").set(),
+                );
+                Ok(
+                    (expected != *result.value(values).expect("available operand").set()).then(
+                        || ViolationKind::SetOperation {
+                            operation: *operation,
+                            left: argument(left),
+                            right: argument(right),
+                            result: argument(result),
+                        },
+                    ),
+                )
+            }
             Predicate::SetIn { element, set } => {
-                let element_value = element.value(values).expect("available operand").integer();
+                let element_value = element
+                    .value(values)
+                    .expect("available operand")
+                    .membership_element();
                 let set_value = set.value(values).expect("available operand").set();
                 Ok(
                     (!set_value.contains(element_value)).then(|| ViolationKind::SetIn {
@@ -2478,6 +2651,14 @@ fn definition_direction(
         Predicate::IntegerArithmetic { inputs, .. } => {
             let is_final_output = occurrences.as_slice() == [inputs.len()];
             Ok(is_final_output.then_some(DefinitionDirection::IntegerArithmetic))
+        }
+        Predicate::SetRelation { condition, .. } | Predicate::SetMembership { condition, .. } => {
+            Ok((matches!(condition, RelationCondition::Reified { .. })
+                && occurrences.as_slice() == [2])
+            .then_some(DefinitionDirection::SetReified))
+        }
+        Predicate::SetOperation { .. } => {
+            Ok((occurrences.as_slice() == [2]).then_some(DefinitionDirection::SetOperation))
         }
         Predicate::SetEqual { .. } => {
             Ok(

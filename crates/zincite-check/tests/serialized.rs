@@ -1004,3 +1004,237 @@ fn parser_free_selection_loading_validates_names_types_roles_and_layouts() {
         );
     }
 }
+
+#[cfg(feature = "prepare")]
+#[test]
+fn set_primitive_specimen_preserves_completion_findings_and_text_after_loading() {
+    use zincite_check::{parse_assignment, prepare};
+    let model = prepare(
+        "set-primitives.fzn",
+        include_str!("../../../examples/checker-compilation/set-primitives.fzn"),
+    )
+    .unwrap();
+    let artifact: Json = serde_json::from_str(&model.to_json().unwrap()).unwrap();
+    let loaded = PreparedModel::from_json(&artifact.to_string()).unwrap();
+    for (candidate, status, complete) in [
+        (
+            "left={9007199254740993};right={9007199254740992};",
+            Status::Valid,
+            true,
+        ),
+        (
+            "left={9007199254740992};right={9007199254740993};",
+            Status::Invalid,
+            true,
+        ),
+        (
+            "left={9007199254740993};right={9007199254740992};changed={};member=false;size=1;",
+            Status::Invalid,
+            true,
+        ),
+        ("member=false;", Status::Invalid, false),
+        ("", Status::Incomplete, false),
+    ] {
+        let assignment = parse_assignment("candidate.dzn", candidate).unwrap();
+        let before = model.check(&assignment).unwrap();
+        let after = loaded.check(&assignment).unwrap();
+        assert_eq!(before.status, status, "{candidate}");
+        assert_eq!(before.completeness.complete, complete, "{candidate}");
+        assert_eq!(
+            serde_json::to_value(&before).unwrap(),
+            serde_json::to_value(&after).unwrap()
+        );
+        assert_eq!(
+            zincite_check::cli::render_text(&before),
+            zincite_check::cli::render_text(&after)
+        );
+        if candidate.starts_with("left={9007199254740992}") {
+            let text = zincite_check::cli::render_text(&before);
+            assert!(text.contains("sorted elements"));
+            assert!(text.contains("characteristic order"));
+            let report = serde_json::to_value(&before).unwrap();
+            let native = report["violations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|v| v["details"]["native_code"] == "8")
+                .unwrap();
+            assert_eq!(native["details"]["relation"], "characteristic_less");
+            assert_eq!(
+                native["details"]["left"]["value"]["value"]["ranges"][0]["lower"],
+                "9007199254740992"
+            );
+            assert_eq!(
+                native["check"]["constraint"]["metadata"]["application"]["id"],
+                "native_order"
+            );
+        }
+    }
+    for (pointer, value) in [
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("set_symdiff"),
+        ),
+        (
+            "/model/constraints/0/predicate/SetOperation/operation",
+            json!("intersection"),
+        ),
+        (
+            "/model/constraints/3/reference/predicate",
+            json!("set_in_imp"),
+        ),
+        (
+            "/model/constraints/3/predicate/SetMembership/element",
+            json!({"Literal":{"kind":"integer_set","value":{"ranges":[]}}}),
+        ),
+        (
+            "/model/constraints/3/predicate/SetMembership/condition",
+            json!({"Reified":{"result":{"Variable":0}}}),
+        ),
+        (
+            "/model/constraints/3/reference/predicate",
+            json!("int_in_reif"),
+        ),
+        (
+            "/model/constraints/3/predicate/SetMembership/element",
+            json!({"Literal":{"kind":"boolean","value":true}}),
+        ),
+        (
+            "/model/constraints/4/predicate/SetRelation/native_code",
+            json!("8"),
+        ),
+        (
+            "/model/constraints/8/reference/predicate",
+            json!("fzn_set_subset_imp"),
+        ),
+    ] {
+        let mut malformed = artifact.clone();
+        *malformed.pointer_mut(pointer).unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&malformed.to_string()).is_err(),
+            "{pointer}"
+        );
+    }
+}
+
+#[test]
+fn parser_free_sets_validate_codes_legacy_encodings_and_canonical_ranges() {
+    let set = |lower: &str, upper: &str| json!({"Literal":{"kind":"integer_set","value":{"ranges":[{"lower":lower,"upper":upper}]}}});
+    let mut original = executable();
+    original["model"]["constraints"][0]["reference"]["predicate"] =
+        json!("fzn_gecode_set_rel_imp_fzn");
+    original["model"]["constraints"][0]["predicate"] = json!({"SetRelation":{
+        "relation":"characteristic_less","left":set("2","2"),"right":set("1","1"),
+        "condition":{"Implied":{"guard":{"Literal":{"kind":"boolean","value":true}}}}, "native_code":"8"
+    }});
+    let loaded = PreparedModel::from_json(&original.to_string()).unwrap();
+    let exported: Json = serde_json::from_str(&loaded.to_json().unwrap()).unwrap();
+    assert_eq!(exported, original);
+    for (pointer, value) in [
+        (
+            "/model/constraints/0/predicate/SetRelation/native_code",
+            json!("0"),
+        ),
+        (
+            "/model/constraints/0/predicate/SetRelation/native_code",
+            json!("11"),
+        ),
+        (
+            "/model/constraints/0/predicate/SetRelation/native_code",
+            json!("7"),
+        ),
+        (
+            "/model/constraints/0/predicate/SetRelation/native_code",
+            Json::Null,
+        ),
+        (
+            "/model/constraints/0/predicate/SetRelation/native_code",
+            json!(8),
+        ),
+        (
+            "/model/constraints/0/predicate/SetRelation/condition",
+            json!("Plain"),
+        ),
+        (
+            "/model/constraints/0/predicate/SetRelation/left",
+            json!({"Variable":0}),
+        ),
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("set_lt_imp"),
+        ),
+        (
+            "/model/constraints/0/predicate/SetRelation/left/Literal/value/ranges/0/lower",
+            json!(2),
+        ),
+    ] {
+        let mut malformed = original.clone();
+        *malformed.pointer_mut(pointer).unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&malformed.to_string()).is_err(),
+            "{pointer}"
+        );
+    }
+    // The six version-1 encodings keep their original shape and completion paths.
+    for (name, predicate) in [
+        (
+            "set_in",
+            json!({"SetIn":{"element":{"Literal":{"kind":"integer","value":"1"}},"set":set("1","2")}}),
+        ),
+        (
+            "set_eq",
+            json!({"SetEqual":{"left":set("1","2"),"right":set("1","2")}}),
+        ),
+        (
+            "set_subset",
+            json!({"SetSubset":{"left":set("1","1"),"right":set("1","2")}}),
+        ),
+        (
+            "set_card",
+            json!({"SetCardinality":{"set":set("1","2"),"cardinality":{"Literal":{"kind":"integer","value":"2"}}}}),
+        ),
+        (
+            "set_union",
+            json!({"SetUnion":{"left":set("1","1"),"right":set("2","2"),"result":set("1","2")}}),
+        ),
+        (
+            "set_intersect",
+            json!({"SetIntersection":{"left":set("1","2"),"right":set("2","3"),"result":set("2","2")}}),
+        ),
+    ] {
+        let mut legacy = original.clone();
+        legacy["model"]["constraints"][0]["reference"]["predicate"] = json!(name);
+        legacy["model"]["constraints"][0]["predicate"] = predicate;
+        assert_eq!(
+            serde_json::from_str::<Json>(
+                &PreparedModel::from_json(&legacy.to_string())
+                    .unwrap()
+                    .to_json()
+                    .unwrap()
+            )
+            .unwrap(),
+            legacy
+        );
+    }
+    let mut noncanonical = original.clone();
+    noncanonical["model"]["constraints"][0]["reference"]["predicate"] = json!("set_eq");
+    noncanonical["model"]["constraints"][0]["predicate"]["SetRelation"]["relation"] =
+        json!("equal");
+    noncanonical["model"]["constraints"][0]["predicate"]["SetRelation"]["condition"] =
+        json!("Plain");
+    noncanonical["model"]["constraints"][0]["predicate"]["SetRelation"]["native_code"] = Json::Null;
+    assert!(PreparedModel::from_json(&noncanonical.to_string()).is_err());
+    for ranges in [
+        json!([{"lower":"2","upper":"1"}]),
+        json!([{"lower":"3","upper":"4"},{"lower":"1","upper":"1"}]),
+        json!([{"lower":"1","upper":"3"},{"lower":"3","upper":"4"}]),
+        json!([{"lower":"1","upper":"2"},{"lower":"3","upper":"4"}]),
+        json!([{"lower":1,"upper":"2"}]),
+    ] {
+        let mut malformed = original.clone();
+        malformed["model"]["constraints"][0]["predicate"]["SetRelation"]["left"]["Literal"]["value"]
+            ["ranges"] = ranges.clone();
+        assert!(PreparedModel::from_json(&malformed.to_string()).is_err());
+        assert!(serde_json::from_value::<Assignment>(json!({"entries":[{"name":"s","value":{"kind":"scalar","value":{"kind":"integer_set","value":{"ranges":ranges}}}}]})).is_err());
+    }
+}

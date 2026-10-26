@@ -450,6 +450,48 @@ pub fn render_text(report: &CheckReport) -> String {
                     argument_text(result)
                 );
             }
+            ViolationKind::SetRelation {
+                relation,
+                left,
+                right,
+                condition,
+                ..
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  ({}) {relation} ({}){}",
+                    argument_text(left),
+                    argument_text(right),
+                    condition_text(condition)
+                );
+            }
+            ViolationKind::SetMembership {
+                element,
+                set,
+                condition,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  ({}) in ({}){}",
+                    argument_text(element),
+                    argument_text(set),
+                    condition_text(condition)
+                );
+            }
+            ViolationKind::SetOperation {
+                operation,
+                left,
+                right,
+                result,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  ({}) {operation} ({}) = ({})",
+                    argument_text(left),
+                    argument_text(right),
+                    argument_text(result)
+                );
+            }
             ViolationKind::SetIn { element, set } => {
                 let _ = writeln!(
                     text,

@@ -20,15 +20,7 @@ GECODE_REV = "186551447db0f74639d65cb8de5af190f15ac2c2"
 BEGIN = "<!-- checker-coverage:begin -->"
 END = "<!-- checker-coverage:end -->"
 NAME = r"(?:[A-Za-z_][A-Za-z_0-9]*|'[^']*')"
-CURRENT = {
-    "set_in",
-    "set_eq",
-    "set_subset",
-    "set_card",
-    "set_union",
-    "set_intersect",
-    "fzn_disjunctive_strict",
-}
+CURRENT = {"fzn_disjunctive_strict"}
 CURRENT |= {
     prefix + "int_" + shape + relation + suffix
     for prefix in ("", "gecode_", "fzn_")
@@ -156,6 +148,44 @@ CURRENT |= {
     prefix + "gecode_" + kind + "_ite"
     for prefix in ("", "gecode_", "fzn_")
     for kind in ("bool", "int", "set", "float")
+}
+
+
+CURRENT |= {
+    prefix + name
+    for prefix in ("", "gecode_", "fzn_")
+    for name in (
+        "set_eq",
+        "set_ne",
+        "set_le",
+        "set_lt",
+        "set_subset",
+        "set_superset",
+        "equal",
+        "set_eq_reif",
+        "set_ne_reif",
+        "set_le_reif",
+        "set_lt_reif",
+        "set_subset_reif",
+        "set_superset_reif",
+        "equal_reif",
+        "set_in",
+        "set_in_reif",
+        "set_in_imp",
+        "int_in",
+        "int_in_reif",
+        "int_in_imp",
+        "set_card",
+        "set_union",
+        "set_intersect",
+        "set_diff",
+        "set_symdiff",
+        "gecode_set_rel_imp_fzn",
+    )
+}
+CURRENT |= {
+    "set_" + relation + "_imp"
+    for relation in ("eq", "ne", "le", "lt", "subset", "superset")
 }
 
 
@@ -563,7 +593,7 @@ def output_rule(name: str, task: int, *, wrapper: bool = False) -> str:
         return "argument 3 (x -> y)"
     if name in {"array_float_minimum", "array_float_maximum"}:
         return "argument 1 (extremum)"
-    if name == "gecode_float_rel_imp_fzn":
+    if name in {"gecode_float_rel_imp_fzn", "gecode_set_rel_imp_fzn"}:
         return "none (guard)"
     if name.endswith("_imp") and name != "bool_clause_imp":
         return "none (guard)"
@@ -740,6 +770,8 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
     float_names = floats.split("match name {", 1)[1].split("_ =>", 1)[0]
     selection = (ROOT / "crates/zincite-check/src/selection.rs").read_text()
     selection_names = selection.split("match name {", 1)[1].split("_ =>", 1)[0]
+    sets = (ROOT / "crates/zincite-check/src/sets.rs").read_text()
+    set_names = sets.split("match name {", 1)[1].split("_ =>", 1)[0]
     admitted = set(
         re.findall(
             r'"([a-z_0-9]+)"',
@@ -748,7 +780,8 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
             + relation_names
             + boolean_names
             + float_names
-            + selection_names,
+            + selection_names
+            + set_names,
         )
     )
     if admitted != CURRENT:

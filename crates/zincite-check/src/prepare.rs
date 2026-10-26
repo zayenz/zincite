@@ -283,6 +283,23 @@ impl Source<'_> {
         let parameters: Vec<_> = children[0].child_nodes().collect();
         let expected = if let Some(selection) = SelectionName::from_name(name) {
             selection.signature()
+        } else if let Some(set) = SetName::from_name(name) {
+            let element = if matches!(set.kind, SetKind::Membership { .. }) {
+                parameters
+                    .first()
+                    .and_then(|parameter| parameter.child_nodes().next())
+                    .map(|ty| self.type_spec(ty, true))
+                    .transpose()?
+                    .map_or(ValueType::Integer, |ty| ty.kind)
+            } else {
+                ValueType::Integer
+            };
+            if matches!(set.kind, SetKind::Membership { .. })
+                && !matches!(element, ValueType::Integer | ValueType::Boolean)
+            {
+                return Err(self.error(node, "membership elements must be integer or Boolean"));
+            }
+            set.signature(element)
         } else if let Some(float) = FloatName::from_name(name) {
             float.signature()
         } else if let Some(boolean) = BooleanName::from_name(name) {
@@ -311,16 +328,6 @@ impl Source<'_> {
             arguments
         } else {
             match name {
-                "set_in" => vec![
-                    scalar(ValueType::Integer, true),
-                    scalar(ValueType::IntegerSet, true),
-                ],
-                "set_eq" | "set_subset" => vec![scalar(ValueType::IntegerSet, true); 2],
-                "set_card" => vec![
-                    scalar(ValueType::IntegerSet, true),
-                    scalar(ValueType::Integer, true),
-                ],
-                "set_union" | "set_intersect" => vec![scalar(ValueType::IntegerSet, true); 3],
                 "fzn_disjunctive_strict" => vec![array(ValueType::Integer, true); 2],
                 _ => {
                     return Err(
@@ -342,8 +349,10 @@ impl Source<'_> {
                     "predicate formal names must be distinct and start with a letter",
                 ));
             }
-            let allow_fixed =
-                (name == "set_in" && index == 1) || (name == "bool_lin_le" && index == 2);
+            let allow_fixed = (SetName::from_name(name)
+                .is_some_and(|set| matches!(set.kind, SetKind::Membership { .. }))
+                && index == 1)
+                || (name == "bool_lin_le" && index == 2);
             signature.push(self.formal_parameter(parameter, expected, allow_fixed)?);
         }
         Ok(signature)
@@ -1150,8 +1159,11 @@ impl<'a> Lowerer<'a> {
         let boolean = BooleanName::from_name(&name);
         let float = FloatName::from_name(&name);
         let selection = SelectionName::from_name(&name);
+        let set = SetName::from_name(&name);
         let arity = if let Some(selection) = selection {
             selection.arity()
+        } else if let Some(set) = set {
+            set.signature(ValueType::Integer).len()
         } else if let Some(float) = float {
             float.signature().len()
         } else if let Some(boolean) = boolean {
@@ -1164,8 +1176,7 @@ impl<'a> Lowerer<'a> {
             relation.arity()
         } else {
             match name.as_str() {
-                "set_in" | "set_eq" | "set_subset" | "set_card" | "fzn_disjunctive_strict" => 2,
-                "set_union" | "set_intersect" => 3,
+                "fzn_disjunctive_strict" => 2,
                 _ => ArithmeticOperation::from_name(&name)
                     .map(|operation| operation.input_count() + 1)
                     .ok_or_else(|| {
@@ -1181,6 +1192,8 @@ impl<'a> Lowerer<'a> {
         }
         let predicate = if let Some(selection) = selection {
             self.selection_predicate(call, selection, &args)?
+        } else if let Some(set) = set {
+            self.set_predicate(set, &args)?
         } else if let Some(float) = float {
             self.float_predicate(call, float, &args)?
         } else if let Some(boolean) = boolean {
@@ -1191,32 +1204,6 @@ impl<'a> Lowerer<'a> {
             self.integer_relation(call, relation, &args)?
         } else {
             match name.as_str() {
-                "set_in" => Predicate::SetIn {
-                    element: self.scalar(args[0], ValueType::Integer)?,
-                    set: self.scalar(args[1], ValueType::IntegerSet)?,
-                },
-                "set_eq" => Predicate::SetEqual {
-                    left: self.scalar(args[0], ValueType::IntegerSet)?,
-                    right: self.scalar(args[1], ValueType::IntegerSet)?,
-                },
-                "set_subset" => Predicate::SetSubset {
-                    left: self.scalar(args[0], ValueType::IntegerSet)?,
-                    right: self.scalar(args[1], ValueType::IntegerSet)?,
-                },
-                "set_card" => Predicate::SetCardinality {
-                    set: self.scalar(args[0], ValueType::IntegerSet)?,
-                    cardinality: self.scalar(args[1], ValueType::Integer)?,
-                },
-                "set_union" => Predicate::SetUnion {
-                    left: self.scalar(args[0], ValueType::IntegerSet)?,
-                    right: self.scalar(args[1], ValueType::IntegerSet)?,
-                    result: self.scalar(args[2], ValueType::IntegerSet)?,
-                },
-                "set_intersect" => Predicate::SetIntersection {
-                    left: self.scalar(args[0], ValueType::IntegerSet)?,
-                    right: self.scalar(args[1], ValueType::IntegerSet)?,
-                    result: self.scalar(args[2], ValueType::IntegerSet)?,
-                },
                 "fzn_disjunctive_strict" => self.strict_disjunctive(call, &args)?,
                 _ => {
                     return Err(self
@@ -1238,6 +1225,102 @@ impl<'a> Lowerer<'a> {
             predicate,
         });
         Ok(())
+    }
+
+    fn set_predicate(&mut self, name: SetName, args: &[&SyntaxNode]) -> Result<Predicate> {
+        let condition = match name.mode {
+            RelationMode::Plain => RelationCondition::Plain,
+            RelationMode::Reified => RelationCondition::Reified {
+                result: self.scalar(args[args.len() - 1], ValueType::Boolean)?,
+            },
+            RelationMode::Implied => RelationCondition::Implied {
+                guard: self.scalar(args[args.len() - 1], ValueType::Boolean)?,
+            },
+        };
+        match name.kind {
+            SetKind::Membership { fixed } => {
+                let element = self
+                    .scalar(args[0], ValueType::Integer)
+                    .or_else(|_| self.scalar(args[0], ValueType::Boolean))?;
+                let set = self.scalar(args[1], ValueType::IntegerSet)?;
+                let boolean = matches!(&element, Operand::Literal(Value::Boolean(_)))
+                    || matches!(&element, Operand::Variable(slot) if self.model.slots[*slot].kind == ValueType::Boolean);
+                if (fixed || boolean) && !matches!(set, Operand::Literal(_)) {
+                    return Err(self
+                        .source
+                        .error(args[1], "this membership form requires a fixed integer set"));
+                }
+                Ok(if name.mode == RelationMode::Plain {
+                    Predicate::SetIn { element, set }
+                } else {
+                    Predicate::SetMembership {
+                        element,
+                        set,
+                        condition,
+                    }
+                })
+            }
+            SetKind::Relation(relation) => {
+                let left = self.scalar(args[0], ValueType::IntegerSet)?;
+                let right = self.scalar(args[1], ValueType::IntegerSet)?;
+                Ok(match (relation, name.mode) {
+                    (SetRelation::Equal, RelationMode::Plain) => {
+                        Predicate::SetEqual { left, right }
+                    }
+                    (SetRelation::Subset, RelationMode::Plain) => {
+                        Predicate::SetSubset { left, right }
+                    }
+                    _ => Predicate::SetRelation {
+                        relation,
+                        left,
+                        right,
+                        condition,
+                        native_code: None,
+                    },
+                })
+            }
+            SetKind::NativeRelation => {
+                let code = self.constant_integer(args[1])?;
+                let relation = SetRelation::from_code(code).ok_or_else(|| {
+                    self.source
+                        .error(args[1], "set relation code must be in 1..10")
+                })?;
+                Ok(Predicate::SetRelation {
+                    relation,
+                    left: self.scalar(args[0], ValueType::IntegerSet)?,
+                    right: self.scalar(args[2], ValueType::IntegerSet)?,
+                    condition,
+                    native_code: Some(code),
+                })
+            }
+            SetKind::Cardinality => Ok(Predicate::SetCardinality {
+                set: self.scalar(args[0], ValueType::IntegerSet)?,
+                cardinality: self.scalar(args[1], ValueType::Integer)?,
+            }),
+            SetKind::Operation(operation) => {
+                let left = self.scalar(args[0], ValueType::IntegerSet)?;
+                let right = self.scalar(args[1], ValueType::IntegerSet)?;
+                let result = self.scalar(args[2], ValueType::IntegerSet)?;
+                Ok(match operation {
+                    SetOperation::Union => Predicate::SetUnion {
+                        left,
+                        right,
+                        result,
+                    },
+                    SetOperation::Intersection => Predicate::SetIntersection {
+                        left,
+                        right,
+                        result,
+                    },
+                    _ => Predicate::SetOperation {
+                        operation,
+                        left,
+                        right,
+                        result,
+                    },
+                })
+            }
+        }
     }
 
     fn selection_predicate(

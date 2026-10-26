@@ -1,8 +1,8 @@
 #![cfg(feature = "prepare")]
 
 use zincite_check::{
-    Assignment, AssignmentEntry, AssignmentValue, CheckRef, Domain, ErrorKind, Status, Value,
-    ViolationKind, parse_assignment, prepare,
+    Assignment, AssignmentEntry, AssignmentValue, CheckRef, Domain, ErrorKind, PreparedModel,
+    Status, Value, ViolationKind, parse_assignment, prepare,
 };
 
 const SPECIMEN: &str = include_str!("../../../examples/checker-compilation/model.fzn");
@@ -732,10 +732,10 @@ fn strict_disjunctive_handles_empty_zero_length_and_all_conflicting_pairs() {
 }
 
 #[test]
-fn unsupported_set_operations_and_malformed_global_declarations_are_located() {
+fn malformed_set_calls_and_global_declarations_are_located() {
     for source in [
-        "var set of int:s;constraint set_diff(s,{},s);solve satisfy;".into(),
-        "var set of int:s;constraint set_in_reif(1,s,true);solve satisfy;".into(),
+        "var set of int:s;constraint set_diff(s,{});solve satisfy;".into(),
+        "var set of int:s;constraint set_in_reif(true,s,true);solve satisfy;".into(),
         "var set of bool:s;solve satisfy;".into(),
         "var set of int:s;constraint set_in(s,1);solve satisfy;".into(),
         "constraint set_union({},{});solve satisfy;".into(),
@@ -2261,6 +2261,456 @@ fn selection_reports_and_text_survive_validated_round_trips() {
         assert_eq!(
             zincite_check::cli::render_text(&original),
             zincite_check::cli::render_text(&round_trip)
+        );
+    }
+}
+
+#[test]
+fn set_names_declarations_and_aliases_check_the_same_relations() {
+    for (name, parameters, arguments) in [
+        (
+            "set_eq",
+            "var set of int:a,var set of int:b",
+            "{2,1,1},1..2",
+        ),
+        ("equal", "var set of int:a,var set of int:b", "{2,1,1},1..2"),
+        ("set_ne", "var set of int:a,var set of int:b", "{1},{2}"),
+        ("set_le", "var set of int:a,var set of int:b", "{1},{2}"),
+        ("set_lt", "var set of int:a,var set of int:b", "{1,3},{2}"),
+        (
+            "set_subset",
+            "var set of int:a,var set of int:b",
+            "{1},{1,2}",
+        ),
+        (
+            "set_superset",
+            "var set of int:a,var set of int:b",
+            "{1,2},{1}",
+        ),
+        (
+            "set_eq_reif",
+            "var set of int:a,var set of int:b,var bool:c",
+            "{1},{2},false",
+        ),
+        (
+            "equal_reif",
+            "var set of int:a,var set of int:b,var bool:c",
+            "{1},{2},false",
+        ),
+        (
+            "set_ne_reif",
+            "var set of int:a,var set of int:b,var bool:c",
+            "{1},{1},false",
+        ),
+        (
+            "set_le_reif",
+            "var set of int:a,var set of int:b,var bool:c",
+            "{2},{1},false",
+        ),
+        (
+            "set_lt_reif",
+            "var set of int:a,var set of int:b,var bool:c",
+            "{1},{1},false",
+        ),
+        (
+            "set_subset_reif",
+            "var set of int:a,var set of int:b,var bool:c",
+            "{1,2},{1},false",
+        ),
+        (
+            "set_superset_reif",
+            "var set of int:a,var set of int:b,var bool:c",
+            "{1},{1,2},false",
+        ),
+        ("set_in", "var int:a,var set of int:b", "2,1..3"),
+        (
+            "set_in_reif",
+            "var int:a,var set of int:b,var bool:c",
+            "2,{1},false",
+        ),
+        (
+            "set_in_imp",
+            "var int:a,var set of int:b,var bool:c",
+            "2,{1},false",
+        ),
+        ("int_in", "var bool:a,set of int:b", "true,{1}"),
+        (
+            "int_in_reif",
+            "var bool:a,set of int:b,var bool:c",
+            "false,{1},false",
+        ),
+        (
+            "int_in_imp",
+            "var int:a,set of int:b,var bool:c",
+            "2,{1},false",
+        ),
+        ("set_card", "var set of int:a,var int:b", "{1,3},2"),
+        (
+            "set_union",
+            "var set of int:a,var set of int:b,var set of int:c",
+            "{1},{2},1..2",
+        ),
+        (
+            "set_intersect",
+            "var set of int:a,var set of int:b,var set of int:c",
+            "1..3,2..4,2..3",
+        ),
+        (
+            "set_diff",
+            "var set of int:a,var set of int:b,var set of int:c",
+            "1..3,2..4,{1}",
+        ),
+        (
+            "set_symdiff",
+            "var set of int:a,var set of int:b,var set of int:c",
+            "1..3,2..4,{1,4}",
+        ),
+        (
+            "gecode_set_rel_imp_fzn",
+            "var set of int:a,int:b,var set of int:c,var bool:d",
+            "{2},8,{1},true",
+        ),
+    ] {
+        for prefix in ["", "gecode_", "fzn_"] {
+            let name = format!("{prefix}{name}");
+            let source = format!(
+                "predicate {name}({parameters}); constraint {name}({arguments}); solve satisfy;"
+            );
+            let model = prepare("aliases.fzn", &source).unwrap();
+            let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+            assert_eq!(
+                loaded.check(&Assignment::default()).unwrap().status,
+                Status::Valid,
+                "{name}"
+            );
+        }
+    }
+    for name in ["eq", "ne", "le", "lt", "subset", "superset"] {
+        let source = format!(
+            "predicate set_{name}_imp(var set of int:a,var set of int:b,var bool:c); constraint set_{name}_imp({{}},{{}},false); solve satisfy;"
+        );
+        let model = prepare("imp.fzn", &source).unwrap();
+        assert_eq!(
+            PreparedModel::from_json(&model.to_json().unwrap())
+                .unwrap()
+                .check(&Assignment::default())
+                .unwrap()
+                .status,
+            Status::Valid
+        );
+    }
+    // Fixed-set declarations also apply to the set_in compatibility signature.
+    let model = prepare("bool.fzn", "predicate set_in(var bool:x,set of int:s);var bool:b;constraint set_in(b,{0});solve satisfy;").unwrap();
+    assert_eq!(
+        model.check(&assignment("b=false;")).unwrap().status,
+        Status::Valid
+    );
+    assert_eq!(
+        model.check(&assignment("b=true;")).unwrap().status,
+        Status::Invalid
+    );
+}
+
+#[test]
+fn sorted_element_order_and_native_characteristic_order_are_distinct() {
+    for (left, right, less, less_equal) in [
+        ("{}", "{}", false, true),
+        ("{}", "{1,3}", true, true),
+        ("{1,3}", "{2}", true, true),
+        ("{1}", "{1,2}", true, true),
+        ("{1,2}", "{1}", false, false),
+        ("{1}", "{2}", true, true),
+        ("{2}", "{1}", false, false),
+        ("{1,2}", "{1,2}", false, true),
+        ("{1,3}", "{}", false, false),
+    ] {
+        let source = format!(
+            "constraint set_lt_reif({left},{right},{less});constraint fzn_set_le_reif({left},{right},{less_equal});solve satisfy;"
+        );
+        assert_eq!(
+            prepare("sorted.fzn", &source)
+                .unwrap()
+                .check(&Assignment::default())
+                .unwrap()
+                .status,
+            Status::Valid,
+            "{source}"
+        );
+    }
+    for (code, left, right, expected) in [
+        (1, "{1}", "{1}", true),
+        (1, "{1}", "{2}", false),
+        (2, "{1}", "{2}", true),
+        (2, "{1}", "{1}", false),
+        (3, "{1}", "1..2", true),
+        (3, "1..2", "{1}", false),
+        (4, "1..2", "{1}", true),
+        (4, "{1}", "1..2", false),
+        (5, "{}", "{1}", true),
+        (5, "{1}", "{1}", false),
+        (6, "-1073741822..-1", "0..1073741822", true),
+        (6, "{}", "-1073741822..1073741822", true),
+        (6, "-1073741821..-1", "0..1073741822", false),
+        (6, "{-1073741823}", "-1073741822..1073741822", false),
+        (7, "{2}", "{1}", true),
+        (7, "{1}", "{2}", false),
+        (7, "{}", "{1}", true),
+        (7, "{}", "{}", true),
+        (8, "{2}", "{1}", true),
+        (8, "{1}", "{1}", false),
+        (8, "{}", "{1}", true),
+        (8, "{1}", "{}", false),
+        (9, "{1}", "{2}", true),
+        (9, "{2}", "{1}", false),
+        (9, "{}", "{}", true),
+        (9, "{}", "{1}", false),
+        (10, "{1}", "{2}", true),
+        (10, "{1}", "{1}", false),
+        (10, "{1}", "{}", true),
+        (10, "{}", "{1}", false),
+    ] {
+        let source =
+            format!("constraint gecode_set_rel_imp_fzn({left},{code},{right},true);solve satisfy;");
+        let model = prepare("native.fzn", &source).unwrap();
+        assert_eq!(
+            model.check(&Assignment::default()).unwrap().status == Status::Valid,
+            expected,
+            "{source}"
+        );
+    }
+    // A shared outside element cannot cancel into an apparent complement.
+    let model = prepare("outside.fzn", "constraint gecode_set_rel_imp_fzn({-1073741823},6,-1073741823..1073741822,true);solve satisfy;").unwrap();
+    assert_eq!(
+        model.check(&Assignment::default()).unwrap().status,
+        Status::Invalid
+    );
+}
+
+#[test]
+fn set_completion_uses_known_inputs_and_fresh_values_without_inverse_choices() {
+    let model = prepare(
+        "definitions.fzn",
+        r#"
+        var set of int:input;
+        var set of int:other;
+        var set of {}:difference::is_defined_var;
+        var set of int:result::is_defined_var;
+        var int:size::is_defined_var;
+        var bool:member::is_defined_var;
+        var bool:ordered::is_defined_var;
+        var bool:guard::is_defined_var;
+        constraint fzn_set_diff(input,other,difference)::defines_var(difference);
+        constraint gecode_set_symdiff(difference,{3},result)::defines_var(result);
+        constraint fzn_set_card(result,size)::defines_var(size);
+        constraint set_in_reif(3,result,member)::defines_var(member);
+        constraint set_lt_reif(result,{4},ordered)::defines_var(ordered);
+        constraint bool_eq(member,true);
+        constraint set_in_imp(3,other,guard)::defines_var(guard);
+        solve minimize size;
+    "#,
+    )
+    .unwrap();
+    let report = model
+        .check(&assignment("input=1..3;other={2};guard=false;"))
+        .unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(report.completeness.complete);
+    assert_eq!(report.objective.unwrap().argument.value, Value::Integer(1));
+    assert_eq!(report.violations.len(), 2); // Derived {1,3} violates its domain; 3 is absent from {1}.
+    let conflict = model
+        .check(&assignment(
+            "input={1};other={};difference={};member=false;guard=false;",
+        ))
+        .unwrap();
+    assert!(conflict.completeness.complete);
+    assert!(
+        conflict
+            .violations
+            .iter()
+            .any(|finding| matches!(finding.details, ViolationKind::SetOperation { .. }))
+    );
+    let fresh = model.check(&assignment("guard=false;")).unwrap();
+    assert_eq!(fresh.status, Status::Incomplete);
+    assert!(fresh.objective.is_none());
+    assert!(!fresh.completeness.blocked_checks.iter().any(|check| matches!(&check.check, CheckRef::Constraint { constraint } if constraint.predicate == "set_in_imp")));
+    let active = model.check(&assignment("input={};guard=true;")).unwrap();
+    assert!(!active.completeness.complete);
+    assert!(active.completeness.blocked_checks.iter().any(|check| matches!(&check.check, CheckRef::Constraint { constraint } if constraint.predicate == "set_in_imp")));
+    let disabled = prepare("disabled.fzn", "var set of int:s;var bool:b::is_defined_var;constraint set_subset_imp(s,{},false);constraint gecode_set_rel_imp_fzn(s,8,{},false);constraint set_in_imp(1,s,b)::defines_var(b);solve satisfy;").unwrap();
+    let report = disabled.check(&Assignment::default()).unwrap();
+    assert_eq!(
+        report
+            .completeness
+            .blocked_checks
+            .iter()
+            .filter(|check| matches!(check.check, CheckRef::Constraint { .. }))
+            .count(),
+        1
+    );
+    assert!(
+        report
+            .completeness
+            .unresolved_variables
+            .iter()
+            .any(|v| v.name == "b")
+    );
+    for call in [
+        "set_diff(s,{},alias)",
+        "set_symdiff(s,{},alias)",
+        "set_eq_reif({}, {}, b)",
+        "set_in_reif(b,{0},b)",
+    ] {
+        let target = if call.contains('b') { "b" } else { "s" };
+        let set_annotation = if target == "s" {
+            "::is_defined_var"
+        } else {
+            ""
+        };
+        let bool_annotation = if target == "b" {
+            "::is_defined_var"
+        } else {
+            ""
+        };
+        let source = format!(
+            "var set of {{}}:s{set_annotation};var set of int:alias=s;var bool:b{bool_annotation};constraint {call}::defines_var({target});solve satisfy;"
+        );
+        let model = prepare("repeated.fzn", &source).unwrap();
+        let report = model.check(&Assignment::default()).unwrap();
+        if call == "set_eq_reif({}, {}, b)" {
+            assert!(
+                !report
+                    .completeness
+                    .unresolved_variables
+                    .iter()
+                    .any(|v| v.name == "b")
+            );
+        } else {
+            assert_eq!(report.status, Status::Incomplete, "{call}");
+        }
+    }
+    let variable_member = prepare("member.fzn", "var int:x;var set of int:s;constraint set_in(x,s);constraint set_in_reif(x,s,false);constraint set_ne({},{});solve satisfy;").unwrap();
+    let report = variable_member.check(&assignment("x=2;")).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(!report.completeness.complete);
+    assert_eq!(report.violations.len(), 1);
+    let report = variable_member.check(&assignment("x=2;s={1};")).unwrap();
+    assert!(report.completeness.complete);
+    assert_eq!(report.violations.len(), 2);
+}
+
+#[test]
+fn compact_set_algebra_handles_extreme_endpoints_and_checked_cardinality() {
+    for (operation, left, right, expected) in [
+        (
+            "diff",
+            "-9223372036854775808..9223372036854775807",
+            "-9223372036854775807..9223372036854775806",
+            "{-9223372036854775808,9223372036854775807}",
+        ),
+        (
+            "symdiff",
+            "-9223372036854775808..9223372036854775806",
+            "-9223372036854775807..9223372036854775807",
+            "{-9223372036854775808,9223372036854775807}",
+        ),
+        (
+            "diff",
+            "-9223372036854775808..9223372036854775807",
+            "-9223372036854775808..9223372036854775807",
+            "{}",
+        ),
+        (
+            "symdiff",
+            "-9223372036854775808..9223372036854775807",
+            "-9223372036854775808..9223372036854775807",
+            "{}",
+        ),
+    ] {
+        let source = format!(
+            "var set of int:r::is_defined_var;constraint set_{operation}({left},{right},r)::defines_var(r);constraint set_eq(r,{expected});solve satisfy;"
+        );
+        let model = prepare("large.fzn", &source).unwrap();
+        assert_eq!(
+            model.check(&Assignment::default()).unwrap().status,
+            Status::Valid
+        );
+        assert_eq!(
+            model
+                .check(&assignment(&format!("r={expected};")))
+                .unwrap()
+                .status,
+            Status::Valid
+        );
+        assert!(model.to_json().unwrap().len() < 10000);
+    }
+    let model = prepare("large-order.fzn", "constraint set_lt(-9223372036854775808..9223372036854775806,-9223372036854775808..9223372036854775807);constraint gecode_set_rel_imp_fzn(-9223372036854775808..9223372036854775806,8,-9223372036854775808..9223372036854775807,true);solve satisfy;").unwrap();
+    assert_eq!(
+        model.check(&Assignment::default()).unwrap().status,
+        Status::Valid
+    );
+    let model = prepare("cardinality.fzn", "var int:n::is_defined_var;constraint set_card(1..9223372036854775807,n)::defines_var(n);solve minimize n;").unwrap();
+    assert_eq!(
+        model
+            .check(&Assignment::default())
+            .unwrap()
+            .objective
+            .unwrap()
+            .argument
+            .value,
+        Value::Integer(i64::MAX)
+    );
+    for source in [
+        "constraint set_card(0..9223372036854775807,0);solve satisfy;",
+        "var int:n::is_defined_var;constraint set_card(0..9223372036854775807,n)::defines_var(n);solve satisfy;",
+        "var int:n::is_defined_var;var int:m::is_defined_var;constraint set_card(1..9223372036854775807,n)::defines_var(n);constraint int_plus(n,1,m)::defines_var(m);solve satisfy;",
+    ] {
+        let error = prepare("overflow.fzn", source)
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Execution);
+        assert!(error.diagnostics[0].message.contains("overflow"));
+        assert_eq!(
+            error.diagnostics[0].location.as_ref().unwrap().source,
+            "overflow.fzn"
+        );
+    }
+}
+
+#[test]
+fn set_source_rejects_invalid_roles_codes_and_invented_aliases() {
+    for statement in [
+        "constraint set_diff({},{});",
+        "constraint set_card({},false);",
+        "constraint set_in(true,s);",
+        "constraint int_in(1,s);",
+        "constraint int_in_reif(1,s,false);",
+        "constraint fzn_int_in_imp(1,s,false);",
+        "constraint gecode_set_rel_imp_fzn({},0,{},false);",
+        "constraint gecode_set_rel_imp_fzn({},11,{},false);",
+        "constraint gecode_set_rel_imp_fzn({},code,{},false);",
+        "constraint gecode_set_rel_imp_fzn({},1,{},0);",
+        "constraint fzn_set_eq_imp({},{},false);",
+        "constraint gecode_set_lt_imp({},{},false);",
+        "constraint equal_imp({},{},false);",
+        "constraint set_union_reif({},{},{},true);",
+        "constraint set_card_reif({},0,true);",
+        "predicate set_eq(var set of int:a,set of int:b);",
+        "predicate set_diff(var set of int:a,var int:b,var set of int:c);",
+        "predicate int_in(var int:a,var set of int:b);",
+        "predicate gecode_set_rel_imp_fzn(var set of int:a,var int:code,var set of int:b,var bool:c);",
+        "predicate set_in(var int:x,set of int:t);constraint set_in(1,s);",
+        "predicate set_in(var bool:x,var set of int:t);",
+    ] {
+        let source = format!("var set of int:s;var int:code;{statement}solve satisfy;");
+        let error = prepare("bad-set.fzn", &source).unwrap_err();
+        assert!(!error.is_empty(), "{statement}");
+        assert!(
+            error.iter().all(|d| d
+                .location
+                .as_ref()
+                .is_some_and(|l| l.source == "bad-set.fzn")),
+            "{statement}"
         );
     }
 }

@@ -279,43 +279,17 @@ impl PreparedModel {
                     }
                     &constraint.reference.predicate
                 }
-                Predicate::SetIn { element, set } => {
-                    self.validate_operand(element, ValueType::Integer)?;
-                    self.validate_operand(set, ValueType::IntegerSet)?;
-                    "set_in"
-                }
-                Predicate::SetEqual { left, right } | Predicate::SetSubset { left, right } => {
-                    self.validate_operand(left, ValueType::IntegerSet)?;
-                    self.validate_operand(right, ValueType::IntegerSet)?;
-                    if matches!(constraint.predicate, Predicate::SetEqual { .. }) {
-                        "set_eq"
-                    } else {
-                        "set_subset"
-                    }
-                }
-                Predicate::SetCardinality { set, cardinality } => {
-                    self.validate_operand(set, ValueType::IntegerSet)?;
-                    self.validate_operand(cardinality, ValueType::Integer)?;
-                    "set_card"
-                }
-                Predicate::SetUnion {
-                    left,
-                    right,
-                    result,
-                }
-                | Predicate::SetIntersection {
-                    left,
-                    right,
-                    result,
-                } => {
-                    for operand in [left, right, result] {
-                        self.validate_operand(operand, ValueType::IntegerSet)?;
-                    }
-                    if matches!(constraint.predicate, Predicate::SetUnion { .. }) {
-                        "set_union"
-                    } else {
-                        "set_intersect"
-                    }
+                Predicate::SetIn { .. }
+                | Predicate::SetEqual { .. }
+                | Predicate::SetSubset { .. }
+                | Predicate::SetCardinality { .. }
+                | Predicate::SetUnion { .. }
+                | Predicate::SetIntersection { .. }
+                | Predicate::SetRelation { .. }
+                | Predicate::SetMembership { .. }
+                | Predicate::SetOperation { .. } => {
+                    self.validate_set(constraint)?;
+                    &constraint.reference.predicate
                 }
                 Predicate::DisjunctiveStrict { starts, durations } => {
                     if starts.len() != durations.len() {
@@ -417,6 +391,126 @@ impl PreparedModel {
                 }
             }
             _ => return Err(mismatch()),
+        }
+        Ok(())
+    }
+
+    fn validate_set(&self, constraint: &Constraint) -> Result<(), Diagnostic> {
+        let mismatch = || {
+            invalid("constraint report predicate does not match its set operation, mode or code")
+        };
+        let name = SetName::from_name(&constraint.reference.predicate).ok_or_else(mismatch)?;
+        let (kind, condition) = match &constraint.predicate {
+            Predicate::SetIn { element, set } | Predicate::SetMembership { element, set, .. } => {
+                let element_type = match element {
+                    Operand::Literal(value) => value.value_type(),
+                    Operand::Variable(slot) => {
+                        self.slots
+                            .get(*slot)
+                            .ok_or_else(|| invalid("membership element slot is out of bounds"))?
+                            .kind
+                    }
+                };
+                if !matches!(element_type, ValueType::Integer | ValueType::Boolean) {
+                    return Err(invalid("membership element must be integer or Boolean"));
+                }
+                self.validate_operand(element, element_type)?;
+                self.validate_operand(set, ValueType::IntegerSet)?;
+                let SetKind::Membership { fixed } = name.kind else {
+                    return Err(mismatch());
+                };
+                if (fixed || element_type == ValueType::Boolean)
+                    && !matches!(set, Operand::Literal(_))
+                {
+                    return Err(invalid("this membership form requires a fixed integer set"));
+                }
+                let condition = match &constraint.predicate {
+                    Predicate::SetMembership {
+                        condition: RelationCondition::Plain,
+                        ..
+                    } => return Err(mismatch()),
+                    Predicate::SetMembership { condition, .. } => Some(condition),
+                    _ => None,
+                };
+                (name.kind, condition)
+            }
+            Predicate::SetEqual { left, right }
+            | Predicate::SetSubset { left, right }
+            | Predicate::SetRelation { left, right, .. } => {
+                self.validate_operand(left, ValueType::IntegerSet)?;
+                self.validate_operand(right, ValueType::IntegerSet)?;
+                match &constraint.predicate {
+                    Predicate::SetEqual { .. } => (SetKind::Relation(SetRelation::Equal), None),
+                    Predicate::SetSubset { .. } => (SetKind::Relation(SetRelation::Subset), None),
+                    Predicate::SetRelation {
+                        relation,
+                        condition,
+                        native_code,
+                        ..
+                    } => {
+                        if native_code.is_none()
+                            && matches!(condition, RelationCondition::Plain)
+                            && matches!(relation, SetRelation::Equal | SetRelation::Subset)
+                        {
+                            return Err(mismatch());
+                        }
+                        let kind = if let Some(code) = native_code {
+                            if SetRelation::from_code(*code) != Some(*relation) {
+                                return Err(mismatch());
+                            }
+                            SetKind::NativeRelation
+                        } else {
+                            SetKind::Relation(*relation)
+                        };
+                        (kind, Some(condition))
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            Predicate::SetCardinality { set, cardinality } => {
+                self.validate_operand(set, ValueType::IntegerSet)?;
+                self.validate_operand(cardinality, ValueType::Integer)?;
+                (SetKind::Cardinality, None)
+            }
+            Predicate::SetUnion {
+                left,
+                right,
+                result,
+            }
+            | Predicate::SetIntersection {
+                left,
+                right,
+                result,
+            }
+            | Predicate::SetOperation {
+                left,
+                right,
+                result,
+                ..
+            } => {
+                for operand in [left, right, result] {
+                    self.validate_operand(operand, ValueType::IntegerSet)?;
+                }
+                let operation = match &constraint.predicate {
+                    Predicate::SetUnion { .. } => SetOperation::Union,
+                    Predicate::SetIntersection { .. } => SetOperation::Intersection,
+                    Predicate::SetOperation {
+                        operation: SetOperation::Union | SetOperation::Intersection,
+                        ..
+                    } => return Err(mismatch()),
+                    Predicate::SetOperation { operation, .. } => *operation,
+                    _ => unreachable!(),
+                };
+                (SetKind::Operation(operation), None)
+            }
+            _ => return Err(mismatch()),
+        };
+        let mode = condition.map_or(RelationMode::Plain, RelationCondition::mode);
+        if kind != name.kind || mode != name.mode {
+            return Err(mismatch());
+        }
+        if let Some(operand) = condition.and_then(RelationCondition::operand) {
+            self.validate_operand(operand, ValueType::Boolean)?;
         }
         Ok(())
     }

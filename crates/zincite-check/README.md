@@ -486,12 +486,14 @@ by both application models:
 | `int_lin_ne`, `int_lin_lt`, `int_lin_le`, `int_lin_gt`, `int_lin_ge` `(a,x,c)` | Compare `sum(a[i]*x[i])` with `c` using the named relation | None |
 | Each scalar/linear comparison with `_reif` and final Boolean `b` | `b <-> relation`, including `b=false` | Boolean `b` from all known integer inputs |
 | Each scalar/linear comparison with `_imp` and final Boolean `b` | `b -> relation`; a false guard satisfies the constraint immediately | None |
-| `set_in(x,s)` | Integer membership | None |
-| `set_eq(s,t)` | Set equality | Either set output when it occurs once |
-| `set_subset(s,t)` | Subset inclusion | None |
-| `set_card(s,n)` | Set cardinality equals integer `n` | Integer output `n` |
-| `set_union(s,t,r)` | `r = s union t` | Third argument `r`, absent from inputs |
-| `set_intersect(s,t,r)` | `r = s intersect t` | Third argument `r`, absent from inputs |
+| `set_in(x,s)`, `int_in(x,s)` | Integer membership; Boolean membership maps false/true to 0/1 against fixed sets only; `int_in` always requires a fixed set | None |
+| `set_eq(s,t)`, `equal(s,t)` | Set equality | Either set output when it occurs once |
+| `set_ne/le/lt/subset/superset(s,t)` | Disequality, sorted-element order, subset/superset inclusion | None |
+| These comparisons and membership with `_reif` and final Boolean `b` | `b <-> relation`, including `b=false` | Final Boolean `b` |
+| Bare `set_eq/ne/le/lt/subset/superset_imp(s,t,b)` and `set_in_imp`/`int_in_imp` | Guard implies the relation; false skips unavailable inputs | None |
+| `set_card(s,n)` | Checked i64 cardinality equals `n` | Integer output `n` |
+| `set_union/intersect/diff/symdiff(s,t,r)` | Exact compact range algebra | Final set `r`, absent from inputs |
+| `gecode_set_rel_imp_fzn(s,code,t,b)` | Fixed native code 1–10; guard implies the coded relation | None |
 | `fzn_disjunctive_strict(start,duration)` | Every pair satisfies `start[i]+duration[i] <= start[j]` or the reverse | None; durations must be fixed nonnegative integers |
 | `int_abs(x,r)`, `int_negate(x,r)` | `r = abs(x)`, `r = -x` | Final argument `r` |
 | `int_plus(x,y,r)`, `int_minus(x,y,r)`, `int_times(x,y,r)` | `r = x+y`, `r = x-y`, `r = x*y` | Final argument `r` |
@@ -514,9 +516,52 @@ by both application models:
 | `bool_lin_eq(a,x,c)` | `sum(a[i]*int(x[i])) = c` | Unique integer bound or one nonzero-coefficient Boolean term giving exactly 0 or 1 |
 | `bool_lin_ne/lt/le/gt/ge(a,x,c)` | Compare that sum and integer bound `c` | None |
 
+The 26 assigned set registry literals accept their exact bare, `gecode_` and
+`fzn_` spellings, including `gecode_gecode_set_rel_imp_fzn` and
+`fzn_gecode_set_rel_imp_fzn`. The six named set comparison `_imp` forms are
+bare-only source names. Together they give 84 set names. There is no `equal_imp`,
+algebra reifier or cardinality reifier. Matching bodyless membership declarations
+can use a fixed set; calls must satisfy that declared role.
+
+Named `set_le` and `set_lt`, their reifiers, implications and named aliases
+compare the sorted element lists: `{} < {1,3} < {2}`. A proper prefix is smaller.
+Native codes mean `1 =`, `2 !=`, `3 subset`, `4 superset`, `5 disjoint`,
+`6 complement`, `7 <=`, `8 <`, `9 >=`, `10 >`. Codes 7–10 use Gecode's
+characteristic order: compare membership bits from the smallest differing
+element, with `0 < 1`. In that order `{2} < {1}`, and the empty set is smallest.
+Typed findings and text identify which order the checker used. Code 6 requires
+both sets inside `-1073741822..1073741822`, disjoint and covering that universe
+exactly. Preparation rejects an invalid code even under a false guard.
+
+Difference, symmetric difference and both comparisons advance through ranges
+without expanding large intervals. Cardinality and downstream integer arithmetic
+report located checked-i64 overflow errors. Serialized models and assignment
+JSON reject reversed, unsorted, overlapping or adjacent ranges and numeric JSON
+endpoints; source lists normalize duplicates and ordering, and reversed source
+intervals denote the empty set.
+
+The direct [set specimen](../../examples/checker-compilation/set-primitives.fzn)
+is shared by serialization and the native/Wasm comparison. The separate
+[MiniZinc control](../../examples/checker-compilation/set-primitives.mzn) uses
+small domains to inspect actual compilation against both pinned libraries:
+
+```sh
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker017-standard.paths --output-fzn-to-file target/checker017-standard.fzn examples/checker-compilation/set-primitives.mzn
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker017-gecode.paths --output-fzn-to-file target/checker017-gecode.fzn examples/checker-compilation/set-primitives.mzn
+```
+
+Both controls emit `set_diff`, `set_symdiff`, `set_card`, `set_in_reif` and
+`set_lt`. The four derived outputs carry `is_defined_var`/`defines_var`;
+application IDs, entities, labels and paths survive. With `left={1}` and
+`right={2}`, completion gives `difference={1}`, `changed={1,2}`, `size=2` and
+`member=true`, and sorted order passes. Swapping the sets gives
+`difference={2}`, `member=false` and one order finding. Omitted decisions give
+an incomplete report. This control does not establish either complete compiler
+profile or general preservation of editable domains and variables.
+
 All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
 `fzn_` spellings, for 108 integer relation names. The 55 Boolean base names also
-accept those exact prefixes, for 165 Boolean names and 449 admitted names overall.
+accept those exact prefixes, for 165 Boolean names and 527 admitted names overall.
 Prefixed scalar XOR uses three arguments; only bare `bool_xor` also admits the
 two-argument assertion. Matching declarations select one admitted arity and calls
 must use that arity; duplicate declarations diagnose.
