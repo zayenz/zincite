@@ -186,30 +186,40 @@ impl Source<'_> {
             is_var,
             is_array: true,
         };
-        let expected = match name {
-            "int_lin_eq" | "int_lin_le" => vec![
-                array(ValueType::Integer, false),
-                array(ValueType::Integer, true),
-                scalar(ValueType::Integer, false),
-            ],
-            "int_le_reif" => vec![
-                scalar(ValueType::Integer, true),
-                scalar(ValueType::Integer, true),
-                scalar(ValueType::Boolean, true),
-            ],
-            "set_in" => vec![
-                scalar(ValueType::Integer, true),
-                scalar(ValueType::IntegerSet, true),
-            ],
-            "set_eq" | "set_subset" => vec![scalar(ValueType::IntegerSet, true); 2],
-            "set_card" => vec![
-                scalar(ValueType::IntegerSet, true),
-                scalar(ValueType::Integer, true),
-            ],
-            "set_union" | "set_intersect" => vec![scalar(ValueType::IntegerSet, true); 3],
-            "fzn_disjunctive_strict" => vec![array(ValueType::Integer, true); 2],
-            _ => {
-                return Err(self.error(node, format!("unsupported predicate declaration '{name}'")));
+        let expected = if let Some(operation) = ArithmeticOperation::from_name(name) {
+            let mut arguments = vec![scalar(ValueType::Integer, true); operation.input_count() + 1];
+            if operation.has_fixed_exponent() {
+                arguments[1].is_var = false;
+            }
+            arguments
+        } else {
+            match name {
+                "int_lin_eq" | "int_lin_le" => vec![
+                    array(ValueType::Integer, false),
+                    array(ValueType::Integer, true),
+                    scalar(ValueType::Integer, false),
+                ],
+                "int_le_reif" => vec![
+                    scalar(ValueType::Integer, true),
+                    scalar(ValueType::Integer, true),
+                    scalar(ValueType::Boolean, true),
+                ],
+                "set_in" => vec![
+                    scalar(ValueType::Integer, true),
+                    scalar(ValueType::IntegerSet, true),
+                ],
+                "set_eq" | "set_subset" => vec![scalar(ValueType::IntegerSet, true); 2],
+                "set_card" => vec![
+                    scalar(ValueType::IntegerSet, true),
+                    scalar(ValueType::Integer, true),
+                ],
+                "set_union" | "set_intersect" => vec![scalar(ValueType::IntegerSet, true); 3],
+                "fzn_disjunctive_strict" => vec![array(ValueType::Integer, true); 2],
+                _ => {
+                    return Err(
+                        self.error(node, format!("unsupported predicate declaration '{name}'"))
+                    );
+                }
             }
         };
         if !name.as_bytes()[0].is_ascii_alphabetic() {
@@ -996,81 +1006,86 @@ impl<'a> Lowerer<'a> {
         let arity = match name.as_str() {
             "set_in" | "set_eq" | "set_subset" | "set_card" | "fzn_disjunctive_strict" => 2,
             "int_lin_eq" | "int_lin_le" | "int_le_reif" | "set_union" | "set_intersect" => 3,
-            _ => {
-                return Err(self
-                    .source
-                    .error(call, format!("unsupported predicate '{name}'")));
-            }
+            _ => ArithmeticOperation::from_name(&name)
+                .map(|operation| operation.input_count() + 1)
+                .ok_or_else(|| {
+                    self.source
+                        .error(call, format!("unsupported predicate '{name}'"))
+                })?,
         };
         if args.len() != arity {
             return Err(self
                 .source
                 .error(call, format!("'{name}' expects {arity} arguments")));
         }
-        let predicate = match name.as_str() {
-            "set_in" => Predicate::SetIn {
-                element: self.scalar(args[0], ValueType::Integer)?,
-                set: self.scalar(args[1], ValueType::IntegerSet)?,
-            },
-            "set_eq" => Predicate::SetEqual {
-                left: self.scalar(args[0], ValueType::IntegerSet)?,
-                right: self.scalar(args[1], ValueType::IntegerSet)?,
-            },
-            "set_subset" => Predicate::SetSubset {
-                left: self.scalar(args[0], ValueType::IntegerSet)?,
-                right: self.scalar(args[1], ValueType::IntegerSet)?,
-            },
-            "set_card" => Predicate::SetCardinality {
-                set: self.scalar(args[0], ValueType::IntegerSet)?,
-                cardinality: self.scalar(args[1], ValueType::Integer)?,
-            },
-            "set_union" => Predicate::SetUnion {
-                left: self.scalar(args[0], ValueType::IntegerSet)?,
-                right: self.scalar(args[1], ValueType::IntegerSet)?,
-                result: self.scalar(args[2], ValueType::IntegerSet)?,
-            },
-            "set_intersect" => Predicate::SetIntersection {
-                left: self.scalar(args[0], ValueType::IntegerSet)?,
-                right: self.scalar(args[1], ValueType::IntegerSet)?,
-                result: self.scalar(args[2], ValueType::IntegerSet)?,
-            },
-            "fzn_disjunctive_strict" => self.strict_disjunctive(call, &args)?,
-            "int_lin_eq" | "int_lin_le" => {
-                let coefficients = self
-                    .array(args[0], ValueType::Integer)?
-                    .into_iter()
-                    .map(|operand| match operand {
-                        Operand::Literal(Value::Integer(value)) => Ok(value),
-                        _ => Err(self.source.error(
-                            args[0],
-                            "linear coefficients must be fixed integer parameters",
-                        )),
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                let terms = self.array(args[1], ValueType::Integer)?;
-                if coefficients.len() != terms.len() {
-                    return Err(self.source.error(
-                        call,
-                        "linear coefficient and variable arrays must have equal lengths",
-                    ));
+        let predicate = if let Some(operation) = ArithmeticOperation::from_name(&name) {
+            self.integer_arithmetic(operation, &args)?
+        } else {
+            match name.as_str() {
+                "set_in" => Predicate::SetIn {
+                    element: self.scalar(args[0], ValueType::Integer)?,
+                    set: self.scalar(args[1], ValueType::IntegerSet)?,
+                },
+                "set_eq" => Predicate::SetEqual {
+                    left: self.scalar(args[0], ValueType::IntegerSet)?,
+                    right: self.scalar(args[1], ValueType::IntegerSet)?,
+                },
+                "set_subset" => Predicate::SetSubset {
+                    left: self.scalar(args[0], ValueType::IntegerSet)?,
+                    right: self.scalar(args[1], ValueType::IntegerSet)?,
+                },
+                "set_card" => Predicate::SetCardinality {
+                    set: self.scalar(args[0], ValueType::IntegerSet)?,
+                    cardinality: self.scalar(args[1], ValueType::Integer)?,
+                },
+                "set_union" => Predicate::SetUnion {
+                    left: self.scalar(args[0], ValueType::IntegerSet)?,
+                    right: self.scalar(args[1], ValueType::IntegerSet)?,
+                    result: self.scalar(args[2], ValueType::IntegerSet)?,
+                },
+                "set_intersect" => Predicate::SetIntersection {
+                    left: self.scalar(args[0], ValueType::IntegerSet)?,
+                    right: self.scalar(args[1], ValueType::IntegerSet)?,
+                    result: self.scalar(args[2], ValueType::IntegerSet)?,
+                },
+                "fzn_disjunctive_strict" => self.strict_disjunctive(call, &args)?,
+                "int_lin_eq" | "int_lin_le" => {
+                    let coefficients = self
+                        .array(args[0], ValueType::Integer)?
+                        .into_iter()
+                        .map(|operand| match operand {
+                            Operand::Literal(Value::Integer(value)) => Ok(value),
+                            _ => Err(self.source.error(
+                                args[0],
+                                "linear coefficients must be fixed integer parameters",
+                            )),
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    let terms = self.array(args[1], ValueType::Integer)?;
+                    if coefficients.len() != terms.len() {
+                        return Err(self.source.error(
+                            call,
+                            "linear coefficient and variable arrays must have equal lengths",
+                        ));
+                    }
+                    let bound = self.constant_integer(args[2])?;
+                    Predicate::Linear {
+                        coefficients,
+                        terms,
+                        bound,
+                        equality: name == "int_lin_eq",
+                    }
                 }
-                let bound = self.constant_integer(args[2])?;
-                Predicate::Linear {
-                    coefficients,
-                    terms,
-                    bound,
-                    equality: name == "int_lin_eq",
+                "int_le_reif" => Predicate::ReifiedLessEqual {
+                    left: self.scalar(args[0], ValueType::Integer)?,
+                    right: self.scalar(args[1], ValueType::Integer)?,
+                    result: self.scalar(args[2], ValueType::Boolean)?,
+                },
+                _ => {
+                    return Err(self
+                        .source
+                        .error(call, format!("unsupported predicate '{name}'")));
                 }
-            }
-            "int_le_reif" => Predicate::ReifiedLessEqual {
-                left: self.scalar(args[0], ValueType::Integer)?,
-                right: self.scalar(args[1], ValueType::Integer)?,
-                result: self.scalar(args[2], ValueType::Boolean)?,
-            },
-            _ => {
-                return Err(self
-                    .source
-                    .error(call, format!("unsupported predicate '{name}'")));
             }
         };
         self.validate_declared_call(call, &name, &args)?;
@@ -1086,6 +1101,31 @@ impl<'a> Lowerer<'a> {
             predicate,
         });
         Ok(())
+    }
+
+    fn integer_arithmetic(
+        &mut self,
+        operation: ArithmeticOperation,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        let mut inputs = Vec::new();
+        for (index, node) in args[..operation.input_count()].iter().enumerate() {
+            let operand = if index == 1 && operation.has_fixed_exponent() {
+                let exponent = self.constant_integer(node)?;
+                operation
+                    .validate_exponent(exponent)
+                    .map_err(|message| self.source.error(node, message))?;
+                Operand::Literal(Value::Integer(exponent))
+            } else {
+                self.scalar(node, ValueType::Integer)?
+            };
+            inputs.push(operand);
+        }
+        Ok(Predicate::IntegerArithmetic {
+            operation,
+            inputs,
+            result: self.scalar(args[operation.input_count()], ValueType::Integer)?,
+        })
     }
 
     fn validate_declared_call(

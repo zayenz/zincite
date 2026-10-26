@@ -4,8 +4,8 @@
 
 - Total: 33
 - Ready: 2
-- Blocked: 20
-- Done: 11
+- Blocked: 19
+- Done: 12
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -20,7 +20,7 @@
 | [checker-009](tasks/009-measure-interactive-checking-and-document-the-supported-work.md) | Measure interactive checking and document the supported workflow | done | checker-007, checker-008 |
 | [checker-010](tasks/010-inventory-complete-standard-and-gecode-flatzinc-coverage.md) | Inventory complete standard and Gecode FlatZinc coverage | done | checker-009 |
 | [checker-011](tasks/011-accept-the-full-flatzinc-text-structure-and-annotations.md) | Accept the full FlatZinc text structure and annotations | done | checker-010 |
-| [checker-012](tasks/012-check-standard-integer-arithmetic-and-derive-its-outputs.md) | Check standard integer arithmetic and derive its outputs | ready | checker-011 |
+| [checker-012](tasks/012-check-standard-integer-arithmetic-and-derive-its-outputs.md) | Check standard integer arithmetic and derive its outputs | done | checker-011 |
 | [checker-013](tasks/013-complete-integer-comparisons-and-linear-reification.md) | Complete integer comparisons and linear reification | ready | checker-011 |
 | [checker-014](tasks/014-complete-boolean-logic-clauses-and-boolean-linear-constraint.md) | Complete Boolean logic, clauses and Boolean linear constraints | blocked | checker-011, checker-013 |
 | [checker-015](tasks/015-add-finite-floats-configurable-tolerance-and-core-float-pred.md) | Add finite floats, configurable tolerance and core float predicates | blocked | checker-011, checker-013, checker-014 |
@@ -31,7 +31,7 @@
 | [checker-020](tasks/020-check-ordering-distinctness-extrema-and-integer-channels.md) | Check ordering, distinctness, extrema and integer channels | blocked | checker-013, checker-014 |
 | [checker-021](tasks/021-check-integer-and-boolean-tables-with-reification.md) | Check integer and Boolean tables with reification | blocked | checker-013, checker-014 |
 | [checker-022](tasks/022-check-deterministic-and-nondeterministic-regular-constraints.md) | Check deterministic and nondeterministic regular constraints | blocked | checker-017 |
-| [checker-023](tasks/023-check-circuits-and-circuit-cost-relations.md) | Check circuits and circuit-cost relations | blocked | checker-012 |
+| [checker-023](tasks/023-check-circuits-and-circuit-cost-relations.md) | Check circuits and circuit-cost relations | ready | checker-012 |
 | [checker-024](tasks/024-check-legacy-unary-and-cumulative-scheduling-predicates.md) | Check legacy unary and cumulative scheduling predicates | blocked | checker-012, checker-014 |
 | [checker-025](tasks/025-check-the-latest-gecode-explicit-end-scheduling-interfaces.md) | Check the latest Gecode explicit-end scheduling interfaces | blocked | checker-024 |
 | [checker-026](tasks/026-check-packing-and-rectangle-non-overlap-interfaces.md) | Check packing and rectangle non-overlap interfaces | blocked | checker-012, checker-014 |

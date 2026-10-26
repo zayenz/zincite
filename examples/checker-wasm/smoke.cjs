@@ -34,7 +34,7 @@ try {
     assert.throws(() => models.exact.check(JSON.stringify({ entries: [{
         name: "missing", value: { kind: "scalar", value: { kind: "integer", value: "1" } }
     }] })), error => JSON.parse(error).kind === "assignment");
-    console.log(`Native/Wasm reports agree across ${cases.length * 2} checks; exact integers, sets, global findings and input errors verified.`);
+    console.log(`Native/Wasm reports agree across ${cases.length * 2} checks; exact integers, arithmetic, sets, global findings and input errors verified.`);
 } finally {
     for (const model of Object.values(models)) model.free();
     rmSync(directory, { recursive: true, force: true });
@@ -82,6 +82,13 @@ function decimal(value) {
 }
 
 function checkDetails(name, report) {
+    if (name === "exact-arithmetic-conflict") {
+        const finding = report.violations.find(finding => finding.details.operation === "add");
+        assert.equal(finding.details.kind, "integer_arithmetic");
+        assert.equal(finding.details.inputs[0].value.value, "9007199254740993");
+        assert.equal(finding.details.result.value.value, "9007199254740995");
+        assert.equal(finding.details.result.variable.name, "incremented");
+    }
     if (name === "infeasible") {
         assert.equal(report.violations.length, 3);
         assert(report.violations.some(finding =>

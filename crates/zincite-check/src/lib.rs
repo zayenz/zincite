@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+mod arithmetic;
+pub use arithmetic::ArithmeticOperation;
 mod serialized;
 mod sets;
 pub use sets::IntegerSet;
@@ -245,6 +247,11 @@ pub struct ArgumentValue {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViolationKind {
+    IntegerArithmetic {
+        operation: ArithmeticOperation,
+        inputs: Vec<ArgumentValue>,
+        result: ArgumentValue,
+    },
     SetIn {
         element: ArgumentValue,
         set: ArgumentValue,
@@ -400,6 +407,11 @@ struct Variable {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Predicate {
+    IntegerArithmetic {
+        operation: ArithmeticOperation,
+        inputs: Vec<Operand>,
+        result: Operand,
+    },
     SetIn {
         element: Operand,
         set: Operand,
@@ -454,6 +466,9 @@ enum Predicate {
 impl Predicate {
     fn operands(&self) -> Vec<&Operand> {
         match self {
+            Self::IntegerArithmetic { inputs, result, .. } => {
+                inputs.iter().chain(std::iter::once(result)).collect()
+            }
             Self::Linear { terms, .. } => terms.iter().collect(),
             Self::ReifiedLessEqual {
                 left,
@@ -509,6 +524,7 @@ impl Constraint {
 
 #[derive(Clone, Copy, Debug)]
 enum DefinitionDirection {
+    IntegerArithmetic,
     Linear { term: usize },
     ReifiedLessEqual,
     SetEqual { input: usize },
@@ -713,6 +729,24 @@ impl PreparedModel {
         let constraint = &self.constraints[definition.constraint];
         match (&constraint.predicate, definition.direction) {
             (
+                Predicate::IntegerArithmetic {
+                    operation, inputs, ..
+                },
+                DefinitionDirection::IntegerArithmetic,
+            ) => {
+                let Some(inputs) = inputs
+                    .iter()
+                    .map(|input| input.value(values).map(Value::integer))
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    return Ok(None);
+                };
+                let value = operation
+                    .calculate(&inputs)
+                    .map_err(|message| constraint.execution_error(message))?;
+                Ok(Some(Value::Integer(value)))
+            }
+            (
                 Predicate::Linear {
                     coefficients,
                     terms,
@@ -895,6 +929,27 @@ impl PreparedModel {
                 .expect("blocked constraints are excluded before evaluation")
         };
         match &constraint.predicate {
+            Predicate::IntegerArithmetic {
+                operation,
+                inputs,
+                result,
+            } => {
+                let input_values: Vec<_> = inputs
+                    .iter()
+                    .map(|input| input.value(values).expect("available operand").integer())
+                    .collect();
+                let expected = operation
+                    .calculate(&input_values)
+                    .map_err(|message| constraint.execution_error(message))?;
+                let actual = result.value(values).expect("available operand").integer();
+                Ok(
+                    (expected != actual).then(|| ViolationKind::IntegerArithmetic {
+                        operation: *operation,
+                        inputs: inputs.iter().map(argument).collect(),
+                        result: argument(result),
+                    }),
+                )
+            }
             Predicate::SetIn { element, set } => {
                 let element_value = element.value(values).expect("available operand").integer();
                 let set_value = set.value(values).expect("available operand").set();
@@ -1175,6 +1230,10 @@ fn definition_direction(
         return Err(absent());
     }
     match &constraint.predicate {
+        Predicate::IntegerArithmetic { inputs, .. } => {
+            let is_final_output = occurrences.as_slice() == [inputs.len()];
+            Ok(is_final_output.then_some(DefinitionDirection::IntegerArithmetic))
+        }
         Predicate::SetEqual { .. } => {
             Ok(
                 (occurrences.len() == 1).then(|| DefinitionDirection::SetEqual {

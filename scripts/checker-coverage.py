@@ -32,6 +32,27 @@ CURRENT = {
     "set_intersect",
     "fzn_disjunctive_strict",
 }
+CURRENT |= {
+    prefix + name
+    for name in (
+        "int_abs",
+        "int_plus",
+        "int_minus",
+        "int_negate",
+        "int_times",
+        "int_div",
+        "int_mod",
+        "int_min",
+        "int_max",
+    )
+    for prefix in ("", "gecode_", "fzn_")
+} | {
+    "int_pow",
+    "int_pow_fixed",
+    "gecode_int_pow",
+    "gecode_gecode_int_pow",
+    "fzn_gecode_int_pow",
+}
 
 
 @dataclass(frozen=True)
@@ -603,7 +624,10 @@ def render_inventory(
 def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None:
     lowerer = (ROOT / "crates/zincite-check/src/prepare.rs").read_text()
     arity = lowerer.split("let arity = match name.as_str() {", 1)[1].split("_ =>", 1)[0]
-    if set(re.findall(r'"([a-z_]+)"', arity)) != CURRENT:
+    arithmetic = (ROOT / "crates/zincite-check/src/arithmetic.rs").read_text()
+    arithmetic_names = arithmetic.split("match name {", 1)[1].split("_ =>", 1)[0]
+    admitted = set(re.findall(r'"([a-z_]+)"', arity + arithmetic_names))
+    if admitted != CURRENT:
         raise ValueError("current admission changed; review current-support rows")
     counts = Counter(key[0] for key in files)
     if (counts["S"], counts["G"]) != (743, 102):

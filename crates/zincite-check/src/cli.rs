@@ -166,6 +166,22 @@ pub fn render_text(report: &CheckReport) -> String {
             check_text(&violation.check)
         );
         match &violation.details {
+            ViolationKind::IntegerArithmetic {
+                operation,
+                inputs,
+                result,
+            } => {
+                let inputs = inputs
+                    .iter()
+                    .map(argument_text)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(
+                    text,
+                    "  {operation:?}({inputs}) = ({})",
+                    argument_text(result)
+                );
+            }
             ViolationKind::SetIn { element, set } => {
                 let _ = writeln!(
                     text,

@@ -108,7 +108,7 @@ integer/set model; it does not run MiniZinc:
 cargo build --locked -p zincite-check --bin zincite-check
 checker_run=$(mktemp -d "$PWD/target/checker-wasm/run.XXXXXX")
 target/debug/zincite-check --export "$checker_run/schedule.json" examples/checker-compilation/model.fzn
-printf '%s\n' 'var int: x;' 'var set of int: exact_tools;' 'constraint int_lin_eq([1],[x],9007199254740993)::checker_constraint("exact",[9007199254740993]);' 'constraint set_eq(exact_tools,{9007199254740993});' 'solve minimize x;' > "$checker_run/exact.fzn"
+printf '%s\n' 'var int: x;' 'var set of int: exact_tools;' 'var int: incremented ::is_defined_var;' 'constraint int_lin_eq([1],[x],9007199254740993)::checker_constraint("exact",[9007199254740993]);' 'constraint set_eq(exact_tools,{9007199254740993});' 'constraint int_plus(x,1,incremented)::defines_var(incremented);' 'constraint int_pow_fixed(incremented,1,9007199254740994);' 'solve minimize x;' > "$checker_run/exact.fzn"
 target/debug/zincite-check --export "$checker_run/exact.json" "$checker_run/exact.fzn"
 target/debug/zincite-check --export "$checker_run/bench.json" examples/checker-compilation/shared-bench.fzn
 node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" examples/checker-wasm/candidates.json target/debug/zincite-check
@@ -120,14 +120,16 @@ compares every observable report with the native CLI's `--load` path. The CLI
 receives literal `.dzn` assignments made from the same typed values in a temporary
 directory. The consumer removes those temporary assignments when finished.
 
-The nine named cases cover valid, invalid, incomplete and invalid-with-incomplete
+The ten named cases cover valid, invalid, incomplete and invalid-with-incomplete
 reports, application metadata, Boolean and array input, set definitions and domain
 failures, strict resource conflicts, and the distinct integers 9007199254740992
-and 9007199254740993 as both integers and set endpoints. A second pass exercises
+and 9007199254740993 as both integers and set endpoints. The exact-value model
+also derives an arithmetic output and checks a conflicting supplied output above
+JavaScript's exact-number range. A second pass exercises
 reuse after changing and removing inputs. Small boundary checks also reject a
 malformed artifact, a JSON number supplied as an integer and an unknown assignment
-name. Expected output ends with `Native/Wasm reports agree across 18 checks; exact
-integers, sets, global findings and input errors verified.` The native suite owns
+name. Expected output ends with `Native/Wasm reports agree across 20 checks; exact
+integers, arithmetic, sets, global findings and input errors verified.` The native suite owns
 the wider evaluator coverage.
 
 

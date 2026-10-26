@@ -76,6 +76,44 @@ fn text_forms_validate_signatures_parameters_aliases_and_exact_literals() {
 }
 
 #[test]
+fn arithmetic_admission_validates_types_shapes_domains_and_exponent_roles() {
+    for source in [
+        "predicate int_plus(var -2..2:a,var int:b,var int:c);var -1..1:x;constraint int_plus(x,1,2);solve satisfy;",
+        "int:e=-1;var int:x;constraint int_pow_fixed(x,e,0);solve satisfy;",
+        "var int:e;constraint int_pow(1,e,1);solve satisfy;",
+        "constraint gecode_int_pow(1,0,1);solve satisfy;",
+    ] {
+        assert!(prepare("admission.fzn", source).is_ok(), "{source}");
+    }
+    for source in [
+        "constraint int_plus(1,2);solve satisfy;",
+        "constraint int_abs(1,2,3);solve satisfy;",
+        "constraint int_plus(true,1,2);solve satisfy;",
+        "constraint int_plus(1,2,false);solve satisfy;",
+        "constraint int_abs([1],1);solve satisfy;",
+        "constraint int_min(1,{},1);solve satisfy;",
+        "constraint int_times(1,2,[2]);solve satisfy;",
+        "predicate int_abs(int:a,var int:b);solve satisfy;",
+        "predicate int_plus(var int:a,var bool:b,var int:c);solve satisfy;",
+        "predicate int_pow(var int:a,int:b,var int:c);solve satisfy;",
+        "predicate int_pow_fixed(var int:a,var int:b,var int:c);solve satisfy;",
+        "predicate gecode_int_pow(var int:a,var int:b,var int:c);solve satisfy;",
+        "predicate int_plus(var -2..2:a,var int:b,var int:c);var -3..3:x;constraint int_plus(x,1,2);solve satisfy;",
+        "var int:e=2;constraint int_pow_fixed(1,e,1);solve satisfy;",
+        "var 2..2:e;constraint gecode_int_pow(1,e,1);solve satisfy;",
+        "constraint gecode_int_pow(1,-1,1);solve satisfy;",
+        "constraint gecode_gecode_int_pow(1,2147483647,1);solve satisfy;",
+        "constraint fzn_gecode_int_pow(1,-1,1);solve satisfy;",
+        "constraint fzn_int_pow(1,2,1);solve satisfy;",
+        "constraint gecode_int_pow_fixed(1,2,1);solve satisfy;",
+        "predicate fzn_int_pow_fixed(var int:a,int:b,var int:c);solve satisfy;",
+    ] {
+        let errors = prepare("bad-arithmetic.fzn", source).unwrap_err();
+        assert!(errors[0].location.is_some(), "{source}");
+    }
+}
+
+#[test]
 fn standard_and_gecode_metadata_validate_nested_roles_without_changing_checks() {
     // Search and propagation names/signatures come from stdlib_ann.mzn and gecode.mzn.
     let source = r#"

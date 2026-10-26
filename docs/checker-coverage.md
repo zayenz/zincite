@@ -47,8 +47,8 @@ uv run scripts/checker-coverage.py target/checker-upstream/minizinc-2.10.1 targe
 The helper verifies both Git identities and clean source trees, scans balanced
 MiniZinc items without treating comments or strings as declarations, resolves
 both include profiles, expands registry aliases literally, checks task assignment,
-and compares the generated tables. It also checks the ten admission names in
-`Lowerer::constraint`. `--write` updates only the generated section after source
+and compares the generated tables. It also checks the admission names in
+`Lowerer::constraint` and `ArithmeticOperation::from_name`. `--write` updates only the generated section after source
 and ownership review. The helper needs Python 3.11 or newer and no dependencies.
 It does not compile a model or certify runtime semantics.
 
@@ -74,7 +74,7 @@ preparation also accepts matching bodyless declarations with arbitrary formal
 names, fixed/open array shapes and literal domain restrictions. It does not
 admit entire upstream source files. Fixed arguments can fill variable
 slots. Arrays use the current one-dimensional `1..n` model representation.
-All unmarked mathematical calls and all generated aliases are planned work.
+All other mathematical calls and aliases are planned work.
 
 | Current exact name | Additional admission limits | Current deterministic output |
 | --- | --- | --- |
@@ -88,11 +88,16 @@ All unmarked mathematical calls and all generated aliases are planned work.
 | `set_union(s,t,r)` | Compact finite integer sets | `r`, absent from the inputs |
 | `set_intersect(s,t,r)` | Compact finite integer sets | `r`, absent from the inputs |
 | `fzn_disjunctive_strict(start,duration)` | Equal array lengths; fixed nonnegative durations; matching bodyless declaration; formal names can vary | None |
+| `int_abs(x,r)`, `int_negate(x,r)` | Checked i64 absolute value/negation; also each exact `gecode_` and `fzn_` prefix | `r`, absent from the input |
+| `int_plus(x,y,r)`, `int_minus(x,y,r)`, `int_times(x,y,r)`, `int_div(x,y,r)`, `int_mod(x,y,r)`, `int_min(x,y,r)`, `int_max(x,y,r)` | Checked i64 operands/results; also each exact `gecode_` and `fzn_` prefix | `r`, absent from both inputs |
+| `int_pow(x,y,r)` | Variable or fixed integer exponent | `r`, absent from both inputs |
+| `int_pow_fixed(x,y,r)` | Fixed integer exponent, including negative values | `r`, absent from the base |
+| `gecode_int_pow(x,y,r)`, `gecode_gecode_int_pow(x,y,r)`, `fzn_gecode_int_pow(x,y,r)` | Fixed exponent in `0..2147483646` | `r`, absent from the base |
 
-The last declaration is required for this external call; the other names are
-builtins. All ten declarations validate signatures, roles and shapes, with call
-checks for declared domains and lengths. The nine `Predicate` cases cover these
-ten names. Current evidence is
+The `fzn_disjunctive_strict` declaration is required for that external call.
+The other listed names accept calls without declarations. All matching declarations
+validate signatures, roles and shapes, with call checks for declared domains and
+lengths. Current evidence is
 [`Lowerer::constraint` and `strict_disjunctive`](../crates/zincite-check/src/prepare.rs),
 [annotation validation](../crates/zincite-check/src/prepare/annotations.rs),
 [`Predicate` and `definition_direction`](../crates/zincite-check/src/lib.rs), and
@@ -122,10 +127,21 @@ multiplication, division, modulus, min/max and power calculate their final outpu
 `int_minus(x,y,z)` means `z=x-y`; `int_negate(x,y)` means `y=-x`.
 Integer division truncates toward zero; modulus follows `x=(x div y)*y + x mod y`.
 The standard negative-exponent contract is `1 div pow(x,abs(y))`.
-Use checked arithmetic for intermediate results, zero divisors, `MIN/-1`, negation,
-zero-base powers and exponent boundaries. Read both `flatzinc_builtins.mzn` and
-`redefinitions-2.2.1.mzn`; Gecode's fixed-exponent native call and its variable
-exponent wrapper are separate rows.
+Division truncates toward zero and modulus has the dividend's sign.
+Zero divisors, `MIN / -1`, absolute value/negation of `MIN`, and intermediate
+overflow are located execution errors; `MIN mod -1` is zero. Power uses checked
+exponentiation by squaring: `0^0 = 1`, a negative power of zero is an error, and
+`(-2)^63 = MIN` fits. Standard negative powers check the exponent magnitude and
+the denominator before division, so an exponent of `MIN` or denominator overflow
+is an error even when an unbounded calculation would truncate to zero. Standard
+exponents have no u32 cutoff; bases `0`, `1` and `-1` support large magnitudes.
+`int_pow` accepts a variable exponent; `int_pow_fixed` requires a parameter.
+Gecode native power requires a fixed exponent in `0..2147483646`, from the pinned
+[`Int::Limits::max`](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/int/limits.hpp#L68).
+The literal registry prefixes on `gecode_int_pow` produce only
+`gecode_gecode_int_pow` and `fzn_gecode_int_pow`; `fzn_int_pow` is unsupported.
+Read both `flatzinc_builtins.mzn` and `redefinitions-2.2.1.mzn`; the standard
+power wrappers and Gecode's fixed-exponent native call have separate contracts.
 
 <a id="family-013"></a>
 **checker-013 — integer comparisons and linear forms.** Check `=`, `!=`, `<`,
@@ -544,16 +560,16 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r038"></a>[R038](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2151) | ` int_lin_gt `, ` gecode_int_lin_gt `, ` fzn_int_lin_gt ` | ` p_int_lin_gt ` / ` always ` | ` int_lin_gt(array[int] of int: a, array[int] of var int: x, int: c) ` (handler) | planned | [checker-013](#family-013) | none |
 | <a id="r039"></a>[R039](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2152) | ` int_lin_gt_reif `, ` gecode_int_lin_gt_reif `, ` fzn_int_lin_gt_reif ` | ` p_int_lin_gt_reif ` / ` always ` | ` int_lin_gt_reif(array[int] of int: a, array[int] of var int: x, int: c, var bool: b) ` (handler) | planned | [checker-013](#family-013) | last Boolean (truth) |
 | <a id="r040"></a>[R040](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2153) | ` int_lin_gt_imp `, ` gecode_int_lin_gt_imp `, ` fzn_int_lin_gt_imp ` | ` p_int_lin_gt_imp ` / ` always ` | [D3149](#d3149) | planned | [checker-013](#family-013) | none (guard) |
-| <a id="r041"></a>[R041](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2154) | ` int_plus `, ` gecode_int_plus `, ` fzn_int_plus ` | ` p_int_plus ` / ` always ` | [D0473](#d0473) | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="r042"></a>[R042](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2155) | ` int_minus `, ` gecode_int_minus `, ` fzn_int_minus ` | ` p_int_minus ` / ` always ` | ` int_minus(var int: x, var int: y, var int: z) ` (handler) | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="r043"></a>[R043](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2156) | ` int_times `, ` gecode_int_times `, ` fzn_int_times ` | ` p_int_times ` / ` always ` | [D0480](#d0480) | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="r044"></a>[R044](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2157) | ` gecode_int_pow `, ` gecode_gecode_int_pow `, ` fzn_gecode_int_pow ` | ` p_int_pow ` / ` always ` | [D3094](#d3094) | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="r045"></a>[R045](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2158) | ` int_div `, ` gecode_int_div `, ` fzn_int_div ` | ` p_int_div ` / ` always ` | [D0474](#d0474) | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="r046"></a>[R046](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2159) | ` int_mod `, ` gecode_int_mod `, ` fzn_int_mod ` | ` p_int_mod ` / ` always ` | [D0479](#d0479) | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="r047"></a>[R047](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2160) | ` int_min `, ` gecode_int_min `, ` fzn_int_min ` | ` p_int_min ` / ` always ` | [D0478](#d0478) | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="r048"></a>[R048](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2161) | ` int_max `, ` gecode_int_max `, ` fzn_int_max ` | ` p_int_max ` / ` always ` | [D0477](#d0477) | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="r049"></a>[R049](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2162) | ` int_abs `, ` gecode_int_abs `, ` fzn_int_abs ` | ` p_abs ` / ` always ` | [D0460](#d0460) | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="r050"></a>[R050](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2163) | ` int_negate `, ` gecode_int_negate `, ` fzn_int_negate ` | ` p_int_negate ` / ` always ` | ` int_negate(var int: x, var int: y) ` (handler) | planned | [checker-012](#family-012) | last result; family domain rule |
+| <a id="r041"></a>[R041](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2154) | ` int_plus `, ` gecode_int_plus `, ` fzn_int_plus ` | ` p_int_plus ` / ` always ` | [D0473](#d0473) | ` int_plus `, ` gecode_int_plus `, ` fzn_int_plus ` | [checker-012](#family-012) | last result; family domain rule |
+| <a id="r042"></a>[R042](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2155) | ` int_minus `, ` gecode_int_minus `, ` fzn_int_minus ` | ` p_int_minus ` / ` always ` | ` int_minus(var int: x, var int: y, var int: z) ` (handler) | ` int_minus `, ` gecode_int_minus `, ` fzn_int_minus ` | [checker-012](#family-012) | last result; family domain rule |
+| <a id="r043"></a>[R043](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2156) | ` int_times `, ` gecode_int_times `, ` fzn_int_times ` | ` p_int_times ` / ` always ` | [D0480](#d0480) | ` int_times `, ` gecode_int_times `, ` fzn_int_times ` | [checker-012](#family-012) | last result; family domain rule |
+| <a id="r044"></a>[R044](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2157) | ` gecode_int_pow `, ` gecode_gecode_int_pow `, ` fzn_gecode_int_pow ` | ` p_int_pow ` / ` always ` | [D3094](#d3094) | ` gecode_int_pow `, ` gecode_gecode_int_pow `, ` fzn_gecode_int_pow ` | [checker-012](#family-012) | last result; family domain rule |
+| <a id="r045"></a>[R045](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2158) | ` int_div `, ` gecode_int_div `, ` fzn_int_div ` | ` p_int_div ` / ` always ` | [D0474](#d0474) | ` int_div `, ` gecode_int_div `, ` fzn_int_div ` | [checker-012](#family-012) | last result; family domain rule |
+| <a id="r046"></a>[R046](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2159) | ` int_mod `, ` gecode_int_mod `, ` fzn_int_mod ` | ` p_int_mod ` / ` always ` | [D0479](#d0479) | ` int_mod `, ` gecode_int_mod `, ` fzn_int_mod ` | [checker-012](#family-012) | last result; family domain rule |
+| <a id="r047"></a>[R047](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2160) | ` int_min `, ` gecode_int_min `, ` fzn_int_min ` | ` p_int_min ` / ` always ` | [D0478](#d0478) | ` int_min `, ` gecode_int_min `, ` fzn_int_min ` | [checker-012](#family-012) | last result; family domain rule |
+| <a id="r048"></a>[R048](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2161) | ` int_max `, ` gecode_int_max `, ` fzn_int_max ` | ` p_int_max ` / ` always ` | [D0477](#d0477) | ` int_max `, ` gecode_int_max `, ` fzn_int_max ` | [checker-012](#family-012) | last result; family domain rule |
+| <a id="r049"></a>[R049](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2162) | ` int_abs `, ` gecode_int_abs `, ` fzn_int_abs ` | ` p_abs ` / ` always ` | [D0460](#d0460) | ` int_abs `, ` gecode_int_abs `, ` fzn_int_abs ` | [checker-012](#family-012) | last result; family domain rule |
+| <a id="r050"></a>[R050](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2163) | ` int_negate `, ` gecode_int_negate `, ` fzn_int_negate ` | ` p_int_negate ` / ` always ` | ` int_negate(var int: x, var int: y) ` (handler) | ` int_negate `, ` gecode_int_negate `, ` fzn_int_negate ` | [checker-012](#family-012) | last result; family domain rule |
 | <a id="r051"></a>[R051](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2164) | ` bool_eq `, ` gecode_bool_eq `, ` fzn_bool_eq ` | ` p_bool_eq ` / ` always ` | [D0486](#d0486) | planned | [checker-014](#family-014) | either scalar, when unique |
 | <a id="r052"></a>[R052](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2165) | ` bool_eq_reif `, ` gecode_bool_eq_reif `, ` fzn_bool_eq_reif ` | ` p_bool_eq_reif ` / ` always ` | [D0487](#d0487) | planned | [checker-014](#family-014) | last Boolean (truth) |
 | <a id="r053"></a>[R053](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2166) | ` bool_eq_imp `, ` gecode_bool_eq_imp `, ` fzn_bool_eq_imp ` | ` p_bool_eq_imp ` / ` always ` | ` bool_eq_imp(var bool: x, var bool: y, var bool: b) ` (handler) | planned | [checker-014](#family-014) | none (guard) |
@@ -2928,7 +2944,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d0460"></a>D0460 / 24 | ` predicate int_abs(var int: x, var int: y) ` | S direct; G direct | planned | [checker-012](#family-012) | last result; family domain rule |
+| <a id="d0460"></a>D0460 / 24 | ` predicate int_abs(var int: x, var int: y) ` | S direct; G direct | C (qualified) | [checker-012](#family-012) | last result; family domain rule |
 | <a id="d0461"></a>D0461 / 26 | ` predicate int_eq(var int: x, var int: y) :: promise_commutative ` | S decomposition → [D1949](#d1949), [D1970](#d1970); G decomposition → [D1949](#d1949), [D1970](#d1970) | planned | [checker-013](#family-013) | exact single linear/equality slot |
 | <a id="d0462"></a>D0462 / 28 | ` predicate int_eq_reif(var int: x, var int: y, var bool: b) ` | S direct; G direct | planned | [checker-013](#family-013) | last Boolean (truth) |
 | <a id="d0463"></a>D0463 / 30 | ` predicate int_le(var int: x, var int: y) ` | S decomposition → [D1951](#d1951), [D1952](#d1952); G decomposition → [D1951](#d1951), [D1952](#d1952) | planned | [checker-013](#family-013) | none |
@@ -2941,15 +2957,15 @@ Include/resource entry only; see the selection index.
 | <a id="d0470"></a>D0470 / 45 | ` predicate int_lin_le_reif(array [int] of int: as, array [int] of var int: xs, int: y, var bool: b) ` | S direct; G direct | planned | [checker-013](#family-013) | last Boolean (truth) |
 | <a id="d0471"></a>D0471 / 47 | ` predicate int_ne(var int: x, var int: y) :: promise_commutative ` | S decomposition → [D1971](#d1971); G decomposition → [D1971](#d1971) | planned | [checker-013](#family-013) | none |
 | <a id="d0472"></a>D0472 / 49 | ` predicate int_ne_reif(var int: x, var int: y, var bool: b) ` | S direct; G direct | planned | [checker-013](#family-013) | last Boolean (truth) |
-| <a id="d0473"></a>D0473 / 51 | ` predicate int_plus(var int: x, var int: y, var int: z) ` | S direct; G direct | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="d0474"></a>D0474 / 53 | ` predicate int_div(var int: x, var int: y, var int: z) ` | S direct; G direct | planned | [checker-012](#family-012) | last result; family domain rule |
+| <a id="d0473"></a>D0473 / 51 | ` predicate int_plus(var int: x, var int: y, var int: z) ` | S direct; G direct | C (qualified) | [checker-012](#family-012) | last result; family domain rule |
+| <a id="d0474"></a>D0474 / 53 | ` predicate int_div(var int: x, var int: y, var int: z) ` | S direct; G direct | C (qualified) | [checker-012](#family-012) | last result; family domain rule |
 | <a id="d0475"></a>D0475 / 55 | ` predicate int_lt(var int: x, var int: y) ` | S direct; G direct | planned | [checker-013](#family-013) | none |
 | <a id="d0476"></a>D0476 / 57 | ` predicate int_lt_reif(var int: x, var int: y, var bool: b) ` | S direct; G direct | planned | [checker-013](#family-013) | last Boolean (truth) |
-| <a id="d0477"></a>D0477 / 59 | ` predicate int_max(var int: x, var int: y, var int: z) ` | S direct; G direct | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="d0478"></a>D0478 / 61 | ` predicate int_min(var int: x, var int: y, var int: z) ` | S direct; G direct | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="d0479"></a>D0479 / 63 | ` predicate int_mod(var int: x, var int: y, var int: z) ` | S direct; G direct | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="d0480"></a>D0480 / 65 | ` predicate int_times(var int: x, var int: y, var int: z) ` | S direct; G direct | planned | [checker-012](#family-012) | last result; family domain rule |
-| <a id="d0481"></a>D0481 / 67 | ` predicate int_pow(var int: x, var int: y, var int: z) ` | S direct; G decomposition → [D3121](#d3121) | planned | [checker-012](#family-012) | last result; family domain rule |
+| <a id="d0477"></a>D0477 / 59 | ` predicate int_max(var int: x, var int: y, var int: z) ` | S direct; G direct | C (qualified) | [checker-012](#family-012) | last result; family domain rule |
+| <a id="d0478"></a>D0478 / 61 | ` predicate int_min(var int: x, var int: y, var int: z) ` | S direct; G direct | C (qualified) | [checker-012](#family-012) | last result; family domain rule |
+| <a id="d0479"></a>D0479 / 63 | ` predicate int_mod(var int: x, var int: y, var int: z) ` | S direct; G direct | C (qualified) | [checker-012](#family-012) | last result; family domain rule |
+| <a id="d0480"></a>D0480 / 65 | ` predicate int_times(var int: x, var int: y, var int: z) ` | S direct; G direct | C (qualified) | [checker-012](#family-012) | last result; family domain rule |
+| <a id="d0481"></a>D0481 / 67 | ` predicate int_pow(var int: x, var int: y, var int: z) ` | S direct; G decomposition → [D3121](#d3121) | C (qualified) | [checker-012](#family-012) | last result; family domain rule |
 | <a id="d0482"></a>D0482 / 70 | ` predicate set_in(var int: x, set of int: s) ` | S decomposition → [D1350](#d1350), [D1351](#d1351), [D1948](#d1948), [D1972](#d1972), [D1973](#d1973), [D2625](#d2625); G decomposition → [D1350](#d1350), [D1351](#d1351), [D1948](#d1948), [D1972](#d1972), [D1973](#d1973), [D2625](#d2625) | C (qualified) | [checker-017](#family-017) | none |
 | <a id="d0483"></a>D0483 / 77 | ` predicate bool2int(var bool: x, var int: y) ` | S direct; G direct | planned | [checker-014](#family-014) | either scalar, when unique |
 | <a id="d0484"></a>D0484 / 79 | ` predicate bool_and(var bool: x, var bool: y, var bool: b) ` | S direct; G direct | planned | [checker-014](#family-014) | result Boolean when present; XOR arity rule |
@@ -3049,7 +3065,7 @@ Include/resource entry only; see the selection index.
 | <a id="d0578"></a>D0578 / 365 | ` predicate float_dom(var float: x, array [int] of float: as) ` | S decomposition → [D1414](#d1414), [D1974](#d1974); G decomposition → [D1414](#d1414), [D1974](#d1974) | planned | [checker-015](#family-015) | none |
 | <a id="d0579"></a>D0579 / 380 | ` function var $$E: min(var set of $$E: s) ` | compiler intrinsic | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0580"></a>D0580 / 384 | ` function var $$E: max(var set of $$E: s) ` | compiler intrinsic | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
-| <a id="d0581"></a>D0581 / 397 | ` predicate int_pow_fixed(var int: x, int: y, var int: z) ` | S decomposition → [D1415](#d1415); G decomposition → [D3095](#d3095) | planned | [checker-012](#family-012) | last result; family domain rule |
+| <a id="d0581"></a>D0581 / 397 | ` predicate int_pow_fixed(var int: x, int: y, var int: z) ` | S decomposition → [D1415](#d1415); G decomposition → [D3095](#d3095) | C (qualified) | [checker-012](#family-012) | last result; family domain rule |
 | <a id="d0582"></a>D0582 / 410 | ` predicate float_set_in(var float: x, set of float: s) ` | S decomposition → [D1416](#d1416); G decomposition → [D1416](#d1416) | planned | [checker-015](#family-015) | none |
 | <a id="d0583"></a>D0583 / 426 | ` predicate array_var_int_element2d_nonshifted( var int: idx1, var int: idx2, array [int, int] of var int: xs, var int: y, ) ` | S decomposition → [D1417](#d1417); G decomposition → [D3098](#d3098) | planned | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="d0584"></a>D0584 / 437 | ` predicate array_var_bool_element2d_nonshifted( var int: idx1, var int: idx2, array [int, int] of var bool: xs, var bool: y, ) ` | S decomposition → [D1418](#d1418); G decomposition → [D3099](#d3099) | planned | [checker-016](#family-016) | selected result (known index/condition) |
@@ -9805,7 +9821,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d3094"></a>D3094 / 1 | ` predicate gecode_int_pow(var int: x, int: y, var int: z) ` | S outside profile; G direct | planned | [checker-012](#family-012) | last result; family domain rule |
+| <a id="d3094"></a>D3094 / 1 | ` predicate gecode_int_pow(var int: x, int: y, var int: z) ` | S outside profile; G direct | C (qualified) | [checker-012](#family-012) | last result; family domain rule |
 | <a id="d3095"></a>D3095 / 3 | ` predicate int_pow_fixed(var int: x, int: y, var int: z) ` | wrapper → ` gecode_int_pow `, ` pow ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-844"></a>

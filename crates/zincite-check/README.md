@@ -118,6 +118,7 @@ controls show these limits:
 | --- | --- |
 | Explicit finish equations with `defines_var` | Named arrays survive; the runtime derives both finishes and checks every relation |
 | Finish and unused Boolean initializers | Named finish array and Boolean disappear; precedence uses starts directly, so callers cannot edit the removed values |
+| Explicit `int_pow_fixed(x,3,cube)` with a marked result | The standard decomposition can emit `defines_var(cube)` without `is_defined_var` on `cube`; preparation diagnoses the missing marker |
 | Labelled `start <= 2` for a `var 0..8` scalar | Domain becomes `0..2`; the source constraint ID and label disappear; `start=8` gives a domain finding with variable metadata |
 | The model's `forall` finish equations | Two `int_lin_eq` constraints share a label and carry distinct `[1]` and `[2]` entity payloads |
 | Optional order symmetry breaker | With the recipe's ignore flag, `[8,1]` passes the control; with the flag false, its emitted `int_lin_le` fails with `job_order/[1,2]` |
@@ -237,12 +238,12 @@ or a MiniZinc installation.
   is exactly one final solve item: `satisfy`, or `minimize`/`maximize` of a scalar
   integer literal or reference. An available objective value appears in reports;
   the checker makes no optimality claim.
-- Exactly the ten predicates in the coverage table below. Linear coefficients
+- Exactly the predicates and arithmetic aliases in the coverage table below. Linear coefficients
   and bounds are fixed integers; coefficient and operand arrays have equal lengths.
   Bodyless declarations for these names validate types, fixed/variable roles and
   scalar/array shapes independently of formal spelling. A declared fixed length
   or restricted domain also constrains calls. `fzn_disjunctive_strict` requires
-  its declaration; the other nine names are builtins. Unknown, duplicate,
+  its declaration; other supported calls can omit declarations. Unknown, duplicate,
   mismatched, annotated and body-bearing declarations diagnose.
 - Application annotations `checker_value(string, literal_integer_array)` on
   variables and `checker_constraint(string, literal_integer_array)` on constraints
@@ -321,6 +322,19 @@ by both application models:
 | `set_union(s,t,r)` | `r = s union t` | Third argument `r`, absent from inputs |
 | `set_intersect(s,t,r)` | `r = s intersect t` | Third argument `r`, absent from inputs |
 | `fzn_disjunctive_strict(start,duration)` | Every pair satisfies `start[i]+duration[i] <= start[j]` or the reverse | None; durations must be fixed nonnegative integers |
+| `int_abs(x,r)`, `int_negate(x,r)` | `r = abs(x)`, `r = -x` | Final argument `r` |
+| `int_plus(x,y,r)`, `int_minus(x,y,r)`, `int_times(x,y,r)` | `r = x+y`, `r = x-y`, `r = x*y` | Final argument `r` |
+| `int_div(x,y,r)`, `int_mod(x,y,r)` | Truncated quotient or modulus, with the dividend's sign | Final argument `r` |
+| `int_min(x,y,r)`, `int_max(x,y,r)` | Minimum or maximum | Final argument `r` |
+| `int_pow(x,y,r)`, `int_pow_fixed(x,y,r)` | Integer power; the latter requires a fixed exponent | Final argument `r` |
+| `gecode_int_pow(x,y,r)`, `gecode_gecode_int_pow(x,y,r)`, `fzn_gecode_int_pow(x,y,r)` | Integer power with fixed exponent in `0..2147483646` | Final argument `r` |
+
+The nine arithmetic names from `int_abs` through `int_max` also accept their
+exact `gecode_` and `fzn_` prefixes, such as `gecode_int_minus` and `fzn_int_negate`.
+Standard `int_pow` and `int_pow_fixed` have no additional prefix aliases.
+Arithmetic completion requires a final output that occurs exactly once after
+alias resolution, all inputs available and a matching definition annotation.
+The checker does not calculate missing arithmetic inputs by reversing a relation.
 
 Before checking domains and relations, a dependency worklist calculates the
 supported `defines_var` outputs until no new values are available:
@@ -364,8 +378,17 @@ checked arithmetic in array order. Completion also checks subtraction and exact
 division. Set cardinality and strict disjunctive endpoints also use checked i64
 results. Overflow, including intermediate overflow and `i64::MIN / -1`, is a
 located execution error. A zero output coefficient is an unsupported direction,
-so completion does not divide by zero. This subset has no division or remainder
-predicate. Integer sets use compact sorted, disjoint, nonadjacent inclusive ranges; large
+so linear completion does not divide by zero. Integer division truncates toward
+zero; modulus has the dividend's sign, with `MIN mod -1 = 0`. A zero divisor
+is an execution error. Power defines `0^0 = 1` and rejects negative powers of
+zero. Standard negative exponents calculate a checked absolute magnitude and
+checked denominator, then `1 div denominator`. Exponent `MIN` and denominator
+overflow are errors, even if the mathematical quotient would truncate to zero.
+There is no u32 exponent cutoff, and `(-2)^63` fits the i64 boundary. Native
+Gecode power instead requires its fixed exponent in `0..2147483646` during
+preparation and loading. Arithmetic findings use `integer_arithmetic`, a typed
+`operation`, integer `inputs` and the supplied `result` with variable references.
+Integer sets use compact sorted, disjoint, nonadjacent inclusive ranges; large
 intervals are never expanded just to store a value. Cardinality above i64::MAX is
 a located execution error. JSON writes values, coefficients, sums, bounds, domain endpoints
 and application payload integers as decimal strings, so consumers do not round

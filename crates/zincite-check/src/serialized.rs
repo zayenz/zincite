@@ -185,6 +185,34 @@ impl PreparedModel {
                 return Err(invalid("constraint ordinals must follow executable order"));
             }
             let predicate_name = match &constraint.predicate {
+                Predicate::IntegerArithmetic {
+                    operation,
+                    inputs,
+                    result,
+                } => {
+                    if ArithmeticOperation::from_name(&constraint.reference.predicate)
+                        != Some(*operation)
+                    {
+                        return Err(invalid(
+                            "constraint report predicate does not match its operation",
+                        ));
+                    }
+                    if inputs.len() != operation.input_count() {
+                        return Err(invalid("integer arithmetic has the wrong input count"));
+                    }
+                    for operand in inputs.iter().chain(std::iter::once(result)) {
+                        self.validate_operand(operand, ValueType::Integer)?;
+                    }
+                    if operation.has_fixed_exponent() {
+                        let Operand::Literal(Value::Integer(exponent)) = inputs[1] else {
+                            return Err(invalid(
+                                "power exponent must be a fixed integer parameter",
+                            ));
+                        };
+                        operation.validate_exponent(exponent).map_err(invalid)?;
+                    }
+                    &constraint.reference.predicate
+                }
                 Predicate::SetIn { element, set } => {
                     self.validate_operand(element, ValueType::Integer)?;
                     self.validate_operand(set, ValueType::IntegerSet)?;

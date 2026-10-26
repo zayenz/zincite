@@ -380,7 +380,7 @@ fn aliases_domains_fixed_values_and_input_validation_work_together() {
 fn unsupported_forms_fail_preparation_and_arithmetic_is_checked() {
     for text in [
         "var float: x; solve satisfy;",
-        "var int:x; constraint int_plus(x,1,x); solve satisfy;",
+        "var int:x; constraint int_pow_unknown(x,1,x); solve satisfy;",
         "var int:x; constraint int_lin_eq^-1([1],[x],0); solve satisfy;",
         "var int:x; constraint int_lin_eq⁻¹([1],[x],0); solve satisfy;",
         "var int:x; constraint int_lin_eq([1],[x],0)::checker_constraint^-1(\"id\",[1]); solve satisfy;",
@@ -755,4 +755,194 @@ fn unsupported_set_operations_and_malformed_global_declarations_are_located() {
     for candidate in ["s={1+1};", "s=1..(1+1);", "s={true};"] {
         assert!(parse_assignment("bad.dzn", candidate).is_err());
     }
+}
+
+#[test]
+fn arithmetic_spellings_check_supplied_outputs_and_complete_the_final_argument() {
+    use zincite_check::PreparedModel;
+    for (names, inputs, expected) in [
+        ("int_abs gecode_int_abs fzn_int_abs", "-7", 7),
+        ("int_negate gecode_int_negate fzn_int_negate", "7", -7),
+        ("int_plus gecode_int_plus fzn_int_plus", "-7,3", -4),
+        ("int_minus gecode_int_minus fzn_int_minus", "-7,3", -10),
+        ("int_times gecode_int_times fzn_int_times", "-7,3", -21),
+        ("int_div gecode_int_div fzn_int_div", "-7,3", -2),
+        ("int_mod gecode_int_mod fzn_int_mod", "-7,3", -1),
+        ("int_min gecode_int_min fzn_int_min", "-7,3", -7),
+        ("int_max gecode_int_max fzn_int_max", "-7,3", 3),
+        ("int_pow", "-2,3", -8),
+        ("int_pow_fixed", "-2,-3", 0),
+        (
+            "gecode_int_pow gecode_gecode_int_pow fzn_gecode_int_pow",
+            "-2,3",
+            -8,
+        ),
+    ] {
+        for name in names.split_whitespace() {
+            let fixed = name.contains("pow") && name != "int_pow";
+            let parameters = if !inputs.contains(',') {
+                "var int: operand, var int: answer"
+            } else if fixed {
+                "var int: base, int: exponent, var int: answer"
+            } else {
+                "var int: first, var int: second, var int: answer"
+            };
+            let source = format!(
+                "predicate {name}({parameters});var int:answer::is_defined_var;constraint {name}({inputs},answer)::defines_var(answer);solve minimize answer;"
+            );
+            let model = prepare("arithmetic.fzn", &source).unwrap();
+            let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+            for model in [&model, &loaded] {
+                let report = model.check(&Assignment::default()).unwrap();
+                assert_eq!(report.status, Status::Valid, "{name}");
+                assert_eq!(
+                    report.objective.unwrap().argument.value,
+                    Value::Integer(expected),
+                    "{name}"
+                );
+                let report = model
+                    .check(&assignment(&format!("answer={};", expected + 1)))
+                    .unwrap();
+                assert_eq!(report.status, Status::Invalid, "{name}");
+                let ViolationKind::IntegerArithmetic { inputs, result, .. } =
+                    &report.violations[0].details
+                else {
+                    panic!("typed arithmetic finding expected")
+                };
+                assert!(
+                    inputs
+                        .iter()
+                        .all(|input| matches!(input.value, Value::Integer(_)))
+                );
+                assert_eq!(result.variable.as_ref().unwrap().name, "answer");
+                assert_eq!(result.value, Value::Integer(expected + 1));
+            }
+        }
+    }
+}
+
+#[test]
+fn integer_arithmetic_boundaries_use_checked_signed_operations() {
+    for (name, inputs, expected) in [
+        ("int_div", "7,3", 2),
+        ("int_div", "7,-3", -2),
+        ("int_div", "-7,3", -2),
+        ("int_div", "-7,-3", 2),
+        ("int_mod", "7,3", 1),
+        ("int_mod", "7,-3", 1),
+        ("int_mod", "-7,3", -1),
+        ("int_mod", "-7,-3", -1),
+        ("int_mod", "-9223372036854775808,-1", 0),
+        ("int_pow", "0,0", 1),
+        ("int_pow", "0,9223372036854775807", 0),
+        ("int_pow", "1,9223372036854775807", 1),
+        ("int_pow", "-1,9223372036854775807", -1),
+        ("int_pow", "-1,4294967296", 1),
+        ("int_pow", "-2,63", i64::MIN),
+        ("int_pow_fixed", "-2,63", i64::MIN),
+        ("int_pow", "-9223372036854775808,1", i64::MIN),
+        ("int_pow", "-2,-63", 0),
+        ("int_pow", "-1,-9223372036854775807", -1),
+        ("int_pow_fixed", "1,-4294967296", 1),
+        ("gecode_int_pow", "-1,2147483646", 1),
+    ] {
+        let source = format!(
+            "var int:r::is_defined_var;constraint {name}({inputs},r)::defines_var(r);solve minimize r;"
+        );
+        let model = prepare("limits.fzn", &source).unwrap();
+        for candidate in [String::new(), format!("r={expected};")] {
+            let report = model.check(&assignment(&candidate)).unwrap();
+            assert_eq!(report.status, Status::Valid, "{name}({inputs})");
+            assert_eq!(
+                report.objective.unwrap().argument.value,
+                Value::Integer(expected)
+            );
+        }
+    }
+    for (name, inputs, message) in [
+        ("int_abs", "-9223372036854775808", "overflow"),
+        ("int_negate", "-9223372036854775808", "overflow"),
+        ("int_plus", "9223372036854775807,1", "overflow"),
+        ("int_minus", "-9223372036854775808,1", "overflow"),
+        ("int_times", "9223372036854775807,2", "overflow"),
+        ("int_div", "1,0", "division by zero"),
+        ("int_mod", "1,0", "division by zero"),
+        ("int_div", "-9223372036854775808,-1", "overflow"),
+        ("int_pow", "2,63", "overflow"),
+        ("int_pow", "2,-63", "overflow"),
+        ("int_pow_fixed", "2,-64", "overflow"),
+        ("int_pow", "1,-9223372036854775808", "exponent magnitude"),
+        ("int_pow", "0,-1", "zero base"),
+    ] {
+        let source = format!(
+            "var int:r::is_defined_var;constraint {name}({inputs},r)::defines_var(r);solve satisfy;"
+        );
+        let model = prepare("overflow.fzn", &source).unwrap();
+        for candidate in ["", "r=0;"] {
+            let error = model.check(&assignment(candidate)).unwrap_err();
+            assert_eq!(error.kind, ErrorKind::Execution);
+            assert!(
+                error.diagnostics[0].message.contains(message),
+                "{name}({inputs}): {error:?}"
+            );
+            assert_eq!(
+                error.diagnostics[0].location.as_ref().unwrap().source,
+                "overflow.fzn"
+            );
+        }
+    }
+}
+
+#[test]
+fn arithmetic_completion_feeds_downstream_checks_and_starts_fresh() {
+    let source = "var int:x;var 0..1:y::is_defined_var;var int:z::is_defined_var;constraint int_times(y,3,z)::defines_var(z);constraint int_plus(x,2,y)::defines_var(y);constraint int_min(z,10,9);constraint int_plus(1,1,3);solve minimize z;";
+    let model = prepare("chain.fzn", source).unwrap();
+    for candidate in ["x=2;", "x=0;", "", "x=2;y=0;z=0;", "x=2;"] {
+        let report = model.check(&assignment(candidate)).unwrap();
+        assert_eq!(report.status, Status::Invalid);
+        assert_eq!(report.completeness.complete, !candidate.is_empty());
+        if candidate == "x=2;" {
+            assert_eq!(report.violations.len(), 3);
+            assert_eq!(report.objective.unwrap().argument.value, Value::Integer(12));
+            assert!(matches!(
+                report.violations[0].details,
+                ViolationKind::Domain {
+                    value: Value::Integer(4)
+                }
+            ));
+        } else if candidate.is_empty() {
+            assert_eq!(report.violations.len(), 1);
+            assert_eq!(report.completeness.unresolved_variables.len(), 3);
+        } else if candidate.contains("y=") {
+            assert_eq!(report.violations.len(), 3);
+            assert_eq!(report.objective.unwrap().argument.value, Value::Integer(0));
+        }
+    }
+    for source in [
+        "var int:x::is_defined_var;var int:alias=x;constraint int_plus(alias,1,x)::defines_var(x);solve satisfy;",
+        "var int:x::is_defined_var;constraint int_minus(x,1,3)::defines_var(x);solve satisfy;",
+        "var int:x::is_defined_var;var int:y::is_defined_var;constraint int_negate(y,x)::defines_var(x);constraint int_negate(x,y)::defines_var(y);solve satisfy;",
+    ] {
+        let model = prepare("direction.fzn", source).unwrap();
+        let report = model.check(&Assignment::default()).unwrap();
+        assert_eq!(report.status, Status::Incomplete);
+        assert!(!report.completeness.blocked_checks.is_empty());
+        let supplied = model.check(&assignment("x=4;")).unwrap();
+        assert!(supplied.completeness.complete);
+    }
+    let model = prepare("computed.fzn", "var 0..0:x::computed_domain;var int:y::is_defined_var;constraint int_plus(x,2,y)::defines_var(y);solve minimize y;").unwrap();
+    assert_eq!(
+        model.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
+    assert_eq!(
+        model
+            .check(&assignment("x=4;"))
+            .unwrap()
+            .objective
+            .unwrap()
+            .argument
+            .value,
+        Value::Integer(6)
+    );
 }
