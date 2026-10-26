@@ -33,3 +33,7 @@ required-features = ["prepare"]
 [[example]]
 name = "schedule-feedback"
 required-features = ["prepare"]
+
+[[example]]
+name = "measure-checking"
+required-features = ["prepare"]

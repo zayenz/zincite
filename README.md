@@ -90,7 +90,9 @@ with fixed nonnegative durations.
 Parser-free WebAssembly bindings load the same prepared artifacts and check typed
 assignment JSON. The [Wasm example](examples/checker-wasm/README.md) includes
 Node.js and browser builds and an executable comparison with native reports.
-The checker is not part of the published 0.3.0 packages.
+The [interactive measurement report](scripts/checker-performance.md) separates
+preparation, loading and repeated native/browser checks for the workshop example
+and growing models. The checker is not part of the published 0.3.0 packages.
 
 ## Exit codes
 

@@ -3,9 +3,9 @@
 # Tasks: checker
 
 - Total: 9
-- Ready: 1
+- Ready: 0
 - Blocked: 0
-- Done: 8
+- Done: 9
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -17,4 +17,4 @@
 | [checker-006](tasks/006-expose-a-parser-free-webassembly-checking-api.md) | Expose a parser-free WebAssembly checking API | done | checker-005 |
 | [checker-007](tasks/007-demonstrate-interactive-graphical-edits-and-structured-feedb.md) | Demonstrate interactive graphical edits and structured feedback | done | checker-004, checker-006 |
 | [checker-008](tasks/008-support-finite-integer-sets-and-one-useful-global-predicate.md) | Support finite integer sets and one useful global predicate | done | checker-004, checker-005, checker-006 |
-| [checker-009](tasks/009-measure-interactive-checking-and-document-the-supported-work.md) | Measure interactive checking and document the supported workflow | ready | checker-007, checker-008 |
+| [checker-009](tasks/009-measure-interactive-checking-and-document-the-supported-work.md) | Measure interactive checking and document the supported workflow | done | checker-007, checker-008 |

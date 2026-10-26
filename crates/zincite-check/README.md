@@ -195,8 +195,16 @@ failures. Insufficient input returns `Ok(CheckReport)`.
 The default `prepare` feature uses `zincite-syntax` for CST traversal and source
 locations, and includes the native CLI. Disabling default features excludes the
 parser and CLI. `PreparedModel::from_json` and `check` also work with
-`zincite-check = { version = "0.3.0", default-features = false }` when using
-this checkout. Supply `Assignment` values directly in that build. `from_json`
+a path dependency on this checkout:
+
+```toml
+[dependencies]
+zincite-check = { path = "../zincite/crates/zincite-check", default-features = false }
+```
+
+Adjust the path relative to the consuming project's `Cargo.toml`. This checker
+has not been published to the registry. Supply `Assignment` values directly in
+that build. `from_json`
 returns a `Diagnostic` on malformed input; `PreparedModel` does not implement
 `Deserialize`, so deserialization cannot bypass admission checks.
 
@@ -343,3 +351,15 @@ files. `--export` creates a new output file.
 | 0 | Valid, complete candidate or successful export |
 | 1 | Invalid or incomplete report |
 | 2 | Usage, I/O, syntax, preparation, loading, assignment or arithmetic error |
+
+
+## Interactive measurements
+
+The [measurement report](../../scripts/checker-performance.md) records a release
+build on the user's M1 Max: 60 individual edits of the existing two-job schedule
+gave native checking p95 of 0.0083 ms and browser assignment-to-parsed-report p95
+of 0.20 ms, below the 100 ms target for that named example. It separates source
+preparation, serialized loading, native checking and Wasm/JSON work, and gives
+size and memory measurements for 10 and 100 independent copies. DOM rendering
+and other models need their own measurements. The report includes the small
+saved-run driver and exact repeat commands.

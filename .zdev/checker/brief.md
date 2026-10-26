@@ -163,8 +163,8 @@ in a second model.
 
 ## Implementation sequence
 
-These are planned increments, not imported task records or implemented features.
-Turn an increment into zdev tasks when task creation is requested.
+The imported tasks in [TASKS.md](TASKS.md) track these increments. Their records
+give current status and validation; the sequence below describes their scope.
 
 1. **Establish the compilation contract.** Compile a tiny labelled model with
    arithmetic-derived values, reification and an editable decision array. Inspect
@@ -239,6 +239,21 @@ it is not an open-ended research campaign or a prerequisite to rebuilding the
 existing parser. Serialization follows a working runtime, and browser work
 follows serialization. Set/global expansion can follow the native path without
 blocking the first browser example.
+
+## Interactive measurement result
+
+The [2026-10-26 engineering report](../../scripts/checker-performance.md) records
+release native and real-browser measurements on the user's M1 Max. The existing
+two-job workshop model used 60 individual checks over feasible, infeasible,
+omitted, incomplete-invalid and recovered states. Native checking p95 was
+0.0083 ms and browser assignment-to-parsed-report p95 was 0.20 ms, below the 100 ms
+ordinary-example target. Preparation, serialized load, normalized Wasm/JSON
+components and memory scaling for 10/100 copies inside one model are separate.
+The report documents scopes, browser/build, sample spread and repeat commands.
+The final saved run is `m1-max-release-2026-10-26-final`.
+No checker optimization was needed. Runtime support is exactly the current
+[checker guide](../../crates/zincite-check/README.md), including finite integer
+sets and the strict disjunctive global; arbitrary FlatZinc and floats are excluded.
 
 ## Deferred research and decisions
 

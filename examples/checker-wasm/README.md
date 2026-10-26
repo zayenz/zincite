@@ -129,3 +129,9 @@ malformed artifact, a JSON number supplied as an integer and an unknown assignme
 name. Expected output ends with `Native/Wasm reports agree across 18 checks; exact
 integers, sets, global findings and input errors verified.` The native suite owns
 the wider evaluator coverage.
+
+
+For real-browser latency, serialized-load costs, JSON boundary costs and scaling,
+see the [interactive checker report](../../scripts/checker-performance.md). Its
+repeatable browser collection uses these release web bindings; Node is used only
+for the correctness smoke above.

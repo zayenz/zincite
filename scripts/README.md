@@ -294,3 +294,13 @@ first-use work. It reuses the unchanged save driver and preserved release binari
 The [remaining syntax checkpoint](syntax-corpus-checkpoint.md) classifies the
 full post-library run, retains synthetic compiler-confirmed reproducers, and
 separates unsupported families from malformed, negative and non-model inputs.
+
+
+## Interactive checker
+
+[`bench-checker.py`](bench-checker.py) measures the library API in a release Rust
+helper and the parser-free Wasm API in a real browser. Named runs support resume
+and analysis from saved records. The [checker report](checker-performance.md)
+gives the workload, timing/memory scopes, measured results and repeat commands.
+These timings address prepared-model edits; formatter save latency includes a
+fresh process and has a separate target.

@@ -84,3 +84,10 @@ Reuse the existing [six-case native/Wasm smoke checks](../checker-wasm/README.md
 after building. Browser acceptance additionally covers the four interactions
 above, keyboard edits, successive report replacement, the narrow layout and the
 absence of network requests during edits.
+
+
+The [interactive checker measurements](../../scripts/checker-performance.md) use
+this model and a five-state edit cycle, including infeasible, omitted and partial
+input. The separate measurement page times the Wasm/JSON path and growing models;
+it does not include this page's DOM rendering. Follow its commands to save,
+resume and analyze a named run alongside the workshop server.
