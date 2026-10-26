@@ -57,8 +57,9 @@ it does not claim arbitrary FlatZinc coverage.
   interpreter. Keep syntax preparation optional for a parser-free Wasm build.
 - Begin with Boolean and checked integer values, scalar variables, literal
   arrays, aliases, domains and a small explicit predicate set. Add finite integer
-  sets once the basic path works. Float support needs a separate semantics
-  decision and is deferred; unsupported types and predicates fail preparation.
+  sets once the basic path works. The full-support expansion below adds floats
+  and the complete targeted libraries; until each task lands, unsupported types
+  and predicates fail preparation.
 - Use fixed-width checked integers consistently across native and Wasm targets.
   Specify overflow, division by zero and signed division/remainder behavior from
   the MiniZinc builtins; never inherit target-dependent `usize` arithmetic.
@@ -255,6 +256,104 @@ No checker optimization was needed. Runtime support is exactly the current
 [checker guide](../../crates/zincite-check/README.md), including finite integer
 sets and the strict disjunctive global; arbitrary FlatZinc and floats are excluded.
 
+## Full FlatZinc and library support
+
+The next approved objective is full candidate checking for the text FlatZinc
+language and FlatZinc-JSON, standard constraints emitted from MiniZinc's standard
+library, and constraint predicates exposed by Gecode's MiniZinc library. This
+expands the initial ten-predicate implementation; it is planned work until the
+corresponding tasks and coverage checks pass. Keep the same native, serialized
+and parser-free Wasm entry points, structured findings and independent
+completeness contract.
+
+Use these fixed upstream sources for this expansion:
+
+- MiniZinc **2.10.1**, tag commit
+  `c3448c48e7f05f13805616cfd1b9e94972eef58c`:
+  [standard library](https://github.com/MiniZinc/libminizinc/tree/c3448c48e7f05f13805616cfd1b9e94972eef58c/share/minizinc/std),
+  especially `flatzinc_builtins.mzn`, versioned `redefinitions*.mzn`, global
+  decompositions and `stdlib/stdlib_ann.mzn`.
+  The [2.10.1 interface specification](https://docs.minizinc.org/en/2.10.1/fzn-spec.html)
+  defines text/JSON forms and solver-library conventions.
+- Gecode **latest main checked on 2026-10-26**, commit
+  `186551447db0f74639d65cb8de5af190f15ac2c2`:
+  [MiniZinc library](https://github.com/Gecode/gecode/tree/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib),
+  including `gecode.mzn`, `gecode_fzn.mzn`, overrides and versioned redefinitions;
+  [FlatZinc registry](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp)
+  supplies registration aliases, relation codes and posting semantics. This
+  revision includes explicit-end scheduling, optional rectangles, arithmetic,
+  set and float extensions absent from the installed release. Do not substitute
+  that release or silently advance the source revision during implementation.
+
+The first expansion task creates a compact coverage table of exact predicate
+names/signatures, aliases, owning task family, checking semantics and supported
+deterministic outputs. Include standard builtins added through versioned
+redefinitions, deprecated spellings, and Gecode registrations behind set,
+float or MPFR build flags. Distinguish standard-library predicates that flatten
+to these operations from external predicates that need a direct evaluator.
+Check include/decomposition closure for both actual library profiles; a count
+of registered names alone does not prove library support. Do not build a general
+MiniZinc interpreter or copy Gecode's solver implementation into Zincite.
+
+Each predicate-family task delivers preparation, type/shape checks, direct
+evaluation, useful deterministic completion, typed reporting, validated loading,
+and native/Wasm agreement together. Complete relation checking is mandatory;
+solving a relation backwards or choosing among multiple outputs is not.
+Preserve `defines_var` semantics and distinguish full reification from implication.
+Recognize declarations by signature and argument roles rather than formal
+parameter spelling. Cover malformed input at both source and serialized entry
+points. Keep integers exact and checked at the existing i64 boundary; respect
+explicit Gecode integer/set-universe constants where those are part of an
+extension's semantics rather than replacing them with i64 limits.
+
+Floats are in scope. Use finite binary64 values with configurable absolute and
+relative comparison tolerances, including a zero-tolerance strict setting.
+Document the comparison formula, defaults, strict inequalities, domain checks,
+rounding conversions, nonfinite/undefined operations and transcendental behavior
+before exposing them. The same explicit settings must govern native, CLI and
+Wasm checking; never round integer payloads through floats. Tolerance must not
+invent values for unresolved variables or conceal unsupported operations.
+
+Both library profiles need reproducible offline compilation commands. The
+standard profile uses MiniZinc's own decompositions plus a small Zincite library
+declaring supported primitives. The Gecode profile uses the pinned upstream
+library and all its mathematical extensions, not a checker library that happens
+to override just one Gecode predicate. Preserve annotations through each path
+where the compiler allows it and document domain tightening/elimination limits.
+Keep package configuration usable with `--compile`; the checker is not a solver
+and must not advertise a search/optimization implementation.
+
+Search, propagation and output-selection annotations are accepted as metadata
+when they do not change the checked relation. Unknown semantic annotations are
+diagnosed. Experimental blackbox executable/DLL calls and restart-history hooks
+depend on external execution or search state and conflict with the existing
+pure native/Wasm checking contract. Inventory these explicitly and give located
+diagnostics; do not silently treat them as satisfied constraints or claim support
+for their execution. They are separate from full mathematical constraint
+coverage. Output rendering, solver protocols and optimality proofs are also
+outside candidate checking.
+
+### Expansion validation
+
+Keep tests focused on public behavior, with compact table-driven cases where
+they test distinct predicate semantics. Exercise actual predicate names and
+signatures, true/false and reified/implication distinctions, empty inputs,
+offset/tie/optional semantics and relevant arithmetic boundaries. Combine these
+with changed/removed assignments, supplied-output conflicts, incomplete reports
+and multiple findings in a few small models. Do not duplicate the full native
+suite in JavaScript or introduce a test/registration framework just for coverage.
+
+Every family updates the coverage table and current guide. Use a few native
+report round trips and native/Wasm comparisons for new operations and values,
+plus the existing Rust checks. Compiler-profile tasks run compile-only checks
+against both fixed sources and inspect emitted operations and metadata directly.
+Solver comparisons are optional evidence for a concrete semantic uncertainty;
+no broad solver matrix is required. The final acceptance task checks every
+coverage row and the two include/decomposition closures, exercises both CLI
+forms and JSON input, and repeats the ordinary browser workflow/performance
+check after the wider runtime lands. No full-support claim is valid with
+unassigned or unsupported mathematical predicates in either targeted profile.
+
 ## Deferred research and decisions
 
 The full sequential check is the reference behavior. If measurements justify
@@ -273,9 +372,9 @@ consistency is a literature lead mentioned
 in the email, not a selected algorithm or a requirement to test arbitrary
 partial configurations.
 
-The first dialect and compiler recipe are technical questions for increment 1.
-Float semantics and a general mapping of enum/record/optional MiniZinc values
-to a high-level editing API are product choices for later scope. Initially
+The first dialect and compiler recipe are established by the completed tasks.
+A general mapping of enum/record/optional MiniZinc values
+to a high-level editing API is a product choice for later scope. Initially
 callers use documented FlatZinc names/array positions for one prepared model.
 The original proposal's academic timetable, thesis report and publication
 arrangements are historical context, not project deliverables.
