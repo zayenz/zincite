@@ -281,7 +281,9 @@ impl Source<'_> {
             ));
         }
         let parameters: Vec<_> = children[0].child_nodes().collect();
-        let expected = if let Some(selection) = SelectionName::from_name(name) {
+        let expected = if let Some(counting) = CountingName::from_name(name) {
+            counting.signature()
+        } else if let Some(selection) = SelectionName::from_name(name) {
             selection.signature()
         } else if let Some(set) = SetName::from_name(name) {
             let element = if matches!(set.kind, SetKind::Membership { .. }) {
@@ -1157,10 +1159,13 @@ impl<'a> Lowerer<'a> {
         let name = self.source.name(call)?;
         let args: Vec<_> = call.child_nodes().collect();
         let boolean = BooleanName::from_name(&name);
+        let counting = CountingName::from_name(&name);
         let float = FloatName::from_name(&name);
         let selection = SelectionName::from_name(&name);
         let set = SetName::from_name(&name);
-        let arity = if let Some(selection) = selection {
+        let arity = if let Some(counting) = counting {
+            counting.signature().len()
+        } else if let Some(selection) = selection {
             selection.arity()
         } else if let Some(set) = set {
             set.signature(ValueType::Integer).len()
@@ -1190,7 +1195,9 @@ impl<'a> Lowerer<'a> {
                 .source
                 .error(call, format!("'{name}' expects {arity} arguments")));
         }
-        let predicate = if let Some(selection) = selection {
+        let predicate = if let Some(counting) = counting {
+            self.counting_predicate(call, counting, &args)?
+        } else if let Some(selection) = selection {
             self.selection_predicate(call, selection, &args)?
         } else if let Some(set) = set {
             self.set_predicate(set, &args)?
@@ -1225,6 +1232,133 @@ impl<'a> Lowerer<'a> {
             predicate,
         });
         Ok(())
+    }
+
+    fn counting_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: CountingName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        use counting::{CardinalityCounts, CountSelector};
+        let fixed_ints = |this: &mut Self, node| -> Result<Vec<i64>> {
+            Ok(this
+                .fixed_array(node, ValueType::Integer)?
+                .iter()
+                .map(Value::integer)
+                .collect())
+        };
+        let counting = match name {
+            CountingName::Count(mode) => Counting::Count {
+                entries: self.array(args[0], ValueType::Integer)?,
+                selector: CountSelector::Needle(self.scalar(args[1], ValueType::Integer)?),
+                count: self.scalar(args[2], ValueType::Integer)?,
+                relation: IntegerRelation::Equal,
+                condition: match mode {
+                    RelationMode::Plain => RelationCondition::Plain,
+                    RelationMode::Reified => RelationCondition::Reified {
+                        result: self.scalar(args[3], ValueType::Boolean)?,
+                    },
+                    RelationMode::Implied => RelationCondition::Implied {
+                        guard: self.scalar(args[3], ValueType::Boolean)?,
+                    },
+                },
+                code: None,
+            },
+            CountingName::AtLeast | CountingName::AtMost => Counting::Count {
+                count: Operand::Literal(Value::Integer(self.constant_integer(args[0])?)),
+                entries: self.array(args[1], ValueType::Integer)?,
+                selector: CountSelector::Needle(Operand::Literal(Value::Integer(
+                    self.constant_integer(args[2])?,
+                ))),
+                relation: if name == CountingName::AtLeast {
+                    IntegerRelation::GreaterEqual
+                } else {
+                    IntegerRelation::LessEqual
+                },
+                condition: RelationCondition::Plain,
+                code: None,
+            },
+            CountingName::Among | CountingName::Nvalue => Counting::Count {
+                count: self.scalar(args[0], ValueType::Integer)?,
+                entries: self.array(args[1], ValueType::Integer)?,
+                selector: if name == CountingName::Among {
+                    let Operand::Literal(Value::IntegerSet(set)) =
+                        self.scalar(args[2], ValueType::IntegerSet)?
+                    else {
+                        return Err(self.source.error(args[2], "among requires a fixed set"));
+                    };
+                    CountSelector::Members(set)
+                } else {
+                    CountSelector::Distinct
+                },
+                relation: IntegerRelation::Equal,
+                condition: RelationCondition::Plain,
+                code: None,
+            },
+            CountingName::Coded { matches } => {
+                let code = self.constant_integer(args[2])?;
+                let relation = relations::coded_relation(code).ok_or_else(|| {
+                    self.source
+                        .error(args[2], "count relation code must be in 1..6")
+                })?;
+                Counting::Count {
+                    entries: self.array(args[0], ValueType::Integer)?,
+                    selector: if matches {
+                        CountSelector::Matches(fixed_ints(self, args[1])?)
+                    } else {
+                        CountSelector::Needle(self.scalar(args[1], ValueType::Integer)?)
+                    },
+                    count: self.scalar(args[3], ValueType::Integer)?,
+                    relation,
+                    condition: RelationCondition::Plain,
+                    code: Some(code),
+                }
+            }
+            CountingName::Cardinality { closed, bounded } => Counting::Cardinality {
+                entries: self.array(args[0], ValueType::Integer)?,
+                cover: fixed_ints(self, args[1])?,
+                counts: if bounded {
+                    CardinalityCounts::Bounds {
+                        lower: fixed_ints(self, args[2])?,
+                        upper: fixed_ints(self, args[3])?,
+                    }
+                } else {
+                    CardinalityCounts::Exact(self.array(args[2], ValueType::Integer)?)
+                },
+                closed,
+            },
+            CountingName::Window { boolean } => {
+                let membership_type = if boolean {
+                    ValueType::Boolean
+                } else {
+                    ValueType::IntegerSet
+                };
+                let Operand::Literal(membership) = self.scalar(args[1], membership_type)? else {
+                    return Err(self
+                        .source
+                        .error(args[1], "count windows require fixed membership"));
+                };
+                Counting::Window {
+                    entries: self.array(
+                        args[0],
+                        if boolean {
+                            ValueType::Boolean
+                        } else {
+                            ValueType::Integer
+                        },
+                    )?,
+                    membership,
+                    length: self.constant_integer(args[2])?,
+                    lower: self.constant_integer(args[3])?,
+                    upper: self.constant_integer(args[4])?,
+                }
+            }
+        };
+        counting
+            .validate_shape()
+            .map_err(|message| self.source.error(call, message))?;
+        Ok(Predicate::Counting(counting))
     }
 
     fn set_predicate(&mut self, name: SetName, args: &[&SyntaxNode]) -> Result<Predicate> {
@@ -1482,7 +1616,7 @@ impl<'a> Lowerer<'a> {
             }
             FloatName::CodedImplication => {
                 let code = self.constant_integer(args[1])?;
-                let relation = floats::coded_relation(code).ok_or_else(|| {
+                let relation = relations::coded_relation(code).ok_or_else(|| {
                     self.source
                         .error(args[1], "float relation code must be in 1..6")
                 })?;

@@ -141,3 +141,16 @@ pub(crate) fn checked_sum(terms: impl IntoIterator<Item = (i64, i64)>) -> Option
     }
     Some(sum)
 }
+
+pub(crate) fn coded_relation(code: i64) -> Option<IntegerRelation> {
+    use IntegerRelation::*;
+    Some(match code {
+        1 => Equal,
+        2 => NotEqual,
+        3 => LessEqual,
+        4 => Less,
+        5 => GreaterEqual,
+        6 => Greater,
+        _ => return None,
+    })
+}

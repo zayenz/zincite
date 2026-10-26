@@ -1,0 +1,12 @@
+var int: x ::checker_value("count_input",[9007199254740993]);
+var int: ones ::is_defined_var;
+var int: twos ::is_defined_var;
+array[1..2] of var int: counts = [ones,twos];
+var int: matches ::is_defined_var;
+var bool: two_ones ::is_defined_var;
+constraint gecode_global_cardinality([x,x,2],[1,2],counts)::defines_var(counts)::checker_constraint("histogram",[9007199254740993])::"Value distribution";
+constraint gecode_count_matches_fzn([x,9223372036854775807],[1,9223372036854775807],1,matches)::defines_var(matches);
+constraint count_reif([x,x],1,2,two_ones)::defines_var(two_ones);
+constraint count([x,x],1,ones);
+constraint gecode_among_seq_int([x,x,2],{1},2,0,2);
+solve minimize matches;

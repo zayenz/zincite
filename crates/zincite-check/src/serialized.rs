@@ -157,20 +157,10 @@ impl PreparedModel {
     }
 
     fn validate_slots(&self, seeds: &[Vec<Value>]) -> Result<(), Diagnostic> {
-        let defined_slots: HashSet<_> = self
-            .constraints
-            .iter()
-            .filter_map(|constraint| {
-                let name = constraint.reference.metadata.defines.as_ref()?;
-                let binding = self.bindings.get(name)?;
-                match binding.elements.as_slice() {
-                    [Operand::Variable(slot)] if !binding.is_array && binding.assignable => {
-                        Some(*slot)
-                    }
-                    _ => None,
-                }
-            })
-            .collect();
+        let mut defined_slots = HashSet::new();
+        for constraint in &self.constraints {
+            defined_slots.extend(self.definition_targets(constraint)?);
+        }
         for (index, slot) in self.slots.iter().enumerate() {
             self.validate_reference(&slot.reference, index)?;
             if !self.variables.iter().any(|variable| {
@@ -209,6 +199,10 @@ impl PreparedModel {
                 return Err(invalid("constraint ordinals must follow executable order"));
             }
             let predicate_name = match &constraint.predicate {
+                Predicate::Counting(counting) => {
+                    self.validate_counting(constraint, counting)?;
+                    &constraint.reference.predicate
+                }
                 Predicate::Element { .. } | Predicate::Conditional { .. } => {
                     self.validate_selection(constraint)?;
                     &constraint.reference.predicate
@@ -347,6 +341,124 @@ impl PreparedModel {
                     "constraint report predicate does not match its operation",
                 ));
             }
+        }
+        Ok(())
+    }
+
+    fn validate_counting(
+        &self,
+        constraint: &Constraint,
+        counting: &Counting,
+    ) -> Result<(), Diagnostic> {
+        use counting::{CardinalityCounts, CountSelector};
+        let mismatch = || invalid("counting predicate name does not match its executable contract");
+        let name = CountingName::from_name(&constraint.reference.predicate).ok_or_else(mismatch)?;
+        counting.validate_shape().map_err(invalid)?;
+        let actual = match counting {
+            Counting::Count {
+                entries,
+                selector,
+                count,
+                relation,
+                condition,
+                code,
+            } => {
+                for entry in entries {
+                    self.validate_operand(entry, ValueType::Integer)?;
+                }
+                self.validate_operand(count, ValueType::Integer)?;
+                if let Some(operand) = condition.operand() {
+                    self.validate_operand(operand, ValueType::Boolean)?;
+                }
+                if let CountSelector::Needle(needle) = selector {
+                    self.validate_operand(needle, ValueType::Integer)?;
+                }
+                if let Some(code) = code {
+                    if relations::coded_relation(*code) != Some(*relation)
+                        || condition.mode() != RelationMode::Plain
+                    {
+                        return Err(mismatch());
+                    }
+                    match selector {
+                        CountSelector::Needle(_) => CountingName::Coded { matches: false },
+                        CountSelector::Matches(_) => CountingName::Coded { matches: true },
+                        _ => return Err(mismatch()),
+                    }
+                } else {
+                    match selector {
+                        CountSelector::Needle(needle) => match relation {
+                            IntegerRelation::Equal => CountingName::Count(condition.mode()),
+                            IntegerRelation::GreaterEqual | IntegerRelation::LessEqual
+                                if condition.mode() == RelationMode::Plain
+                                    && matches!(needle, Operand::Literal(_))
+                                    && matches!(count, Operand::Literal(_)) =>
+                            {
+                                if *relation == IntegerRelation::GreaterEqual {
+                                    CountingName::AtLeast
+                                } else {
+                                    CountingName::AtMost
+                                }
+                            }
+                            _ => return Err(mismatch()),
+                        },
+                        CountSelector::Members(_) | CountSelector::Distinct
+                            if *relation == IntegerRelation::Equal
+                                && condition.mode() == RelationMode::Plain =>
+                        {
+                            if matches!(selector, CountSelector::Distinct) {
+                                CountingName::Nvalue
+                            } else {
+                                CountingName::Among
+                            }
+                        }
+                        _ => return Err(mismatch()),
+                    }
+                }
+            }
+            Counting::Cardinality {
+                entries,
+                counts,
+                closed,
+                ..
+            } => {
+                for entry in entries {
+                    self.validate_operand(entry, ValueType::Integer)?;
+                }
+                if let CardinalityCounts::Exact(counts) = counts {
+                    for count in counts {
+                        self.validate_operand(count, ValueType::Integer)?;
+                    }
+                }
+                CountingName::Cardinality {
+                    closed: *closed,
+                    bounded: matches!(counts, CardinalityCounts::Bounds { .. }),
+                }
+            }
+            Counting::Window {
+                entries,
+                membership,
+                ..
+            } => {
+                let boolean = match membership {
+                    Value::Boolean(_) => true,
+                    Value::IntegerSet(_) => false,
+                    _ => return Err(mismatch()),
+                };
+                for entry in entries {
+                    self.validate_operand(
+                        entry,
+                        if boolean {
+                            ValueType::Boolean
+                        } else {
+                            ValueType::Integer
+                        },
+                    )?;
+                }
+                CountingName::Window { boolean }
+            }
+        };
+        if actual != name {
+            return Err(mismatch());
         }
         Ok(())
     }
@@ -533,7 +645,7 @@ impl PreparedModel {
                 self.validate_operand(right, ValueType::Float)?;
                 self.validate_float_condition(condition)?;
                 if let Some(code) = code {
-                    if floats::coded_relation(*code) != Some(*relation)
+                    if relations::coded_relation(*code) != Some(*relation)
                         || condition.mode() != RelationMode::Implied
                     {
                         return Err(invalid("invalid coded float implication"));

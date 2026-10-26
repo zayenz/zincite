@@ -192,6 +192,105 @@ pub fn render_text(report: &CheckReport) -> String {
             check_text(&violation.check)
         );
         match &violation.details {
+            ViolationKind::Count {
+                calculated,
+                supplied,
+                relation,
+                selector,
+                code,
+                condition,
+                ..
+            } => {
+                let _ = write!(
+                    text,
+                    "calculated count {calculated} {relation} {}",
+                    argument_text(supplied)
+                );
+                text.push_str(&condition_text(condition));
+                match selector {
+                    CountSelectorValue::Needle {
+                        value,
+                        unresolved,
+                        irrelevant,
+                    } => {
+                        let _ = write!(
+                            text,
+                            "; needle {}",
+                            value
+                                .as_ref()
+                                .map(argument_text)
+                                .or_else(|| unresolved
+                                    .as_ref()
+                                    .map(|variable| format!("{} unavailable", variable.name)))
+                                .unwrap_or_else(|| "unavailable".into())
+                        );
+                        if *irrelevant {
+                            text.push_str(" (irrelevant for empty entries)");
+                        }
+                    }
+                    CountSelectorValue::Matches { values } => {
+                        let _ = write!(text, "; positional values {values:?}");
+                    }
+                    CountSelectorValue::Members { set } => {
+                        let _ = write!(text, "; membership {set}");
+                    }
+                    CountSelectorValue::Distinct => text.push_str("; distinct values"),
+                }
+                if let Some(code) = code {
+                    let _ = write!(text, "; code={code}");
+                }
+                text.push('\n');
+            }
+            ViolationKind::Cardinality {
+                counts,
+                outside_cover,
+                closed,
+                ..
+            } => {
+                let _ = write!(
+                    text,
+                    "{} cardinality",
+                    if *closed { "closed" } else { "open" }
+                );
+                for count in counts {
+                    let _ = write!(
+                        text,
+                        "; count[{}] for {} calculated {}",
+                        count.position, count.cover, count.calculated
+                    );
+                    if let Some(supplied) = &count.supplied {
+                        let _ = write!(text, ", supplied {}", argument_text(supplied));
+                    }
+                    if let (Some(lower), Some(upper)) = (count.lower, count.upper) {
+                        let _ = write!(text, ", bounds {lower}..{upper}");
+                    }
+                }
+                if !outside_cover.is_empty() {
+                    let _ = write!(text, "; outside cover at {outside_cover:?}");
+                }
+                text.push('\n');
+            }
+            ViolationKind::CountWindows {
+                membership,
+                length,
+                lower,
+                upper,
+                windows,
+                ..
+            } => {
+                let _ = write!(
+                    text,
+                    "membership {membership}, window length {length}, bounds {lower}..{upper}"
+                );
+                for window in windows {
+                    let _ = write!(
+                        text,
+                        "; window[{}] calculated {}",
+                        window.position, window.calculated
+                    );
+                }
+                text.push('\n');
+            }
             ViolationKind::ElementRange {
                 indices,
                 layout,

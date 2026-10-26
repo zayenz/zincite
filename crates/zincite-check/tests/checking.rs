@@ -242,7 +242,10 @@ fn definition_chains_use_computed_values_despite_singleton_aliases() {
         let CheckRef::Constraint { constraint } = &supplied.violations[0].check else {
             panic!("expected the supplied output's defining relation")
         };
-        assert_eq!(constraint.metadata.defines.as_deref(), Some("middle"));
+        assert_eq!(
+            constraint.metadata.defines.as_ref(),
+            Some(&zincite_check::DefinitionTarget::Name("middle".into()))
+        );
 
         let missing = model.check(&Assignment::default()).unwrap();
         assert_eq!(missing.status, Status::Incomplete);
@@ -2997,4 +3000,410 @@ fn float_functions_compose_with_aliases_domains_and_fresh_candidate_values() {
         strict.objective.unwrap().argument.value,
         Value::Float(minimum)
     );
+}
+
+#[test]
+fn counting_names_and_declarations_follow_registry_literals() {
+    let cases = [
+        (
+            "count",
+            "array[int] of var int: a, var int: b, var int: c",
+            "[1],1,1",
+        ),
+        (
+            "count_eq",
+            "array[int] of var int: a, var int: b, var int: c",
+            "[1],1,1",
+        ),
+        (
+            "count_reif",
+            "array[int] of var int: a, var int: b, var int: c, var bool: d",
+            "[1],1,1,true",
+        ),
+        (
+            "count_eq_reif",
+            "array[int] of var int: a, var int: b, var int: c, var bool: d",
+            "[1],1,1,true",
+        ),
+        (
+            "count_imp",
+            "array[int] of var int: a, var int: b, var int: c, var bool: d",
+            "[1],1,1,true",
+        ),
+        (
+            "count_eq_imp",
+            "array[int] of var int: a, var int: b, var int: c, var bool: d",
+            "[1],1,1,true",
+        ),
+        (
+            "at_least_int",
+            "int: a, array[int] of var int: b, int: c",
+            "1,[1],1",
+        ),
+        (
+            "at_most_int",
+            "int: a, array[int] of var int: b, int: c",
+            "1,[1],1",
+        ),
+        (
+            "among",
+            "var int: a, array[int] of var int: b, set of int: c",
+            "1,[1],{1}",
+        ),
+        ("nvalue", "var int: a, array[int] of var int: b", "1,[1]"),
+        (
+            "gecode_global_cardinality",
+            "array[int] of var int: a, array[int] of int: b, array[int] of var int: c",
+            "[1],[1],[1]",
+        ),
+        (
+            "gecode_global_cardinality_closed",
+            "array[int] of var int: a, array[int] of int: b, array[int] of var int: c",
+            "[1],[1],[1]",
+        ),
+        (
+            "global_cardinality_low_up",
+            "array[int] of var int: a, array[int] of int: b, array[int] of int: c, array[int] of int: d",
+            "[1],[1],[1],[1]",
+        ),
+        (
+            "global_cardinality_low_up_closed",
+            "array[int] of var int: a, array[int] of int: b, array[int] of int: c, array[int] of int: d",
+            "[1],[1],[1],[1]",
+        ),
+        (
+            "gecode_among_seq_int",
+            "array[int] of var int: a, set of int: b, int: c, int: d, int: e",
+            "[1],{1},1,1,1",
+        ),
+        (
+            "gecode_among_seq_bool",
+            "array[int] of var bool: a, bool: b, int: c, int: d, int: e",
+            "[false],false,1,1,1",
+        ),
+        (
+            "gecode_count_int_fzn",
+            "array[int] of var int: a, var int: b, int: c, var int: d",
+            "[1],1,1,1",
+        ),
+        (
+            "gecode_count_matches_fzn",
+            "array[int] of var int: a, array[int] of int: b, int: c, var int: d",
+            "[1],[1],1,1",
+        ),
+    ];
+    for (base, parameters, arguments) in cases {
+        for prefix in ["", "gecode_", "fzn_"] {
+            let name = format!("{prefix}{base}");
+            let source = format!(
+                "predicate {name}({parameters}); constraint {name}({arguments}); solve satisfy;"
+            );
+            let model =
+                prepare("names.fzn", &source).unwrap_or_else(|error| panic!("{name}: {error:?}"));
+            assert_eq!(
+                model.check(&Assignment::default()).unwrap().status,
+                Status::Valid,
+                "{name}"
+            );
+            let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+            assert_eq!(
+                loaded.check(&Assignment::default()).unwrap().status,
+                Status::Valid
+            );
+            let wrong = source.replacen("array[int] of var", "array[int] of", 1);
+            assert!(prepare("wrong-declaration.fzn", &wrong).is_err(), "{name}");
+        }
+    }
+    for call in [
+        "global_cardinality([1],[1],[1])",
+        "fzn_global_cardinality([1],[1],[1])",
+        "fzn_count_geq(1,[1],1)",
+        "among_reif(1,[1],{1},true)",
+        "count([true],1,1)",
+        "count([1],1)",
+        "gecode_count_int_fzn([],1,0,0)",
+        "gecode_count_matches_fzn([],[1],1,0)",
+        "gecode_global_cardinality([],[1],[])",
+        "global_cardinality_low_up([],[1],[],[])",
+        "gecode_among_seq_int([],{1},1,0,1)",
+        "gecode_among_seq_int([1],{1},0,0,1)",
+        "gecode_among_seq_bool([true],true,2,0,1)",
+    ] {
+        assert!(
+            prepare("bad.fzn", &format!("constraint {call}; solve satisfy;")).is_err(),
+            "{call}"
+        );
+    }
+    for call in [
+        "at_least_int(n,[],1)",
+        "at_most_int(0,[],n)",
+        "among(0,[],s)",
+        "gecode_count_int_fzn([],1,n,0)",
+        "gecode_global_cardinality([],[n],[0])",
+    ] {
+        assert!(
+            prepare(
+                "fixed.fzn",
+                &format!("var int: n; var set of int: s; constraint {call}; solve satisfy;")
+            )
+            .is_err(),
+            "{call}"
+        );
+    }
+}
+
+#[test]
+fn counts_use_positions_compact_membership_and_native_code_direction() {
+    let source = r#"
+        var int: x;
+        var int: total ::is_defined_var;
+        var int: members ::is_defined_var;
+        var int: distinct_values ::is_defined_var;
+        var int: matches ::is_defined_var;
+        var bool: same ::is_defined_var;
+        constraint count([x,x,-9223372036854775808],x,total)::defines_var(total);
+        constraint among(members,[x,x,-9223372036854775808],-9223372036854775808..9223372036854775807)::defines_var(members);
+        constraint nvalue(distinct_values,[x,x,-9223372036854775808])::defines_var(distinct_values);
+        constraint gecode_count_matches_fzn([x,9223372036854775807,-9223372036854775808],[7,-9223372036854775808,-9223372036854775808],1,matches)::defines_var(matches);
+        constraint count_reif([x,x],x,2,same)::defines_var(same);
+        constraint int_eq(total,2);
+        constraint int_eq(members,3);
+        constraint int_eq(distinct_values,2);
+        constraint int_eq(matches,2);
+        constraint bool_eq(same,true);
+        solve satisfy;
+    "#;
+    let model = prepare("counts.fzn", source).unwrap();
+    assert_eq!(
+        model.check(&assignment("x=7;")).unwrap().status,
+        Status::Valid
+    );
+    assert_eq!(
+        model.check(&assignment("x=8;")).unwrap().status,
+        Status::Invalid
+    );
+    assert_eq!(
+        model.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
+    assert_eq!(
+        model.check(&assignment("x=7;")).unwrap().status,
+        Status::Valid
+    );
+    for code in 1..=6 {
+        for supplied in [0, 1, 2] {
+            let holds = match code {
+                1 => 1 == supplied,
+                2 => 1 != supplied,
+                3 => 1 <= supplied,
+                4 => 1 < supplied,
+                5 => 1 >= supplied,
+                _ => 1 > supplied,
+            };
+            let model = prepare(
+                "codes.fzn",
+                &format!(
+                    "constraint gecode_count_int_fzn([7],7,{code},{supplied}); solve satisfy;"
+                ),
+            )
+            .unwrap();
+            assert_eq!(
+                model.check(&Assignment::default()).unwrap().status,
+                if holds {
+                    Status::Valid
+                } else {
+                    Status::Invalid
+                }
+            );
+        }
+    }
+    let model = prepare(
+        "empty.fzn",
+        r#"
+        var int: needle;
+        var int: total ::is_defined_var;
+        var bool: truth ::is_defined_var;
+        var int: unresolved;
+        constraint count([],needle,total)::defines_var(total);
+        constraint count_reif([],needle,1,truth)::defines_var(truth);
+        constraint count([],needle,1);
+        constraint count_imp([unresolved],needle,unresolved,false);
+        constraint bool_eq(truth,false);
+        solve minimize total;
+    "#,
+    )
+    .unwrap();
+    let report = model.check(&Assignment::default()).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(!report.completeness.complete);
+    assert_eq!(report.objective.unwrap().argument.value, Value::Integer(0));
+    assert_eq!(report.violations.len(), 1);
+    assert!(
+        report
+            .completeness
+            .blocked_checks
+            .iter()
+            .all(|blocked| matches!(blocked.check, CheckRef::Domain { .. }))
+    );
+    let ViolationKind::Count {
+        calculated,
+        selector:
+            zincite_check::CountSelectorValue::Needle {
+                value,
+                irrelevant,
+                unresolved,
+            },
+        ..
+    } = &report.violations[0].details
+    else {
+        panic!("count finding")
+    };
+    assert_eq!(*calculated, 0);
+    assert!(value.is_none() && *irrelevant);
+    assert_eq!(unresolved.as_ref().unwrap().name, "needle");
+    let model = prepare("no-witness.fzn", "var int: n ::is_defined_var; constraint gecode_count_int_fzn([1],1,3,n)::defines_var(n); solve satisfy;").unwrap();
+    assert_eq!(
+        model.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
+}
+
+#[test]
+fn cardinality_and_windows_check_every_offending_position() {
+    let source = r#"
+        constraint gecode_global_cardinality([1,1,9],[1,1],[2,2]);
+        constraint gecode_global_cardinality_closed([1,1,9,9],[1,1],[1,3]);
+        constraint global_cardinality_low_up([1,1,9],[1,1],[0,2],[3,2]);
+        constraint global_cardinality_low_up_closed([1,1,9],[1,1],[3,-1],[1,-2]);
+        constraint gecode_global_cardinality([],[],[]);
+        constraint gecode_global_cardinality_closed([1],[],[]);
+        constraint gecode_global_cardinality_closed([],[1],[0]);
+        constraint gecode_among_seq_int([1,1,1,0],{1},2,0,1);
+        constraint gecode_among_seq_bool([false,false,true,false],false,2,2,2);
+        constraint gecode_among_seq_bool([false,false],false,1,-2,8);
+        constraint gecode_among_seq_int([0,1,2],{1},3,2,1);
+        constraint at_least_int(-1,[],0);
+        constraint at_most_int(-1,[],0);
+        solve satisfy;
+    "#;
+    let model = prepare("distributions.fzn", source).unwrap();
+    let report = model.check(&Assignment::default()).unwrap();
+    assert_eq!(report.violations.len(), 7);
+    let ViolationKind::Cardinality {
+        counts,
+        outside_cover,
+        ..
+    } = &report.violations[0].details
+    else {
+        panic!()
+    };
+    assert_eq!(
+        counts.iter().map(|c| c.position).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    assert_eq!(outside_cover, &[3, 4]);
+    let ViolationKind::CountWindows { windows, .. } = &report.violations[3].details else {
+        panic!()
+    };
+    assert_eq!(
+        windows.iter().map(|w| w.position).collect::<Vec<_>>(),
+        [1, 2]
+    );
+    let text = zincite_check::cli::render_text(&report);
+    assert!(text.contains("outside cover") && text.contains("window[2]"));
+}
+
+#[test]
+fn cardinality_outputs_complete_canonical_slots_and_check_supplied_conflicts() {
+    for target in [
+        "counts",
+        "[first,second,first]",
+        "[second,first,first]",
+        "marked_scalars",
+    ] {
+        let array_marker = if target == "counts" {
+            "::is_defined_var"
+        } else {
+            ""
+        };
+        let scalar_marker = if target == "counts" {
+            ""
+        } else {
+            "::is_defined_var"
+        };
+        let annotation_target = if target == "marked_scalars" {
+            "counts"
+        } else {
+            target
+        };
+        let source = format!(
+            r#"
+            var int: x;
+            var 0..1: first {scalar_marker};
+            var int: second {scalar_marker};
+            array[1..3] of var int: counts {array_marker} = [first,second,first];
+            var int: next ::is_defined_var;
+            constraint gecode_global_cardinality([x,x,2],[1,2,1],counts)::defines_var({annotation_target})::checker_constraint("histogram",[9007199254740993]);
+            constraint int_plus(first,1,next)::defines_var(next);
+            constraint int_eq(next,2);
+            solve minimize second;
+        "#
+        );
+        let model = prepare("outputs.fzn", &source).unwrap();
+        let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+        for candidate in ["x=1;", "x=1;second=1;", "x=1;first=7;", "x=2;", ""] {
+            let report = model.check(&assignment(candidate)).unwrap();
+            assert_eq!(
+                serde_json::to_value(&report).unwrap(),
+                serde_json::to_value(loaded.check(&assignment(candidate)).unwrap()).unwrap()
+            );
+        }
+        let report = model.check(&assignment("x=1;second=1;")).unwrap();
+        assert!(report.completeness.complete);
+        assert_eq!(report.objective.unwrap().argument.value, Value::Integer(1));
+        assert_eq!(report.violations.len(), 2); // Out-of-domain first still supplies next=3.
+        let report = model.check(&assignment("x=1;first=7;")).unwrap();
+        assert!(
+            report
+                .violations
+                .iter()
+                .any(|v| matches!(v.details, ViolationKind::Cardinality { .. }))
+        );
+        assert_eq!(
+            model.check(&Assignment::default()).unwrap().status,
+            Status::Incomplete
+        );
+    }
+    let conflict = "var int: n ::is_defined_var; constraint gecode_global_cardinality([1],[1,2],[n,n])::defines_var([n,n]); solve satisfy;";
+    let model = prepare("duplicate-output.fzn", conflict).unwrap();
+    assert_eq!(
+        model.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
+    assert_eq!(
+        model.check(&assignment("n=1;")).unwrap().status,
+        Status::Invalid
+    );
+    let cycle = prepare("cycle.fzn", "var int: n ::is_defined_var; constraint gecode_global_cardinality([n],[1],[n])::defines_var([n]); solve satisfy;").unwrap();
+    assert_eq!(
+        cycle.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
+    assert_eq!(
+        cycle.check(&assignment("n=1;")).unwrap().status,
+        Status::Valid
+    );
+    for source in [
+        "var int: n; constraint gecode_global_cardinality([],[1],[n])::defines_var([n]);",
+        "var int: n ::is_defined_var; var int: m ::is_defined_var; constraint gecode_global_cardinality([],[1],[n])::defines_var([m]);",
+        "var int: n ::is_defined_var; constraint count([],1,n)::defines_var([n]);",
+        "var int: n ::is_defined_var; constraint count([],1,n)::defines_var(n); constraint count([],2,n)::defines_var(n);",
+        "int: n=0; constraint gecode_global_cardinality([],[1],[n])::defines_var([n]);",
+        "array[1..0] of var bool: flags ::is_defined_var=[]; constraint gecode_global_cardinality([],[],[])::defines_var(flags);",
+    ] {
+        assert!(
+            prepare("target.fzn", &format!("{source} solve satisfy;")).is_err(),
+            "{source}"
+        );
+    }
 }

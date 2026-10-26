@@ -585,5 +585,64 @@
     ]
   },
   "error": "execution"
+},
+{
+  "name": "counting-valid",
+  "model": "counting",
+  "assignment": {
+    "entries": [
+      {
+        "name": "x",
+        "value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "integer",
+            "value": "1"
+          }
+        }
+      }
+    ]
+  },
+  "status": "valid",
+  "complete": true
+},
+{
+  "name": "counting-conflict",
+  "model": "counting",
+  "assignment": {
+    "entries": [
+      {
+        "name": "x",
+        "value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "integer",
+            "value": "1"
+          }
+        }
+      },
+      {
+        "name": "ones",
+        "value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "integer",
+            "value": "9"
+          }
+        }
+      }
+    ]
+  },
+  "status": "invalid",
+  "complete": true
+},
+{
+  "name": "counting-incomplete",
+  "model": "counting",
+  "assignment": {
+    "entries": []
+  },
+  "status": "incomplete",
+  "complete": false
 }
 ]

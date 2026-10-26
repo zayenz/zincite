@@ -91,34 +91,43 @@ impl Lowerer<'_> {
                 ) if call && args.len() == 1 => {
                     self.source.string(args[0])?;
                 }
-                (
-                    "is_defined_var",
-                    AnnotationContext::Value {
-                        is_array: false,
-                        is_var: true,
-                        ..
-                    },
-                ) if flag => metadata.is_defined = true,
-                ("defines_var", AnnotationContext::Constraint)
-                    if call && args.len() == 1 && args[0].kind() == NodeKind::Expression =>
-                {
-                    let name = self.source.name(args[0])?;
-                    let binding = self.reference(args[0])?;
-                    if binding.is_array || !binding.assignable {
-                        return Err(self
-                            .source
-                            .error(args[0], "defines_var needs a scalar variable"));
-                    }
+                ("is_defined_var", AnnotationContext::Value { is_var: true, .. }) if flag => {
+                    metadata.is_defined = true
+                }
+                ("defines_var", AnnotationContext::Constraint) if call && args.len() == 1 => {
+                    let target = match args[0].kind() {
+                        NodeKind::Expression => DefinitionTarget::Name(self.source.name(args[0])?),
+                        NodeKind::ArrayLiteral => {
+                            let names = args[0]
+                                .child_nodes()
+                                .map(|node| {
+                                    if node.kind() != NodeKind::Expression {
+                                        return Err(self.source.error(
+                                            node,
+                                            "defines_var array needs scalar variable names",
+                                        ));
+                                    }
+                                    self.source.name(node)
+                                })
+                                .collect::<Result<Vec<_>>>()?;
+                            DefinitionTarget::Elements(names)
+                        }
+                        _ => {
+                            return Err(self
+                                .source
+                                .error(args[0], "defines_var needs a name or scalar-name array"));
+                        }
+                    };
                     if metadata
                         .defines
                         .as_ref()
-                        .is_some_and(|previous| previous != &name)
+                        .is_some_and(|previous| previous != &target)
                     {
                         return Err(self
                             .source
                             .error(expression, "conflicting defines_var annotations"));
                     }
-                    metadata.defines = Some(name);
+                    metadata.defines = Some(target);
                 }
                 (
                     "output_var",

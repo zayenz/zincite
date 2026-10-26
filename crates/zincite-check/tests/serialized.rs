@@ -1362,3 +1362,191 @@ fn float_functions_export_loading_preserves_reports_policy_and_text() {
         serde_json::to_value(loaded.check(&candidate).unwrap_err()).unwrap()
     );
 }
+
+fn counting_executable() -> Json {
+    let mut file = executable();
+    file["model"]["slots"][0]["reference"]["metadata"]["is_defined"] = json!(true);
+    file["model"]["variables"][0]["reference"]["metadata"]["is_defined"] = json!(true);
+    file["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_count_int_fzn");
+    file["model"]["constraints"][0]["reference"]["metadata"]["defines"] = json!("x");
+    file["model"]["constraints"][0]["predicate"] = json!({"Counting": {"Count": {
+        "entries": [{"Literal":{"kind":"integer","value":"9007199254740993"}}],
+        "selector":{"Needle":{"Literal":{"kind":"integer","value":"9007199254740993"}}},
+        "count":{"Variable":0}, "relation":"equal", "condition":"Plain", "code":"1"
+    }}});
+    file
+}
+
+#[test]
+fn parser_free_counting_validates_contracts_targets_and_exact_reports() {
+    let original = counting_executable();
+    let loaded = PreparedModel::from_json(&original.to_string()).unwrap();
+    let report = loaded.check(&Assignment::default()).unwrap();
+    assert_eq!(report.status, Status::Valid);
+    assert_eq!(report.objective.unwrap().argument.value, Value::Integer(1));
+    let supplied = Assignment {
+        entries: vec![AssignmentEntry {
+            name: "x".into(),
+            value: AssignmentValue::Scalar(Value::Integer(2)),
+            location: None,
+        }],
+    };
+    let report = serde_json::to_value(loaded.check(&supplied).unwrap()).unwrap();
+    assert_eq!(report["violations"][0]["details"]["calculated"], "1");
+    assert_eq!(
+        report["violations"][0]["details"]["selector"]["value"]["value"]["value"],
+        "9007199254740993"
+    );
+    assert_eq!(
+        report,
+        serde_json::to_value(
+            PreparedModel::from_json(&loaded.to_json().unwrap())
+                .unwrap()
+                .check(&supplied)
+                .unwrap()
+        )
+        .unwrap()
+    );
+    for (pointer, value) in [
+        ("/model/constraints/0/reference/predicate", json!("count")),
+        (
+            "/model/constraints/0/predicate/Counting/Count/code",
+            json!("0"),
+        ),
+        (
+            "/model/constraints/0/predicate/Counting/Count/relation",
+            json!("less"),
+        ),
+        (
+            "/model/constraints/0/predicate/Counting/Count/count",
+            json!({"Variable": 10}),
+        ),
+        (
+            "/model/constraints/0/predicate/Counting/Count/selector/Needle",
+            json!({"Literal":{"kind":"boolean","value":true}}),
+        ),
+        (
+            "/model/constraints/0/predicate/Counting/Count/condition",
+            json!({"Implied":{"guard":{"Literal":{"kind":"boolean","value":false}}}}),
+        ),
+        (
+            "/model/constraints/0/reference/metadata/defines",
+            json!(["x"]),
+        ),
+        (
+            "/model/constraints/0/reference/metadata/defines",
+            json!([1]),
+        ),
+        (
+            "/model/constraints/0/reference/metadata/defines",
+            json!(["missing"]),
+        ),
+        (
+            "/model/constraints/0/reference/metadata/defines",
+            json!({"names":["x"]}),
+        ),
+    ] {
+        let mut file = original.clone();
+        *file.pointer_mut(pointer).unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&file.to_string()).is_err(),
+            "{pointer}"
+        );
+    }
+    let mut gcc = original.clone();
+    gcc["model"]["bindings"]["counts"] = json!({"elements":[{"Variable":0},{"Variable":0}],"is_array":true,"kind":"integer","assignable":true});
+    // Binding aliases must also have declaration references.
+    let mut variable = gcc["model"]["variables"][0].clone();
+    variable["reference"]["metadata"]["is_defined"] = json!(false);
+    variable["reference"]["name"] = json!("counts");
+    variable["reference"]["position"] = json!(1);
+    gcc["model"]["variables"]
+        .as_array_mut()
+        .unwrap()
+        .push(variable.clone());
+    variable["reference"]["position"] = json!(2);
+    gcc["model"]["variables"]
+        .as_array_mut()
+        .unwrap()
+        .push(variable);
+    gcc["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_global_cardinality");
+    gcc["model"]["constraints"][0]["reference"]["metadata"]["defines"] = json!("counts");
+    gcc["model"]["constraints"][0]["predicate"] = json!({"Counting":{"Cardinality":{
+        "entries":[{"Literal":{"kind":"integer","value":"1"}},{"Literal":{"kind":"integer","value":"2"}}],
+        "cover":["1","2"], "counts":{"Exact":[{"Variable":0},{"Variable":0}]}, "closed":false
+    }}});
+    let loaded = PreparedModel::from_json(&gcc.to_string()).unwrap();
+    assert_eq!(
+        loaded.check(&Assignment::default()).unwrap().status,
+        Status::Valid
+    );
+    for (pointer, value) in [
+        (
+            "/model/constraints/0/predicate/Counting/Cardinality/cover",
+            json!(["1"]),
+        ),
+        (
+            "/model/constraints/0/predicate/Counting/Cardinality/closed",
+            json!(true),
+        ),
+        (
+            "/model/constraints/0/predicate/Counting/Cardinality/counts/Exact",
+            json!([{"Variable":7},{"Variable":7}]),
+        ),
+        (
+            "/model/constraints/0/reference/metadata/defines",
+            json!(["counts"]),
+        ),
+        (
+            "/model/constraints/0/reference/metadata/defines",
+            json!(["x"]),
+        ),
+        ("/model/bindings/counts/assignable", json!(false)),
+    ] {
+        let mut file = gcc.clone();
+        *file.pointer_mut(pointer).unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&file.to_string()).is_err(),
+            "{pointer}"
+        );
+    }
+    let mut empty_target = gcc.clone();
+    empty_target["model"]["slots"] = json!([]);
+    empty_target["model"]["variables"] = json!([]);
+    empty_target["model"]["bindings"] =
+        json!({"counts":{"elements":[],"is_array":true,"kind":"boolean","assignable":true}});
+    empty_target["model"]["objective"] = json!(null);
+    empty_target["model"]["constraints"][0]["predicate"] = json!({"Counting":{"Cardinality":{"entries":[],"cover":[],"counts":{"Exact":[]},"closed":false}}});
+    assert!(PreparedModel::from_json(&empty_target.to_string()).is_err());
+    let mut window = executable();
+    window["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_among_seq_int");
+    window["model"]["constraints"][0]["predicate"] = json!({"Counting":{"Window":{
+        "entries":[{"Variable":0}], "membership":{"kind":"integer_set","value":{"ranges":[]}}, "length":"1", "lower":"-1", "upper":"2"
+    }}});
+    assert!(PreparedModel::from_json(&window.to_string()).is_ok());
+    for (pointer, value) in [
+        (
+            "/model/constraints/0/predicate/Counting/Window/length",
+            json!("0"),
+        ),
+        (
+            "/model/constraints/0/predicate/Counting/Window/length",
+            json!("2"),
+        ),
+        (
+            "/model/constraints/0/predicate/Counting/Window/entries",
+            json!([]),
+        ),
+        (
+            "/model/constraints/0/predicate/Counting/Window/membership",
+            json!({"kind":"integer","value":"1"}),
+        ),
+    ] {
+        let mut file = window.clone();
+        *file.pointer_mut(pointer).unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&file.to_string()).is_err(),
+            "{pointer}"
+        );
+    }
+}

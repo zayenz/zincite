@@ -105,10 +105,10 @@ edits and job feedback using these bindings and the saved compiled model.
 
 ## Execute the native/Wasm comparison
 
-Build the bindings above, then export seven artifacts with the native CLI. This
+Build the bindings above, then export eight artifacts with the native CLI. This
 setup uses both saved compiled workshop models and a tiny handwritten FlatZinc
 integer/set model, the saved float-core control, a direct selection control,
-a direct set control, and a float-function control.
+a direct set control, a float-function control, and a direct counting control.
 This setup does not run MiniZinc:
 
 ```sh
@@ -150,7 +150,8 @@ target/debug/zincite-check --float-absolute-tolerance 2e-9 --float-relative-tole
 target/debug/zincite-check --float-absolute-tolerance 2e-6 --float-relative-tolerance 3e-6 --export "$checker_run/selection.json" examples/checker-compilation/selection.fzn
 target/debug/zincite-check --export "$checker_run/sets.json" examples/checker-compilation/set-primitives.fzn
 target/debug/zincite-check --float-absolute-tolerance 2e-9 --float-relative-tolerance 3e-9 --export "$checker_run/functions.json" examples/checker-compilation/float-functions.fzn
-node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" examples/checker-wasm/candidates.json target/debug/zincite-check
+target/debug/zincite-check --export "$checker_run/counting.json" examples/checker-compilation/counting.fzn
+node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" examples/checker-wasm/candidates.json target/debug/zincite-check
 ```
 
 `smoke.cjs` reads only built bindings, prepared artifacts and typed assignment
@@ -159,7 +160,7 @@ compares every observable report with the native CLI's `--load` path. The CLI
 receives literal `.dzn` assignments made from the same typed values in a temporary
 directory. The consumer removes those temporary assignments when finished.
 
-The thirty-four named cases cover valid, invalid, incomplete and invalid-with-incomplete
+The thirty-seven named cases cover valid, invalid, incomplete and invalid-with-incomplete
 reports, application metadata, Boolean and array input, set definitions and domain
 failures, strict resource conflicts, and the distinct integers 9007199254740992
 and 9007199254740993 as both integers and set endpoints. The exact-value model
@@ -181,10 +182,14 @@ violation. Their endpoints above 2^53 cross the same exact-string boundary.
 Float-function cases compare square root, fixed integer and fixed-base powers,
 inverse hyperbolic sine and both extrema conventions. They exercise saved, custom
 and strict policy, typed supplied-output conflicts, missing input and a located
-domain error against the native CLI diagnostic. A second pass exercises reuse
+domain error against the native CLI diagnostic. Three counting cases compare count-array,
+positional-match and reifier completion, typed supplied-output conflicts with
+metadata above 2^53, and missing input. They use direct FlatZinc because the
+compile controls expose dropped GCC definition metadata; compiler-profile closure
+belongs to checker-030/031. A second pass exercises reuse
 after changing and removing inputs. Small boundary checks also reject a
 malformed artifact, a JSON number supplied as an integer and an unknown assignment
-name. Expected output ends with `Native/Wasm reports and errors agree across 68 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, global findings and input errors verified.` The native suite owns
+name. Expected output ends with `Native/Wasm reports and errors agree across 74 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, global findings and input errors verified.` The native suite owns
 the wider evaluator coverage.
 
 

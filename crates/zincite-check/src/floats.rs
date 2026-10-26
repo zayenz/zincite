@@ -714,18 +714,6 @@ impl FloatName {
         }
     }
 }
-pub(crate) fn coded_relation(code: i64) -> Option<IntegerRelation> {
-    use IntegerRelation::*;
-    Some(match code {
-        1 => Equal,
-        2 => NotEqual,
-        3 => LessEqual,
-        4 => Less,
-        5 => GreaterEqual,
-        6 => Greater,
-        _ => return None,
-    })
-}
 pub(crate) fn finite_result(value: f64) -> Result<FiniteFloat, &'static str> {
     FiniteFloat::new(value).map_err(|_| "nonfinite result in float arithmetic")
 }

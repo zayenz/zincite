@@ -4,6 +4,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+mod counting;
+pub use counting::{CountPosition, CountSelectorValue, WindowCount};
+use counting::{Counting, CountingName};
 mod boolean;
 pub use boolean::BooleanOperation;
 use boolean::{BooleanKind, BooleanName};
@@ -156,8 +159,25 @@ pub struct Metadata {
     pub label: Option<String>,
     pub paths: Vec<String>,
     pub is_defined: bool,
-    pub defines: Option<String>,
+    pub defines: Option<DefinitionTarget>,
     pub output: bool,
+}
+
+/// The declared name or explicit scalar names supplied to defines_var.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DefinitionTarget {
+    Name(String),
+    Elements(Vec<String>),
+}
+
+impl std::fmt::Display for DefinitionTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Name(name) => f.write_str(name),
+            Self::Elements(names) => write!(f, "[{}]", names.join(", ")),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -316,6 +336,34 @@ pub struct ArgumentValue {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViolationKind {
+    Count {
+        entries: Vec<ArgumentValue>,
+        selector: CountSelectorValue,
+        #[serde(serialize_with = "serialize_integer")]
+        calculated: i64,
+        supplied: ArgumentValue,
+        relation: IntegerRelation,
+        #[serde(serialize_with = "serialize_optional_integer")]
+        code: Option<i64>,
+        condition: RelationConditionValue,
+    },
+    Cardinality {
+        entries: Vec<ArgumentValue>,
+        counts: Vec<CountPosition>,
+        outside_cover: Vec<usize>,
+        closed: bool,
+    },
+    CountWindows {
+        entries: Vec<ArgumentValue>,
+        membership: Value,
+        #[serde(serialize_with = "serialize_integer")]
+        length: i64,
+        #[serde(serialize_with = "serialize_integer")]
+        lower: i64,
+        #[serde(serialize_with = "serialize_integer")]
+        upper: i64,
+        windows: Vec<WindowCount>,
+    },
     ElementRange {
         indices: Vec<Option<ArgumentValue>>,
         layout: ElementLayout,
@@ -616,6 +664,7 @@ struct Variable {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Predicate {
+    Counting(Counting),
     Element {
         indices: Vec<Operand>,
         elements: Vec<Operand>,
@@ -846,6 +895,7 @@ impl RelationCondition {
 impl Predicate {
     fn operands(&self) -> Vec<&Operand> {
         match self {
+            Self::Counting(counting) => counting.operands(false),
             Self::Element {
                 indices,
                 elements,
@@ -984,6 +1034,7 @@ impl Predicate {
 
     fn required_operands(&self, values: &[Option<Value>]) -> Vec<&Operand> {
         match self {
+            Self::Counting(counting) => counting.operands(true),
             Self::Element {
                 indices,
                 elements,
@@ -1006,6 +1057,7 @@ impl Predicate {
 
     fn inactive_implication(&self, values: &[Option<Value>]) -> bool {
         match self {
+            Self::Counting(Counting::Count { condition, .. }) => condition.inactive(values),
             Self::SetRelation { condition, .. }
             | Self::SetMembership { condition, .. }
             | Self::FloatRelation { condition, .. }
@@ -1050,6 +1102,7 @@ impl Constraint {
 
 #[derive(Clone, Copy, Debug)]
 enum DefinitionDirection {
+    Counting,
     Selection,
     FloatEqual { input: usize },
     FloatReified,
@@ -1285,6 +1338,9 @@ impl PreparedModel {
     ) -> Result<Option<Value>, CheckError> {
         let constraint = &self.constraints[definition.constraint];
         match (&constraint.predicate, definition.direction) {
+            (Predicate::Counting(counting), DefinitionDirection::Counting) => {
+                counting.derive(definition.output, values, constraint)
+            }
             (predicate, DefinitionDirection::Selection) => Ok(predicate
                 .selected_operand(values)
                 .and_then(|operand| operand.value(values))
@@ -1859,6 +1915,7 @@ impl PreparedModel {
                 .expect("blocked constraints are excluded before evaluation")
         };
         match &constraint.predicate {
+            Predicate::Counting(counting) => self.evaluate_counting(constraint, counting, values),
             Predicate::Element {
                 indices,
                 elements,
@@ -2473,56 +2530,136 @@ impl PreparedModel {
         }
     }
 
+    fn definition_targets(&self, constraint: &Constraint) -> Result<Vec<usize>, Diagnostic> {
+        let fail = |message: &str| Diagnostic {
+            location: Some(constraint.reference.location.clone()),
+            message: message.into(),
+        };
+        let Some(target) = &constraint.reference.metadata.defines else {
+            return Ok(Vec::new());
+        };
+        let names: Vec<_> = match target {
+            DefinitionTarget::Name(name) => vec![name],
+            DefinitionTarget::Elements(names) => names.iter().collect(),
+        };
+        let mut slots = Vec::new();
+        let mut array_target = matches!(target, DefinitionTarget::Elements(_));
+        for name in names {
+            let binding = self
+                .bindings
+                .get(name)
+                .ok_or_else(|| fail("defines_var names an unknown variable"))?;
+            if !binding.assignable
+                || (matches!(target, DefinitionTarget::Elements(_)) && binding.is_array)
+            {
+                return Err(fail("defines_var needs an assignable variable target"));
+            }
+            array_target |= binding.is_array;
+            if array_target && binding.kind != ValueType::Integer {
+                return Err(fail(
+                    "array defines_var targets need integer count variables",
+                ));
+            }
+            for operand in &binding.elements {
+                let Operand::Variable(slot) = operand else {
+                    return Err(fail("defines_var needs variable slots"));
+                };
+                if self
+                    .slots
+                    .get(*slot)
+                    .is_none_or(|entry| entry.kind != binding.kind)
+                {
+                    return Err(fail("defines_var target has an invalid slot"));
+                }
+                if !self.variables.iter().any(|variable| {
+                    variable.slot == *slot
+                        && (binding.is_array
+                            || matches!(target, DefinitionTarget::Elements(_))
+                            || variable.reference.name == *name)
+                        && variable.reference.metadata.is_defined
+                }) {
+                    return Err(fail("defines_var target must have is_defined_var"));
+                }
+                slots.push(*slot);
+            }
+        }
+        if array_target {
+            let Predicate::Counting(Counting::Cardinality {
+                counts: counting::CardinalityCounts::Exact(counts),
+                ..
+            }) = &constraint.predicate
+            else {
+                return Err(fail(
+                    "array defines_var targets require exact cardinality counts",
+                ));
+            };
+            let mut outputs = counts
+                .iter()
+                .map(|count| match count {
+                    Operand::Variable(slot) => Some(*slot),
+                    Operand::Literal(_) => None,
+                })
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| {
+                    fail("array defines_var target must match the cardinality count array")
+                })?;
+            // The annotation identifies slots; the predicate owns their cover positions.
+            let mut targets = slots.clone();
+            outputs.sort_unstable();
+            targets.sort_unstable();
+            if outputs != targets {
+                return Err(fail(
+                    "array defines_var target must match the cardinality count array",
+                ));
+            }
+        } else if slots.len() != 1 {
+            return Err(fail("defines_var needs a scalar variable"));
+        }
+        Ok(slots)
+    }
+
     fn prepare_definitions(&mut self) -> Result<(), Diagnostic> {
         let mut defined = HashSet::new();
         self.definitions.clear();
         self.dependents = vec![Vec::new(); self.slots.len()];
         for (constraint_index, constraint) in self.constraints.iter().enumerate() {
-            let Some(name) = &constraint.reference.metadata.defines else {
+            if constraint.reference.metadata.defines.is_none() {
                 continue;
-            };
+            }
             let fail = |message: &str| Diagnostic {
                 location: Some(constraint.reference.location.clone()),
                 message: message.into(),
             };
-            let binding = self
-                .bindings
-                .get(name)
-                .ok_or_else(|| fail("defines_var names an unknown variable"))?;
-            let [Operand::Variable(slot)] = binding.elements.as_slice() else {
-                return Err(fail("defines_var needs a scalar variable"));
-            };
-            if binding.is_array || !binding.assignable {
-                return Err(fail("defines_var needs a scalar variable"));
-            }
-            if !self.variables.iter().any(|variable| {
-                variable.reference.name == *name && variable.reference.metadata.is_defined
-            }) {
-                return Err(fail("defines_var target must have is_defined_var"));
-            }
-            if !defined.insert(*slot) {
-                return Err(fail("a variable has multiple defines_var annotations"));
-            }
-            let direction = definition_direction(constraint, *slot)?;
-            // A definition supplies its output even when an alias has a singleton domain.
-            self.slots[*slot].default = None;
-            if let Some(direction) = direction {
-                let inputs = constraint.predicate.operands();
-                let definition_index = self.definitions.len();
-                let mut inputs_seen = HashSet::new();
-                for operand in inputs {
-                    if let Operand::Variable(input) = operand
-                        && input != slot
-                        && inputs_seen.insert(*input)
-                    {
-                        self.dependents[*input].push(definition_index);
-                    }
+            let targets = self.definition_targets(constraint)?;
+            let mut unique_targets = HashSet::new();
+            for slot in &targets {
+                if !unique_targets.insert(*slot) {
+                    continue;
                 }
-                self.definitions.push(Definition {
-                    constraint: constraint_index,
-                    output: *slot,
-                    direction,
-                });
+                if !defined.insert(*slot) {
+                    return Err(fail("a variable has multiple defines_var annotations"));
+                }
+                let direction = definition_direction(constraint, *slot)?;
+                // A definition supplies its output even when an alias has a singleton domain.
+                self.slots[*slot].default = None;
+                if let Some(direction) = direction {
+                    let inputs = constraint.predicate.operands();
+                    let definition_index = self.definitions.len();
+                    let mut inputs_seen = HashSet::new();
+                    for operand in inputs {
+                        if let Operand::Variable(input) = operand
+                            && input != slot
+                            && inputs_seen.insert(*input)
+                        {
+                            self.dependents[*input].push(definition_index);
+                        }
+                    }
+                    self.definitions.push(Definition {
+                        constraint: constraint_index,
+                        output: *slot,
+                        direction,
+                    });
+                }
             }
         }
         for variable in &self.variables {
@@ -2557,6 +2694,9 @@ fn definition_direction(
         return Err(absent());
     }
     match &constraint.predicate {
+        Predicate::Counting(counting) => Ok(counting
+            .can_define(output)
+            .then_some(DefinitionDirection::Counting)),
         Predicate::Element { result, .. } | Predicate::Conditional { result, .. } => {
             Ok(matches!(result, Operand::Variable(slot) if *slot == output)
                 .then_some(DefinitionDirection::Selection))

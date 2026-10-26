@@ -3,9 +3,9 @@
 # Tasks: checker
 
 - Total: 33
-- Ready: 10
+- Ready: 9
 - Blocked: 5
-- Done: 18
+- Done: 19
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -27,7 +27,7 @@
 | [checker-016](tasks/016-support-elements-offsets-and-conditionals-for-every-value-ty.md) | Support elements, offsets and conditionals for every value type | done | checker-014, checker-015 |
 | [checker-017](tasks/017-complete-standard-finite-set-relations-and-operations.md) | Complete standard finite-set relations and operations | done | checker-011, checker-014 |
 | [checker-018](tasks/018-complete-float-powers-and-transcendental-operations.md) | Complete float powers and transcendental operations | done | checker-015 |
-| [checker-019](tasks/019-check-counts-cardinalities-and-value-distributions.md) | Check counts, cardinalities and value distributions | ready | checker-013, checker-014 |
+| [checker-019](tasks/019-check-counts-cardinalities-and-value-distributions.md) | Check counts, cardinalities and value distributions | done | checker-013, checker-014 |
 | [checker-020](tasks/020-check-ordering-distinctness-extrema-and-integer-channels.md) | Check ordering, distinctness, extrema and integer channels | ready | checker-013, checker-014 |
 | [checker-021](tasks/021-check-integer-and-boolean-tables-with-reification.md) | Check integer and Boolean tables with reification | ready | checker-013, checker-014 |
 | [checker-022](tasks/022-check-deterministic-and-nondeterministic-regular-constraints.md) | Check deterministic and nondeterministic regular constraints | ready | checker-017 |

@@ -217,6 +217,31 @@ CURRENT |= {
     for relation in ("eq", "ne", "le", "lt", "subset", "superset")
 }
 
+CURRENT |= {
+    prefix + name
+    for prefix in ("", "gecode_", "fzn_")
+    for name in (
+        "count",
+        "count_reif",
+        "count_imp",
+        "count_eq",
+        "count_eq_reif",
+        "count_eq_imp",
+        "at_least_int",
+        "at_most_int",
+        "among",
+        "nvalue",
+        "gecode_global_cardinality",
+        "gecode_global_cardinality_closed",
+        "global_cardinality_low_up",
+        "global_cardinality_low_up_closed",
+        "gecode_among_seq_int",
+        "gecode_among_seq_bool",
+        "gecode_count_int_fzn",
+        "gecode_count_matches_fzn",
+    )
+}
+
 
 @dataclass(frozen=True)
 class Declaration:
@@ -666,7 +691,7 @@ def output_rule(name: str, task: int, *, wrapper: bool = False) -> str:
     if task in {24, 25, 22}:
         return "none"
     if task == 19:
-        if name in {
+        if name.removeprefix("fzn_") in {
             "at_least_int",
             "at_most_int",
             "global_cardinality_low_up",
@@ -813,6 +838,13 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
             + set_names,
         )
     )
+    counting = (ROOT / "crates/zincite-check/src/counting.rs").read_text()
+    counting_names = counting.split("match base {", 1)[1].split("_ =>", 1)[0]
+    admitted |= {
+        prefix + name
+        for name in re.findall(r'"([a-z_0-9]+)"', counting_names)
+        for prefix in ("", "gecode_", "fzn_")
+    }
     if admitted != CURRENT:
         raise ValueError("current admission changed; review current-support rows")
     counts = Counter(key[0] for key in files)

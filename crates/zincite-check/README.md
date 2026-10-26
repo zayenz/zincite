@@ -641,7 +641,7 @@ profile or general preservation of editable domains and variables.
 
 All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
 `fzn_` spellings, for 108 integer relation names. The 55 Boolean base names also
-accept those exact prefixes, for 165 Boolean names and 581 admitted names overall.
+accept those exact prefixes, for 165 Boolean names and 635 admitted names overall.
 Prefixed scalar XOR uses three arguments; only bare `bool_xor` also admits the
 two-argument assertion. Matching declarations select one admitted arity and calls
 must use that arity; duplicate declarations diagnose.
@@ -772,3 +772,77 @@ preparation, serialized loading, native checking and Wasm/JSON work, and gives
 size and memory measurements for 10 and 100 independent copies. DOM rendering
 and other models need their own measurements. The report includes the small
 saved-run driver and exact repeat commands.
+
+
+## Counts and value distributions
+
+The checker admits 54 counting names from the 18 registry literals in
+[family 019](../../docs/checker-coverage.md#family-019). Each literal has exactly
+the empty, `gecode_` and `fzn_` prefixes. Prefixes apply to the whole literal;
+`gecode_global_cardinality` therefore also accepts
+`gecode_gecode_global_cardinality` and `fzn_gecode_global_cardinality`.
+Unregistered wrappers such as `fzn_global_cardinality` and `fzn_count_geq` are
+not direct calls.
+
+Occurrence counts count positions, including repeated aliases. `among` uses a
+fixed compact integer set; `nvalue` counts distinct concrete values. Positional
+matches compare each entry with its fixed partner without subtracting integers.
+Coded counts use `calculated_count relation supplied_count`, with codes 1–6 for
+`=`, `!=`, `<=`, `<`, `>=`, `>`. Fixed at-least/at-most counts, bounded GCC and
+windows have no count output. Equality derives only its count; full reification
+derives only its Boolean. A false implication guard skips unavailable operands.
+`count([], needle, n)` calculates zero without choosing a missing needle. The
+needle's unresolved variable and domain still make the report incomplete;
+a known count conflict can coexist with that state.
+
+Open cardinalities allow values outside the cover. Closed cardinalities report
+every out-of-cover position. Duplicate covers impose all their counts or bound
+intervals simultaneously. Empty entries give zero counts; an empty closed cover
+excludes every supplied entry. Negative, oversized and contradictory bounds are
+ordinary mathematical comparisons. Integer and Boolean windows check every
+contiguous window, require nonempty entries and a length in `1..length(entries)`,
+and use a fixed set or Boolean membership value.
+
+Exact GCC arrays support `defines_var(counts)` and `defines_var([first, second])`.
+Target order does not assign count positions. Each target must identify the
+count array's canonical slots with `is_defined_var` on their
+canonical declarations or their assignable array declaration. The artifact keeps
+scalar/named targets as JSON strings and writes explicit targets as JSON arrays
+of scalar names. Repeated output aliases calculate a value only when all their
+cover positions agree. Input/output cycles need supplied values. Partial supplied
+outputs are checked without being overwritten; derived domain failures still
+feed downstream checks. Every candidate starts with fresh values.
+
+Typed `count`, `cardinality` and `count_windows` findings expose calculated and
+supplied counts, selectors, codes, conditions, cover positions, outside-cover
+positions and window positions. An irrelevant unavailable needle includes its
+variable reference. Mathematical integers use decimal strings; positions use JSON
+numbers. Existing scalar metadata, artifacts and report kinds keep their shapes.
+
+The small controls compile without solving against both pinned profiles:
+
+```sh
+mkdir -p target/checker-counting-controls
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-counting-controls/standard.paths --output-fzn-to-file target/checker-counting-controls/standard.fzn examples/checker-compilation/counting-controls.mzn
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-counting-controls/gecode.paths --output-fzn-to-file target/checker-counting-controls/gecode.fzn examples/checker-compilation/counting-gecode-controls.mzn
+```
+
+Both source controls were formatted and default-linted with the pinned standard
+library and the checker annotation include. Both also compiled under the other
+profile. The standard decomposition emits `is_defined_var` on a `bool_clause`
+constraint; preparation rejects that context. The Gecode profile emits
+`fzn_count_eq`, `fzn_nvalue`, `fzn_among` and native GCC, but drops definition
+metadata for the distinct-value and GCC results. It also replaces the source
+`counts` array name with an introduced name. Supplying those outputs gives a
+valid complete report. The explicit native control emits named GCC counts and
+both membership window types with labels, paths and application payloads, but
+MiniZinc drops its GCC `defines_var` and scalar `is_defined_var` markers in both
+profiles. Supplying only entries and flags therefore gives an incomplete report;
+supplying the count outputs checks completely. These are checker-030/031 profile
+gaps; runtime marker validation stays strict.
+
+The direct [counting control](../../examples/checker-compilation/counting.fzn)
+keeps valid scalar markers and a named array target. Both CLI forms and validated
+export/load derive the counts, positional matches and reifier. `x=1;` is valid
+and complete, `x=1; ones=9;` has typed cardinality and count conflicts, and an empty
+candidate is incomplete. The native/Wasm smoke covers these same three edits.

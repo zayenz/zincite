@@ -48,7 +48,7 @@ The helper verifies both Git identities and clean source trees, scans balanced
 MiniZinc items without treating comments or strings as declarations, resolves
 both include profiles, expands registry aliases literally, checks task assignment,
 and compares the generated tables. It also checks the admission names in
-`Lowerer::constraint`, `ArithmeticOperation::from_name` and the exact integer, Boolean, float, selection and set matchers. `--write` updates only the generated section after source
+`Lowerer::constraint`, `ArithmeticOperation::from_name` and the exact integer, Boolean, float, selection, set and counting matchers. `--write` updates only the generated section after source
 and ownership review. The helper needs Python 3.11 or newer and no dependencies.
 It does not compile a model or certify runtime semantics.
 
@@ -115,9 +115,17 @@ All other mathematical calls and aliases are planned work.
 | `gecode_[var_]int/bool_element`, `gecode_int/bool_element2d`, `gecode_set_element2d` and literal registry aliases | Explicit offset or validated rectangular row-major layout; distinct set 2D argument order | Selected result |
 | `gecode_bool/int/set/float_ite` and literal registry aliases | Boolean condition; only the selected input is required | Selected result |
 
-The checker admits 581 exact names, including 165 Boolean-family names,
+| `count/count_eq(x,value,n)` and `_reif`/`_imp` forms | Integer entries/value/count; positional occurrences; three literal registry prefixes | Exact `n` for plain equality; reifier Boolean |
+| `at_least_int(n,x,value)`, `at_most_int(n,x,value)` | Fixed count and value; three literal prefixes | None |
+| `among(n,x,set)`, `nvalue(n,x)` | Fixed compact membership set; distinct concrete values; three literal prefixes | `n` |
+| `gecode_global_cardinality[_closed](x,cover,counts)` | Fixed cover; equal cover/count lengths; duplicate covers valid; literal registry prefixes | Exact count slots |
+| `global_cardinality_low_up[_closed](x,cover,lower,upper)` | Fixed cover and bounds; matching lengths; three literal prefixes | None |
+| `gecode_among_seq_int/bool(x,membership,q,lower,upper)` | Fixed set/Boolean and bounds; nonempty entries; `1 <= q <= length(x)`; literal registry prefixes | None |
+| `gecode_count_int_fzn(x,value,code,n)`, `gecode_count_matches_fzn(x,values,code,n)` | Fixed code 1–6; positional matches use a fixed array of matching length; literal registry prefixes | `n` for code 1 only |
+
+The checker admits 635 exact names, including 165 Boolean-family names,
 108 integer scalar/linear relation spellings, 80 float-core names, 57 selection
-names, 84 set-family names and 54 float-function names.
+names, 84 set-family names, 54 float-function names and 54 counting-family names.
 The `fzn_disjunctive_strict` declaration is required for that external call.
 The other listed names accept calls without declarations. All matching declarations
 validate signatures, roles and shapes, with call checks for declared domains and
@@ -277,7 +285,7 @@ still use compiler routes; direct support does not certify profile closure
 **checker-017 — finite-set primitives.** The checker supports the 26 assigned
 registry literals with their exact bare, `gecode_` and `fzn_` expansions, plus
 six source-only bare `set_eq/ne/le/lt/subset/superset_imp` names. This is 84 set
-names and 581 admitted names overall. It does not invent prefixed source-only
+names and 635 admitted names overall. It does not invent prefixed source-only
 implications, `equal_imp`, algebra reifiers or cardinality reifiers. Membership
 accepts integers against fixed or variable sets; `int_in` compatibility forms
 require fixed sets. Boolean membership maps false/true to 0/1 against fixed
@@ -344,12 +352,35 @@ registrations through exp and arithmetic. Compiler-profile closure belongs to
 checker-030/031.
 
 <a id="family-019"></a>
-**checker-019 — counts and distributions.** Count occurrences, position-wise
-matches, membership and distinct values; check exact/at-least/at-most forms,
-sliding windows and open/closed global cardinalities. An equality can calculate
-its count or count array from known entries. A count inequality, lower/upper bound
-or window bound does not determine a count variable uniquely. Respect the exact
-order of count/value/array arguments and relation codes in each declaration.
+**checker-019 — counts and distributions.** The 54 exact names check positional
+occurrences, paired equality, fixed-set membership, distinct values, sliding
+membership windows and open/closed cardinalities. Literal registry prefixes apply
+to the whole base name: `gecode_global_cardinality` also has
+`gecode_gecode_global_cardinality` and `fzn_gecode_global_cardinality` spellings.
+Unregistered wrappers and set-variable counts are outside this direct family.
+
+Codes 1–6 compare the calculated count with the supplied count using `=`, `!=`,
+`<=`, `<`, `>=`, `>` respectively. Only equality derives a count. Reification
+derives only its Boolean; implication chooses no guard or witness. Empty
+occurrence arrays have count zero even with an unresolved needle; that needle
+still has an unresolved variable/domain report. Findings identify that irrelevant
+needle explicitly. Compact membership sets are never enumerated, and paired
+matches compare values directly across the full i64 range.
+
+Cardinalities count every cover position. Duplicate covers impose equal counts
+or every listed bound interval simultaneously. Open forms allow values outside
+the cover; closed forms report their positions. Empty input gives zero counts;
+an empty closed cover excludes every entry. Negative, oversized and contradictory
+bounds are comparisons, not shape errors. Windows check every contiguous window,
+including overlapping failures, using native lower/upper clamping semantics.
+
+Exact GCC count arrays accept named or explicit scalar-name `defines_var` targets
+with canonical `is_defined_var` slots. Completion creates one ordinary definition
+per unique slot. Repeated output aliases derive only when their calculated counts
+agree; input/output cycles need supplied values. Bounds and inequalities choose
+no output. The compile controls expose dropped GCC definition metadata and an
+invalid standard decomposition annotation; profile closure belongs to
+checker-030/031. The direct FlatZinc control demonstrates runtime completion.
 
 <a id="family-020"></a>
 **checker-020 — order, distinctness and integer channels.** Check lexicographic
@@ -746,19 +777,19 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r105"></a>[R105](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2221) | ` array_int_lq `, ` gecode_array_int_lq `, ` fzn_array_int_lq ` | ` p_array_int_lq ` / ` always ` | [D2892](#d2892) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
 | <a id="r106"></a>[R106](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2222) | ` array_bool_lt `, ` gecode_array_bool_lt `, ` fzn_array_bool_lt ` | ` p_array_bool_lt ` / ` always ` | [D2886](#d2886) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
 | <a id="r107"></a>[R107](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2223) | ` array_bool_lq `, ` gecode_array_bool_lq `, ` fzn_array_bool_lq ` | ` p_array_bool_lq ` / ` always ` | [D2890](#d2890) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r108"></a>[R108](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2224) | ` count `, ` gecode_count `, ` fzn_count ` | ` p_count ` / ` always ` | [D0206](#d0206), [D2823](#d2823) | planned | [checker-019](#family-019) | count(s), when equality fixes them |
-| <a id="r109"></a>[R109](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2225) | ` count_reif `, ` gecode_count_reif `, ` fzn_count_reif ` | ` p_count_reif ` / ` always ` | [D2824](#d2824) | planned | [checker-019](#family-019) | last Boolean (truth) |
-| <a id="r110"></a>[R110](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2226) | ` count_imp `, ` gecode_count_imp `, ` fzn_count_imp ` | ` p_count_imp ` / ` always ` | [D2825](#d2825) | planned | [checker-019](#family-019) | none (guard) |
-| <a id="r111"></a>[R111](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2227) | ` count_eq `, ` gecode_count_eq `, ` fzn_count_eq ` | ` p_count ` / ` always ` | [D0206](#d0206), [D2823](#d2823) | planned | [checker-019](#family-019) | count(s), when equality fixes them |
-| <a id="r112"></a>[R112](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2228) | ` count_eq_reif `, ` gecode_count_eq_reif `, ` fzn_count_eq_reif ` | ` p_count_reif ` / ` always ` | [D2824](#d2824) | planned | [checker-019](#family-019) | last Boolean (truth) |
-| <a id="r113"></a>[R113](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2229) | ` count_eq_imp `, ` gecode_count_eq_imp `, ` fzn_count_eq_imp ` | ` p_count_imp ` / ` always ` | [D2825](#d2825) | planned | [checker-019](#family-019) | none (guard) |
-| <a id="r114"></a>[R114](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2230) | ` at_least_int `, ` gecode_at_least_int `, ` fzn_at_least_int ` | ` p_at_least ` / ` always ` | [D0150](#d0150), [D2813](#d2813) | planned | [checker-019](#family-019) | none |
-| <a id="r115"></a>[R115](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2231) | ` at_most_int `, ` gecode_at_most_int `, ` fzn_at_most_int ` | ` p_at_most ` / ` always ` | [D0159](#d0159), [D2815](#d2815) | planned | [checker-019](#family-019) | none |
+| <a id="r108"></a>[R108](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2224) | ` count `, ` gecode_count `, ` fzn_count ` | ` p_count ` / ` always ` | [D0206](#d0206), [D2823](#d2823) | ` count `, ` gecode_count `, ` fzn_count ` | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="r109"></a>[R109](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2225) | ` count_reif `, ` gecode_count_reif `, ` fzn_count_reif ` | ` p_count_reif ` / ` always ` | [D2824](#d2824) | ` count_reif `, ` gecode_count_reif `, ` fzn_count_reif ` | [checker-019](#family-019) | last Boolean (truth) |
+| <a id="r110"></a>[R110](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2226) | ` count_imp `, ` gecode_count_imp `, ` fzn_count_imp ` | ` p_count_imp ` / ` always ` | [D2825](#d2825) | ` count_imp `, ` gecode_count_imp `, ` fzn_count_imp ` | [checker-019](#family-019) | none (guard) |
+| <a id="r111"></a>[R111](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2227) | ` count_eq `, ` gecode_count_eq `, ` fzn_count_eq ` | ` p_count ` / ` always ` | [D0206](#d0206), [D2823](#d2823) | ` count_eq `, ` gecode_count_eq `, ` fzn_count_eq ` | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="r112"></a>[R112](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2228) | ` count_eq_reif `, ` gecode_count_eq_reif `, ` fzn_count_eq_reif ` | ` p_count_reif ` / ` always ` | [D2824](#d2824) | ` count_eq_reif `, ` gecode_count_eq_reif `, ` fzn_count_eq_reif ` | [checker-019](#family-019) | last Boolean (truth) |
+| <a id="r113"></a>[R113](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2229) | ` count_eq_imp `, ` gecode_count_eq_imp `, ` fzn_count_eq_imp ` | ` p_count_imp ` / ` always ` | [D2825](#d2825) | ` count_eq_imp `, ` gecode_count_eq_imp `, ` fzn_count_eq_imp ` | [checker-019](#family-019) | none (guard) |
+| <a id="r114"></a>[R114](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2230) | ` at_least_int `, ` gecode_at_least_int `, ` fzn_at_least_int ` | ` p_at_least ` / ` always ` | [D0150](#d0150), [D2813](#d2813) | ` at_least_int `, ` gecode_at_least_int `, ` fzn_at_least_int ` | [checker-019](#family-019) | none |
+| <a id="r115"></a>[R115](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2231) | ` at_most_int `, ` gecode_at_most_int `, ` fzn_at_most_int ` | ` p_at_most ` / ` always ` | [D0159](#d0159), [D2815](#d2815) | ` at_most_int `, ` gecode_at_most_int `, ` fzn_at_most_int ` | [checker-019](#family-019) | none |
 | <a id="r116"></a>[R116](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2232) | ` gecode_bin_packing_load `, ` gecode_gecode_bin_packing_load `, ` fzn_gecode_bin_packing_load ` | ` p_bin_packing_load ` / ` always ` | [D2819](#d2819) | planned | [checker-026](#family-026) | [unique outputs](#family-026) |
-| <a id="r117"></a>[R117](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2233) | ` gecode_global_cardinality `, ` gecode_gecode_global_cardinality `, ` fzn_gecode_global_cardinality ` | ` p_global_cardinality ` / ` always ` | [D2859](#d2859) | planned | [checker-019](#family-019) | count(s), when equality fixes them |
-| <a id="r118"></a>[R118](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2234) | ` gecode_global_cardinality_closed `, ` gecode_gecode_global_cardinality_closed `, ` fzn_gecode_global_cardinality_closed ` | ` p_global_cardinality_closed ` / ` always ` | [D2862](#d2862) | planned | [checker-019](#family-019) | count(s), when equality fixes them |
-| <a id="r119"></a>[R119](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2236) | ` global_cardinality_low_up `, ` gecode_global_cardinality_low_up `, ` fzn_global_cardinality_low_up ` | ` p_global_cardinality_low_up ` / ` always ` | [D1069](#d1069), [D1096](#d1096), [D2864](#d2864) | planned | [checker-019](#family-019) | none |
-| <a id="r120"></a>[R120](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2238) | ` global_cardinality_low_up_closed `, ` gecode_global_cardinality_low_up_closed `, ` fzn_global_cardinality_low_up_closed ` | ` p_global_cardinality_low_up_closed ` / ` always ` | [D1083](#d1083), [D1098](#d1098), [D2865](#d2865) | planned | [checker-019](#family-019) | none |
+| <a id="r117"></a>[R117](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2233) | ` gecode_global_cardinality `, ` gecode_gecode_global_cardinality `, ` fzn_gecode_global_cardinality ` | ` p_global_cardinality ` / ` always ` | [D2859](#d2859) | ` gecode_global_cardinality `, ` gecode_gecode_global_cardinality `, ` fzn_gecode_global_cardinality ` | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="r118"></a>[R118](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2234) | ` gecode_global_cardinality_closed `, ` gecode_gecode_global_cardinality_closed `, ` fzn_gecode_global_cardinality_closed ` | ` p_global_cardinality_closed ` / ` always ` | [D2862](#d2862) | ` gecode_global_cardinality_closed `, ` gecode_gecode_global_cardinality_closed `, ` fzn_gecode_global_cardinality_closed ` | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="r119"></a>[R119](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2236) | ` global_cardinality_low_up `, ` gecode_global_cardinality_low_up `, ` fzn_global_cardinality_low_up ` | ` p_global_cardinality_low_up ` / ` always ` | [D1069](#d1069), [D1096](#d1096), [D2864](#d2864) | ` global_cardinality_low_up `, ` gecode_global_cardinality_low_up `, ` fzn_global_cardinality_low_up ` | [checker-019](#family-019) | none |
+| <a id="r120"></a>[R120](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2238) | ` global_cardinality_low_up_closed `, ` gecode_global_cardinality_low_up_closed `, ` fzn_global_cardinality_low_up_closed ` | ` p_global_cardinality_low_up_closed ` / ` always ` | [D1083](#d1083), [D1098](#d1098), [D2865](#d2865) | ` global_cardinality_low_up_closed `, ` gecode_global_cardinality_low_up_closed `, ` fzn_global_cardinality_low_up_closed ` | [checker-019](#family-019) | none |
 | <a id="r121"></a>[R121](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2240) | ` array_int_minimum `, ` gecode_array_int_minimum `, ` fzn_array_int_minimum ` | ` p_minimum ` / ` always ` | [D0571](#d0571), [D3076](#d3076) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
 | <a id="r122"></a>[R122](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2241) | ` array_int_maximum `, ` gecode_array_int_maximum `, ` fzn_array_int_maximum ` | ` p_maximum ` / ` always ` | [D0569](#d0569), [D3073](#d3073) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
 | <a id="r123"></a>[R123](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2242) | ` gecode_minimum_arg_int_offset `, ` gecode_gecode_minimum_arg_int_offset `, ` fzn_gecode_minimum_arg_int_offset ` | ` p_minimum_arg ` / ` always ` | [D2809](#d2809) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
@@ -781,8 +812,8 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r140"></a>[R140](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2259) | ` gecode_table_bool_reif `, ` gecode_gecode_table_bool_reif `, ` fzn_gecode_table_bool_reif ` | ` p_table_bool_reif ` / ` always ` | [D2926](#d2926) | planned | [checker-021](#family-021) | last Boolean (truth) |
 | <a id="r141"></a>[R141](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2260) | ` gecode_table_bool_imp `, ` gecode_gecode_table_bool_imp `, ` fzn_gecode_table_bool_imp ` | ` p_table_bool_imp ` / ` always ` | [D2927](#d2927) | planned | [checker-021](#family-021) | none (guard) |
 | <a id="r142"></a>[R142](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2261) | ` cumulatives `, ` gecode_cumulatives `, ` fzn_cumulatives ` | ` p_cumulatives ` / ` always ` | [D0318](#d0318), [D0323](#d0323), [D0329](#d0329), [D2837](#d2837), [D2841](#d2841), [D2846](#d2846), [D2847](#d2847), [D3035](#d3035) | planned | [checker-024](#family-024) | none |
-| <a id="r143"></a>[R143](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2262) | ` gecode_among_seq_int `, ` gecode_gecode_among_seq_int `, ` fzn_gecode_among_seq_int ` | ` p_among_seq_int ` / ` always ` | [D2917](#d2917) | planned | [checker-019](#family-019) | none |
-| <a id="r144"></a>[R144](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2263) | ` gecode_among_seq_bool `, ` gecode_gecode_among_seq_bool `, ` fzn_gecode_among_seq_bool ` | ` p_among_seq_bool ` / ` always ` | [D2915](#d2915) | planned | [checker-019](#family-019) | none |
+| <a id="r143"></a>[R143](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2262) | ` gecode_among_seq_int `, ` gecode_gecode_among_seq_int `, ` fzn_gecode_among_seq_int ` | ` p_among_seq_int ` / ` always ` | [D2917](#d2917) | ` gecode_among_seq_int `, ` gecode_gecode_among_seq_int `, ` fzn_gecode_among_seq_int ` | [checker-019](#family-019) | none |
+| <a id="r144"></a>[R144](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2263) | ` gecode_among_seq_bool `, ` gecode_gecode_among_seq_bool `, ` fzn_gecode_among_seq_bool ` | ` p_among_seq_bool ` / ` always ` | [D2915](#d2915) | ` gecode_among_seq_bool `, ` gecode_gecode_among_seq_bool `, ` fzn_gecode_among_seq_bool ` | [checker-019](#family-019) | none |
 | <a id="r145"></a>[R145](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2265) | ` bool_lin_eq `, ` gecode_bool_lin_eq `, ` fzn_bool_lin_eq ` | ` p_bool_lin_eq ` / ` always ` | [D0490](#d0490), [D3103](#d3103) | ` bool_lin_eq `, ` gecode_bool_lin_eq `, ` fzn_bool_lin_eq ` | [checker-014](#family-014) | exact equality slot only |
 | <a id="r146"></a>[R146](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2266) | ` bool_lin_ne `, ` gecode_bool_lin_ne `, ` fzn_bool_lin_ne ` | ` p_bool_lin_ne ` / ` always ` | [D3104](#d3104) | ` bool_lin_ne `, ` gecode_bool_lin_ne `, ` fzn_bool_lin_ne ` | [checker-014](#family-014) | none |
 | <a id="r147"></a>[R147](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2267) | ` bool_lin_le `, ` gecode_bool_lin_le `, ` fzn_bool_lin_le ` | ` p_bool_lin_le ` / ` always ` | [D0491](#d0491), [D3105](#d3105) | ` bool_lin_le `, ` gecode_bool_lin_le `, ` fzn_bool_lin_le ` | [checker-014](#family-014) | none |
@@ -810,8 +841,8 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r169"></a>[R169](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2292) | ` gecode_nooverlap `, ` gecode_gecode_nooverlap `, ` fzn_gecode_nooverlap ` | ` p_nooverlap ` / ` always ` | [D2850](#d2850) | planned | [checker-026](#family-026) | [unique outputs](#family-026) |
 | <a id="r170"></a>[R170](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2293) | ` gecode_nooverlap_fzn `, ` gecode_gecode_nooverlap_fzn `, ` fzn_gecode_nooverlap_fzn ` | ` p_nooverlap ` / ` always ` | [D2850](#d2850) | planned | [checker-026](#family-026) | [unique outputs](#family-026) |
 | <a id="r171"></a>[R171](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2294) | ` gecode_precede `, ` gecode_gecode_precede `, ` fzn_gecode_precede ` | ` p_precede ` / ` always ` | [D2936](#d2936) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r172"></a>[R172](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2295) | ` nvalue `, ` gecode_nvalue `, ` fzn_nvalue ` | ` p_nvalue ` / ` always ` | [D1361](#d1361), [D2902](#d2902) | planned | [checker-019](#family-019) | count(s), when equality fixes them |
-| <a id="r173"></a>[R173](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2296) | ` among `, ` gecode_among `, ` fzn_among ` | ` p_among ` / ` always ` | [D0033](#d0033), [D2802](#d2802) | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="r172"></a>[R172](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2295) | ` nvalue `, ` gecode_nvalue `, ` fzn_nvalue ` | ` p_nvalue ` / ` always ` | [D1361](#d1361), [D2902](#d2902) | ` nvalue `, ` gecode_nvalue `, ` fzn_nvalue ` | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="r173"></a>[R173](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2296) | ` among `, ` gecode_among `, ` fzn_among ` | ` p_among ` / ` always ` | [D0033](#d0033), [D2802](#d2802) | ` among `, ` gecode_among `, ` fzn_among ` | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="r174"></a>[R174](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2297) | ` member_int `, ` gecode_member_int `, ` fzn_member_int ` | ` p_member_int ` / ` always ` | [D1293](#d1293), [D1306](#d1306), [D2899](#d2899) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
 | <a id="r175"></a>[R175](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2298) | ` gecode_member_int_reif `, ` gecode_gecode_member_int_reif `, ` fzn_gecode_member_int_reif ` | ` p_member_int_reif ` / ` always ` | [D2900](#d2900) | planned | [checker-020](#family-020) | last Boolean (truth) |
 | <a id="r176"></a>[R176](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2299) | ` member_bool `, ` gecode_member_bool `, ` fzn_member_bool ` | ` p_member_bool ` / ` always ` | [D1291](#d1291), [D1302](#d1302), [D2896](#d2896) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
@@ -828,8 +859,8 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r187"></a>[R187](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2311) | ` gecode_inter_distance_fzn `, ` gecode_gecode_inter_distance_fzn `, ` fzn_gecode_inter_distance_fzn ` | ` p_inter_distance ` / ` always ` | [D2999](#d2999) | planned | [checker-029](#family-029) | none |
 | <a id="r188"></a>[R188](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2312) | ` gecode_bool_int_channel `, ` gecode_gecode_bool_int_channel `, ` fzn_gecode_bool_int_channel ` | ` p_bool_int_channel ` / ` always ` | [D3003](#d3003) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
 | <a id="r189"></a>[R189](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2313) | ` gecode_sort_permutation `, ` gecode_gecode_sort_permutation `, ` fzn_gecode_sort_permutation ` | ` p_sort_permutation ` / ` always ` | [D3004](#d3004) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="r190"></a>[R190](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2314) | ` gecode_count_int_fzn `, ` gecode_gecode_count_int_fzn `, ` fzn_gecode_count_int_fzn ` | ` p_count_int ` / ` always ` | [D2826](#d2826), [D2828](#d2828), [D2830](#d2830), [D2832](#d2832), [D3005](#d3005) | planned | [checker-019](#family-019) | count(s), when equality fixes them |
-| <a id="r191"></a>[R191](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2315) | ` gecode_count_matches_fzn `, ` gecode_gecode_count_matches_fzn `, ` fzn_gecode_count_matches_fzn ` | ` p_count_matches ` / ` always ` | [D3006](#d3006) | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="r190"></a>[R190](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2314) | ` gecode_count_int_fzn `, ` gecode_gecode_count_int_fzn `, ` fzn_gecode_count_int_fzn ` | ` p_count_int ` / ` always ` | [D2826](#d2826), [D2828](#d2828), [D2830](#d2830), [D2832](#d2832), [D3005](#d3005) | ` gecode_count_int_fzn `, ` gecode_gecode_count_int_fzn `, ` fzn_gecode_count_int_fzn ` | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="r191"></a>[R191](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2315) | ` gecode_count_matches_fzn `, ` gecode_gecode_count_matches_fzn `, ` fzn_gecode_count_matches_fzn ` | ` p_count_matches ` / ` always ` | [D3006](#d3006) | ` gecode_count_matches_fzn `, ` gecode_gecode_count_matches_fzn `, ` fzn_gecode_count_matches_fzn ` | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="r192"></a>[R192](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2316) | ` gecode_int_ite `, ` gecode_gecode_int_ite `, ` fzn_gecode_int_ite ` | ` p_int_ite ` / ` always ` | [D2874](#d2874), [D3010](#d3010) | ` gecode_int_ite `, ` gecode_gecode_int_ite `, ` fzn_gecode_int_ite ` | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="r193"></a>[R193](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2317) | ` gecode_bool_ite `, ` gecode_gecode_bool_ite `, ` fzn_gecode_bool_ite ` | ` p_bool_ite ` / ` always ` | [D2870](#d2870), [D3011](#d3011) | ` gecode_bool_ite `, ` gecode_gecode_bool_ite `, ` fzn_gecode_bool_ite ` | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="r194"></a>[R194](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2318) | ` gecode_gcd_int `, ` gecode_gecode_gcd_int `, ` fzn_gecode_gcd_int ` | ` p_gcd ` / ` always ` | [D3014](#d3014) | planned | [checker-029](#family-029) | last result; family domain rule |
@@ -1956,7 +1987,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d0033"></a>D0033 / 6 | ` predicate fzn_among(var int: n, array [int] of var int: xs, set of int: values) ` | S decomposition → [D0608](#d0608); G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d0033"></a>D0033 / 6 | ` predicate fzn_among(var int: n, array [int] of var int: xs, set of int: values) ` | S decomposition → [D0608](#d0608); G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="d0034"></a>D0034 / 11 | ` predicate among(var int: n, array [$X] of var $$E: xs, set of $$E: values) ` | wrapper → ` array1d `, ` enum2int `, ` fzn_among ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 
 <a id="file-021"></a>
@@ -2211,7 +2242,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d0150"></a>D0150 / 6 | ` predicate fzn_at_least_int(int: n, array [int] of var int: xs, int: value) ` | S decomposition → [D0636](#d0636); G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d0150"></a>D0150 / 6 | ` predicate fzn_at_least_int(int: n, array [int] of var int: xs, int: value) ` | S decomposition → [D0636](#d0636); G direct | C (qualified) | [checker-019](#family-019) | none |
 | <a id="d0151"></a>D0151 / 7 | ` predicate fzn_at_least_set(int: n, array [int] of var set of int: xs, set of int: value) ` | declaration → [D0638](#d0638), [D2814](#d2814) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0152"></a>D0152 / 14 | ` predicate at_least(int: n, array [$X] of var $$E: xs, $$E: value) ` | wrapper → ` array1d `, ` enum2int `, ` fzn_at_least_int ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0153"></a>D0153 / 20 | ` predicate at_least(int: n, array [$X] of var set of $$E: xs, set of $$E: value) ` | wrapper → ` array1d `, ` enum2int `, ` fzn_at_least_set ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
@@ -2244,7 +2275,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d0159"></a>D0159 / 6 | ` predicate fzn_at_most_int(int: n, array [int] of var int: xs, int: value) ` | S decomposition → [D0642](#d0642); G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d0159"></a>D0159 / 6 | ` predicate fzn_at_most_int(int: n, array [int] of var int: xs, int: value) ` | S decomposition → [D0642](#d0642); G direct | C (qualified) | [checker-019](#family-019) | none |
 | <a id="d0160"></a>D0160 / 7 | ` predicate fzn_at_most_set(int: n, array [int] of var set of int: xs, set of int: value) ` | declaration → [D0644](#d0644), [D2816](#d2816) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0161"></a>D0161 / 14 | ` predicate at_most(int: n, array [$X] of var $$E: xs, $$E: value) ` | wrapper → ` array1d `, ` enum2int `, ` fzn_at_most_int ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0162"></a>D0162 / 20 | ` predicate at_most(int: n, array [$X] of var set of $$E: xs, set of $$E: value) ` | wrapper → ` array1d `, ` enum2int `, ` fzn_at_most_set ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
@@ -2402,7 +2433,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d0206"></a>D0206 / 18 | ` predicate fzn_count_eq(array [int] of var int: xs, var int: value, var int: n) ` | S decomposition → [D0673](#d0673); G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d0206"></a>D0206 / 18 | ` predicate fzn_count_eq(array [int] of var int: xs, var int: value, var int: n) ` | S decomposition → [D0673](#d0673); G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="d0207"></a>D0207 / 19 | ` predicate fzn_count_eq_bool(array [int] of var bool: xs, var bool: value, var int: n) ` | declaration → [D0674](#d0674) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0208"></a>D0208 / 20 | ` predicate fzn_count_eq_bool_par(array [int] of var bool: xs, bool: value, int: n) ` | declaration → [D0675](#d0675) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0209"></a>D0209 / 21 | ` predicate fzn_count_eq_float(array [int] of var float: xs, var float: value, var int: n) ` | declaration → [D0678](#d0678) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
@@ -6330,7 +6361,7 @@ Include/resource entry only; see the selection index.
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
 | <a id="d1068"></a>D1068 / 11 | ` predicate fzn_global_cardinality( array [int] of var int: xs, array [int] of int: cover, array [int] of var int: count, ) ` | declaration → [D0843](#d0843), [D2860](#d2860) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
-| <a id="d1069"></a>D1069 / 16 | ` predicate fzn_global_cardinality_low_up( array [int] of var int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | S decomposition → [D0848](#d0848); G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d1069"></a>D1069 / 16 | ` predicate fzn_global_cardinality_low_up( array [int] of var int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | S decomposition → [D0848](#d0848); G direct | C (qualified) | [checker-019](#family-019) | none |
 | <a id="d1070"></a>D1070 / 22 | ` predicate fzn_global_cardinality_low_up_opt( array [int] of var opt int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | declaration → [D0853](#d0853) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d1071"></a>D1071 / 28 | ` predicate fzn_global_cardinality_low_up_set( array [int] of var set of int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | declaration → [D0855](#d0855) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d1072"></a>D1072 / 34 | ` predicate fzn_global_cardinality_opt( array [int] of var opt int: xs, array [int] of int: cover, array [int] of var int: count, ) ` | declaration → [D0856](#d0856) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
@@ -6350,7 +6381,7 @@ Include/resource entry only; see the selection index.
 | <a id="d1080"></a>D1080 / 11 | ` predicate fzn_global_cardinality_closed( array [int] of var int: xs, array [int] of int: cover, array [int] of var int: count, ) ` | declaration → [D0844](#d0844), [D2863](#d2863) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d1081"></a>D1081 / 16 | ` predicate fzn_global_cardinality_closed_opt( array [int] of var opt int: xs, array [int] of int: cover, array [int] of var int: count, ) ` | declaration → [D0845](#d0845) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d1082"></a>D1082 / 21 | ` predicate fzn_global_cardinality_closed_set( array [int] of var set of int: xs, array [int] of int: cover, array [int] of var int: count, ) ` | declaration → [D0847](#d0847) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
-| <a id="d1083"></a>D1083 / 26 | ` predicate fzn_global_cardinality_low_up_closed( array [int] of var int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | S decomposition → [D0849](#d0849); G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d1083"></a>D1083 / 26 | ` predicate fzn_global_cardinality_low_up_closed( array [int] of var int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | S decomposition → [D0849](#d0849); G direct | C (qualified) | [checker-019](#family-019) | none |
 | <a id="d1084"></a>D1084 / 32 | ` predicate fzn_global_cardinality_low_up_closed_opt( array [int] of var opt int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | declaration → [D0850](#d0850) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d1085"></a>D1085 / 38 | ` predicate fzn_global_cardinality_low_up_closed_set( array [int] of var set of int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | declaration → [D0852](#d0852) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d1086"></a>D1086 / 50 | ` predicate global_cardinality_closed( array [$X] of var $$E: xs, array [$Y] of $$E: cover, array [$Y] of var int: count, ) ` | wrapper → ` array1d `, ` assert `, ` enum2int `, ` forall `, ` fzn_global_cardinality_closed `, ` index_sets_agree `, ` length `, ` show_index_sets ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
@@ -6381,7 +6412,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d1096"></a>D1096 / 1 | ` predicate global_cardinality_low_up( array [$X] of var int: x, array [$Y] of int: cover, array [$Y] of int: lbound, array [$Y] of int: ubound, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D1097](#d1097); G decomposition → [D1097](#d1097) | planned | [checker-019](#family-019) | none |
+| <a id="d1096"></a>D1096 / 1 | ` predicate global_cardinality_low_up( array [$X] of var int: x, array [$Y] of int: cover, array [$Y] of int: lbound, array [$Y] of int: ubound, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D1097](#d1097); G decomposition → [D1097](#d1097) | C (qualified) | [checker-019](#family-019) | none |
 
 <a id="file-582"></a>
 ### [S/global_cardinality_low_up.mzn](https://github.com/MiniZinc/libminizinc/blob/c3448c48e7f05f13805616cfd1b9e94972eef58c/share/minizinc/std/global_cardinality_low_up.mzn)
@@ -6395,7 +6426,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d1098"></a>D1098 / 1 | ` predicate global_cardinality_low_up_closed( array [$X] of var int: x, array [$Y] of int: cover, array [$Y] of int: lbound, array [$Y] of int: ubound, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D1099](#d1099); G decomposition → [D1099](#d1099) | planned | [checker-019](#family-019) | none |
+| <a id="d1098"></a>D1098 / 1 | ` predicate global_cardinality_low_up_closed( array [$X] of var int: x, array [$Y] of int: cover, array [$Y] of int: lbound, array [$Y] of int: ubound, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | S decomposition → [D1099](#d1099); G decomposition → [D1099](#d1099) | C (qualified) | [checker-019](#family-019) | none |
 
 <a id="file-584"></a>
 ### [S/global_cardinality_low_up_closed.mzn](https://github.com/MiniZinc/libminizinc/blob/c3448c48e7f05f13805616cfd1b9e94972eef58c/share/minizinc/std/global_cardinality_low_up_closed.mzn)
@@ -7114,7 +7145,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d1361"></a>D1361 / 4 | ` predicate fzn_nvalue(var int: n, array [int] of var int: xs) ` | S decomposition → [D0951](#d0951); G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d1361"></a>D1361 / 4 | ` predicate fzn_nvalue(var int: n, array [int] of var int: xs) ` | S decomposition → [D0951](#d0951); G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="d1362"></a>D1362 / 9 | ` predicate nvalue(var int: n, array [$X] of var $$E: xs) ` | wrapper → ` array1d `, ` enum2int `, ` fzn_nvalue `, ` length ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d1363"></a>D1363 / 15 | ` predicate nvalue(var int: n, array [$X] of var opt $$E: xs) ` | wrapper → ` dom_array `, ` enum2int `, ` length `, ` min `, ` nvalue ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 
@@ -9174,7 +9205,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2802"></a>D2802 / 33 | ` predicate fzn_among(var int: n, array[int] of var int: x, set of int: v) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d2802"></a>D2802 / 33 | ` predicate fzn_among(var int: n, array[int] of var int: x, set of int: v) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 
 <a id="file-765"></a>
 ### [G/fzn_arg_max_bool.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_arg_max_bool.mzn)
@@ -9221,7 +9252,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2813"></a>D2813 / 33 | ` predicate fzn_at_least_int(int: n, array[int] of var int: x, int: v) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d2813"></a>D2813 / 33 | ` predicate fzn_at_least_int(int: n, array[int] of var int: x, int: v) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | none |
 
 <a id="file-771"></a>
 ### [G/fzn_at_least_set.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_at_least_set.mzn)
@@ -9235,7 +9266,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2815"></a>D2815 / 33 | ` predicate fzn_at_most_int(int: n, array[int] of var int: x, int: v) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d2815"></a>D2815 / 33 | ` predicate fzn_at_most_int(int: n, array[int] of var int: x, int: v) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | none |
 
 <a id="file-773"></a>
 ### [G/fzn_at_most_set.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_at_most_set.mzn)
@@ -9279,22 +9310,22 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2823"></a>D2823 / 33 | ` predicate fzn_count_eq(array[int] of var int: x, var int: y, var int: c) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d2823"></a>D2823 / 33 | ` predicate fzn_count_eq(array[int] of var int: x, var int: y, var int: c) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 
 <a id="file-779"></a>
 ### [G/fzn_count_eq_reif.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_count_eq_reif.mzn)
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2824"></a>D2824 / 33 | ` predicate fzn_count_eq_reif(array[int] of var int: x, var int: y, var int: c, var bool: b) ` | S outside profile; G direct | planned | [checker-019](#family-019) | last Boolean (truth) |
-| <a id="d2825"></a>D2825 / 36 | ` predicate fzn_count_eq_imp(array[int] of var int: x, var int: y, var int: c, var bool: r) ` | S outside profile; G direct | planned | [checker-019](#family-019) | none (guard) |
+| <a id="d2824"></a>D2824 / 33 | ` predicate fzn_count_eq_reif(array[int] of var int: x, var int: y, var int: c, var bool: b) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | last Boolean (truth) |
+| <a id="d2825"></a>D2825 / 36 | ` predicate fzn_count_eq_imp(array[int] of var int: x, var int: y, var int: c, var bool: r) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | none (guard) |
 
 <a id="file-780"></a>
 ### [G/fzn_count_geq.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_count_geq.mzn)
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2826"></a>D2826 / 33 | ` predicate gecode_count_int_fzn( array[int] of var int: x, var int: value, int: relation, var int: n, ) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d2826"></a>D2826 / 33 | ` predicate gecode_count_int_fzn( array[int] of var int: x, var int: value, int: relation, var int: n, ) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="d2827"></a>D2827 / 41 | ` predicate fzn_count_geq(array[int] of var int: xs, var int: value, var int: n) ` | wrapper → ` gecode_count_int_fzn ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-781"></a>
@@ -9302,7 +9333,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2828"></a>D2828 / 33 | ` predicate gecode_count_int_fzn( array[int] of var int: x, var int: value, int: relation, var int: n, ) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d2828"></a>D2828 / 33 | ` predicate gecode_count_int_fzn( array[int] of var int: x, var int: value, int: relation, var int: n, ) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="d2829"></a>D2829 / 41 | ` predicate fzn_count_gt(array[int] of var int: xs, var int: value, var int: n) ` | wrapper → ` gecode_count_int_fzn ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-782"></a>
@@ -9310,7 +9341,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2830"></a>D2830 / 33 | ` predicate gecode_count_int_fzn( array[int] of var int: x, var int: value, int: relation, var int: n, ) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d2830"></a>D2830 / 33 | ` predicate gecode_count_int_fzn( array[int] of var int: x, var int: value, int: relation, var int: n, ) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="d2831"></a>D2831 / 41 | ` predicate fzn_count_leq(array[int] of var int: xs, var int: value, var int: n) ` | wrapper → ` gecode_count_int_fzn ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-783"></a>
@@ -9318,7 +9349,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2832"></a>D2832 / 33 | ` predicate gecode_count_int_fzn( array[int] of var int: x, var int: value, int: relation, var int: n, ) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d2832"></a>D2832 / 33 | ` predicate gecode_count_int_fzn( array[int] of var int: x, var int: value, int: relation, var int: n, ) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="d2833"></a>D2833 / 41 | ` predicate fzn_count_lt(array[int] of var int: xs, var int: value, var int: n) ` | wrapper → ` gecode_count_int_fzn ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-784"></a>
@@ -9411,7 +9442,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2859"></a>D2859 / 33 | ` predicate gecode_global_cardinality(array[int] of var int: x, array[int] of int: cover, array[int] of var int: counts) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d2859"></a>D2859 / 33 | ` predicate gecode_global_cardinality(array[int] of var int: x, array[int] of int: cover, array[int] of var int: counts) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="d2860"></a>D2860 / 37 | ` predicate fzn_global_cardinality(array[int] of var int: x, array[int] of int: cover, array[int] of var int: counts) ` | wrapper → ` gecode_global_cardinality ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d2861"></a>D2861 / 42 | ` predicate global_cardinality_old(array[int] of var int: x, array[int] of var int: c) ` | wrapper → ` global_cardinality `, ` index_set ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
@@ -9420,7 +9451,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2862"></a>D2862 / 33 | ` predicate gecode_global_cardinality_closed(array[int] of var int: x, array[int] of int: cover, array[int] of var int: counts) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d2862"></a>D2862 / 33 | ` predicate gecode_global_cardinality_closed(array[int] of var int: x, array[int] of int: cover, array[int] of var int: counts) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="d2863"></a>D2863 / 37 | ` predicate fzn_global_cardinality_closed(array[int] of var int: x, array[int] of int: cover, array[int] of var int: counts) ` | wrapper → ` gecode_global_cardinality_closed ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-796"></a>
@@ -9428,14 +9459,14 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2864"></a>D2864 / 33 | ` predicate fzn_global_cardinality_low_up(array[int] of var int: x, array[int] of int: cover, array[int] of int: lbound, array[int] of int: ubound) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d2864"></a>D2864 / 33 | ` predicate fzn_global_cardinality_low_up(array[int] of var int: x, array[int] of int: cover, array[int] of int: lbound, array[int] of int: ubound) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | none |
 
 <a id="file-797"></a>
 ### [G/fzn_global_cardinality_low_up_closed.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_global_cardinality_low_up_closed.mzn)
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2865"></a>D2865 / 33 | ` predicate fzn_global_cardinality_low_up_closed(array[int] of var int: x, array[int] of int: cover, array[int] of int: lbound, array[int] of int: ubound) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d2865"></a>D2865 / 33 | ` predicate fzn_global_cardinality_low_up_closed(array[int] of var int: x, array[int] of int: cover, array[int] of int: lbound, array[int] of int: ubound) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | none |
 
 <a id="file-798"></a>
 ### [G/fzn_if_then_else_bool.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_if_then_else_bool.mzn)
@@ -9610,7 +9641,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2902"></a>D2902 / 33 | ` predicate fzn_nvalue(var int: n, array[int] of var int: x) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d2902"></a>D2902 / 33 | ` predicate fzn_nvalue(var int: n, array[int] of var int: x) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 
 <a id="file-821"></a>
 ### [G/fzn_partition_set.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_partition_set.mzn)
@@ -9665,7 +9696,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2915"></a>D2915 / 3 | ` predicate gecode_among_seq_bool(array[int] of var bool: x, bool: b, int: l, int: m, int: n) ` | S outside profile; G direct | planned | [checker-019](#family-019) | none |
+| <a id="d2915"></a>D2915 / 3 | ` predicate gecode_among_seq_bool(array[int] of var bool: x, bool: b, int: l, int: m, int: n) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | none |
 | <a id="d2916"></a>D2916 / 6 | ` predicate fzn_sliding_among_bool(int: low, int: up, int: l, array [int] of var bool: x, bool: b) ` | wrapper → ` gecode_among_seq_bool ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-828"></a>
@@ -9673,7 +9704,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2917"></a>D2917 / 3 | ` predicate gecode_among_seq_int(array[int] of var int: x, set of int: S, int: l, int: m, int: n) ` | S outside profile; G direct | planned | [checker-019](#family-019) | none |
+| <a id="d2917"></a>D2917 / 3 | ` predicate gecode_among_seq_int(array[int] of var int: x, set of int: S, int: l, int: m, int: n) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | none |
 | <a id="d2918"></a>D2918 / 6 | ` predicate fzn_sliding_among_int(int: low, int: up, int: l, array [int] of var int: x, set of int: S) ` | wrapper → ` gecode_among_seq_int ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-829"></a>
@@ -9827,8 +9858,8 @@ Include/resource entry only; see the selection index.
 | <a id="d3002"></a>D3002 / 55 | ` predicate gecode_all_different_offset_fzn( array[int] of int: offset, array[int] of var int: x, ) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
 | <a id="d3003"></a>D3003 / 61 | ` predicate gecode_bool_int_channel( array[int] of var bool: x, var int: value, int: offset, ) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
 | <a id="d3004"></a>D3004 / 68 | ` predicate gecode_sort_permutation( array[int] of var int: x, array[int] of var int: y, array[int] of var int: permutation, int: offset, ) ` | S outside profile; G decomposition → [D2974](#d2974) | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d3005"></a>D3005 / 76 | ` predicate gecode_count_int_fzn( array[int] of var int: x, var int: value, int: relation, var int: count, ) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
-| <a id="d3006"></a>D3006 / 84 | ` predicate gecode_count_matches_fzn( array[int] of var int: x, array[int] of int: values, int: relation, var int: count, ) ` | S outside profile; G direct | planned | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d3005"></a>D3005 / 76 | ` predicate gecode_count_int_fzn( array[int] of var int: x, var int: value, int: relation, var int: count, ) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="d3006"></a>D3006 / 84 | ` predicate gecode_count_matches_fzn( array[int] of var int: x, array[int] of int: values, int: relation, var int: count, ) ` | S outside profile; G direct | C (qualified) | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="d3007"></a>D3007 / 92 | ` predicate gecode_array_int_ne(array[int] of var int: x, array[int] of var int: y) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
 | <a id="d3008"></a>D3008 / 94 | ` predicate gecode_array_bool_ne(array[int] of var bool: x, array[int] of var bool: y) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
 | <a id="d3009"></a>D3009 / 97 | ` predicate gecode_not_all_equal_int(array[int] of var int: x) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |

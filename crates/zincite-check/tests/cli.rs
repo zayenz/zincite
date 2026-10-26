@@ -445,3 +445,62 @@ fn float_function_cli_reports_typed_findings_and_located_domain_errors() {
     assert!(result.stdout.is_empty());
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn counting_cli_preserves_typed_conflicts_and_array_definitions_after_loading() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-check-counts-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let source = directory.join("counting.fzn");
+    let artifact = directory.join("counting.json");
+    let data = directory.join("candidate.dzn");
+    std::fs::write(
+        &source,
+        include_str!("../../../examples/checker-compilation/counting.fzn"),
+    )
+    .unwrap();
+    let executable = env!("CARGO_BIN_EXE_zincite-check");
+    assert!(
+        Command::new(executable)
+            .arg("--export")
+            .arg(&artifact)
+            .arg(&source)
+            .status()
+            .unwrap()
+            .success()
+    );
+    for candidate in ["x=1;", "x=1;ones=9;", ""] {
+        std::fs::write(&data, candidate).unwrap();
+        let run = |model: &std::path::Path, load: bool, format: &str| {
+            let mut command = Command::new(executable);
+            if load {
+                command.arg("--load");
+            }
+            command
+                .args(["--format", format])
+                .arg(model)
+                .arg(&data)
+                .output()
+                .unwrap()
+        };
+        let source_report = run(&source, false, "json");
+        let loaded_report = run(&artifact, true, "json");
+        assert_eq!(source_report.status.code(), loaded_report.status.code());
+        assert_eq!(source_report.stdout, loaded_report.stdout);
+        if candidate.contains("ones") {
+            let report: serde_json::Value = serde_json::from_slice(&source_report.stdout).unwrap();
+            assert_eq!(report["violations"][0]["details"]["kind"], "cardinality");
+            assert_eq!(
+                report["violations"][0]["details"]["counts"][0]["calculated"],
+                "2"
+            );
+            let text = String::from_utf8(run(&artifact, true, "text").stdout).unwrap();
+            assert!(
+                text.contains("count[1] for 1 calculated 2")
+                    && text.contains("supplied ones")
+                    && text.contains("= 9")
+            );
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}
