@@ -1164,3 +1164,408 @@ fn relation_source_admission_rejects_wrong_types_shapes_roles_and_names() {
         assert!(errors[0].location.is_some(), "{source}");
     }
 }
+
+#[test]
+fn boolean_exact_names_check_truth_tables_and_argument_conventions() {
+    let mut names = std::collections::HashSet::new();
+    let rows = [(false, false), (false, true), (true, false), (true, true)];
+    for prefix in ["", "gecode_", "fzn_"] {
+        for (relation, truth) in [
+            ("eq", [true, false, false, true]),
+            ("ne", [false, true, true, false]),
+            ("lt", [false, true, false, false]),
+            ("le", [true, true, false, true]),
+            ("gt", [false, false, true, false]),
+            ("ge", [true, false, true, true]),
+        ] {
+            for shape in ["", "lin_"] {
+                for suffix in ["", "_reif", "_imp"] {
+                    let name = format!("{prefix}bool_{shape}{relation}{suffix}");
+                    names.insert(name.clone());
+                    for ((left, right), holds) in rows.into_iter().zip(truth) {
+                        for condition in [false, true] {
+                            let inputs = if shape.is_empty() {
+                                format!("{left},{right}")
+                            } else {
+                                // One Boolean term and an integer bound compare the same 0/1 values.
+                                format!("[1],[{left}],{}", i64::from(right))
+                            };
+                            let args = if suffix.is_empty() {
+                                inputs
+                            } else {
+                                format!("{inputs},{condition}")
+                            };
+                            let source = format!("constraint {name}({args});solve satisfy;");
+                            let report = prepare("truth.fzn", &source)
+                                .unwrap()
+                                .check(&Assignment::default())
+                                .unwrap();
+                            let valid = match suffix {
+                                "_reif" => holds == condition,
+                                "_imp" => !condition || holds,
+                                _ => holds,
+                            };
+                            assert_eq!(
+                                report.status,
+                                if valid {
+                                    Status::Valid
+                                } else {
+                                    Status::Invalid
+                                },
+                                "{source}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        for (operation, truth) in [
+            ("and", [false, false, false, true]),
+            ("or", [false, true, true, true]),
+            ("xor", [false, true, true, false]),
+            ("left_imp", [true, false, true, true]),
+            ("right_imp", [true, true, false, true]),
+        ] {
+            for suffix in if operation.ends_with("imp") {
+                &[""][..]
+            } else {
+                &["", "_imp"][..]
+            } {
+                let name = format!("{prefix}bool_{operation}{suffix}");
+                names.insert(name.clone());
+                for ((left, right), holds) in rows.into_iter().zip(truth) {
+                    for result in [false, true] {
+                        let source =
+                            format!("constraint {name}({left},{right},{result});solve satisfy;");
+                        let report = prepare("operation.fzn", &source)
+                            .unwrap()
+                            .check(&Assignment::default())
+                            .unwrap();
+                        let valid = if *suffix == "_imp" {
+                            !result || holds
+                        } else {
+                            result == holds
+                        };
+                        assert_eq!(
+                            report.status,
+                            if valid {
+                                Status::Valid
+                            } else {
+                                Status::Invalid
+                            },
+                            "{source}"
+                        );
+                    }
+                }
+            }
+        }
+        for (name, args) in [
+            ("bool_not", "false,true"),
+            ("bool2int", "true,1"),
+            ("bool_clause", "[false],[false]"),
+            ("bool_clause_reif", "[false],[true],false"),
+            ("bool_clause_imp", "[true],[],true"),
+        ] {
+            let name = format!("{prefix}{name}");
+            names.insert(name.clone());
+            let source = format!("constraint {name}({args});solve satisfy;");
+            assert_eq!(
+                prepare("extra.fzn", &source)
+                    .unwrap()
+                    .check(&Assignment::default())
+                    .unwrap()
+                    .status,
+                Status::Valid,
+                "{source}"
+            );
+        }
+        for (operation, empty) in [("and", true), ("or", false), ("xor", false)] {
+            for suffix in ["", "_imp"] {
+                let name = format!("{prefix}array_bool_{operation}{suffix}");
+                names.insert(name.clone());
+                for (inputs, holds) in [("[]", empty), ("[true,false,true]", operation == "or")] {
+                    for result in [false, true] {
+                        let source = format!("constraint {name}({inputs},{result});solve satisfy;");
+                        let valid = if suffix.is_empty() {
+                            result == holds
+                        } else {
+                            !result || holds
+                        };
+                        assert_eq!(
+                            prepare("array.fzn", &source)
+                                .unwrap()
+                                .check(&Assignment::default())
+                                .unwrap()
+                                .status,
+                            if valid {
+                                Status::Valid
+                            } else {
+                                Status::Invalid
+                            },
+                            "{source}"
+                        );
+                    }
+                    if suffix.is_empty() {
+                        let source = format!("constraint {name}({inputs});solve satisfy;");
+                        assert_eq!(
+                            prepare("assertion.fzn", &source)
+                                .unwrap()
+                                .check(&Assignment::default())
+                                .unwrap()
+                                .status,
+                            if holds {
+                                Status::Valid
+                            } else {
+                                Status::Invalid
+                            },
+                            "{source}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(names.len(), 165);
+    for (call, valid) in [
+        ("bool_xor(false,true)", true),
+        ("bool_xor(true,true)", false),
+        ("bool_clause([],[])", false),
+        ("bool_clause([false],[true])", false),
+        ("bool_clause_reif([],[],false)", true),
+        ("bool_clause_imp([true],[],false)", false),
+        ("gecode_bool_clause_imp([],[],false)", true),
+        ("fzn_bool_clause_imp([],[false],false)", false),
+        ("bool2int(false,2)", false),
+    ] {
+        let source = format!("constraint {call};solve satisfy;");
+        assert_eq!(
+            prepare("convention.fzn", &source)
+                .unwrap()
+                .check(&Assignment::default())
+                .unwrap()
+                .status,
+            if valid {
+                Status::Valid
+            } else {
+                Status::Invalid
+            },
+            "{call}"
+        );
+    }
+}
+
+#[test]
+fn boolean_completion_checks_supplied_outputs_domains_downstream_and_fresh_calls() {
+    let model = prepare(
+        "completion.fzn",
+        r"
+        var bool: x;
+        var bool: copy ::is_defined_var;
+        var bool: complement ::is_defined_var;
+        var bool: via_int ::is_defined_var;
+        var bool: term ::is_defined_var;
+        var bool: truth ::is_defined_var;
+        var bool: clause_truth ::is_defined_var;
+        var int: as_int ::is_defined_var;
+        var -1..0: bound ::is_defined_var;
+        constraint bool_eq(copy,x)::defines_var(copy);
+        constraint bool_not(complement,copy)::defines_var(complement);
+        constraint bool2int(complement,as_int)::defines_var(as_int);
+        constraint bool2int(via_int,as_int)::defines_var(via_int);
+        constraint bool_lin_eq([2,-1],[copy,via_int],bound)::defines_var(bound);
+        constraint bool_lin_eq([2,-1],[term,via_int],bound)::defines_var(term);
+        constraint bool_le_reif(term,via_int,truth)::defines_var(truth);
+        constraint bool_clause_imp([term],[via_int],clause_truth)::defines_var(clause_truth);
+        constraint bool_right_imp(term,via_int,true);
+        constraint int_le(bound,0);
+        solve minimize bound;",
+    )
+    .unwrap();
+    for (candidate, status, complete, objective) in [
+        ("x=false;", Status::Valid, true, Some(-1)),
+        ("x=true;", Status::Invalid, true, Some(2)),
+        ("", Status::Incomplete, false, None),
+        ("x=false;complement=false;", Status::Invalid, true, Some(0)),
+        ("x=false;", Status::Valid, true, Some(-1)),
+    ] {
+        let report = model.check(&assignment(candidate)).unwrap();
+        assert_eq!(report.status, status, "{candidate}");
+        assert_eq!(report.completeness.complete, complete, "{candidate}");
+        assert_eq!(
+            report.objective.map(|objective| objective.argument.value),
+            objective.map(Value::Integer)
+        );
+        if candidate == "x=true;" {
+            assert_eq!(report.violations.len(), 3);
+            assert!(matches!(
+                report.violations[0].details,
+                ViolationKind::Domain {
+                    value: Value::Integer(2)
+                }
+            ));
+        }
+        if candidate.contains("complement") {
+            assert!(matches!(
+                report.violations[0].details,
+                ViolationKind::BooleanOperation { .. }
+            ));
+        }
+    }
+    for (call, expected) in [
+        ("bool_eq(x,true)", 1),
+        ("bool_eq(false,x)", 0),
+        ("bool_ne(x,true)", 0),
+        ("bool_ne(false,x)", 1),
+        ("bool_not(x,false)", 1),
+        ("bool_not(true,x)", 0),
+        ("bool_xor(x,true)", 0),
+        ("bool_xor(false,x)", 1),
+        ("bool_and(true,false,x)", 0),
+        ("bool_or(true,false,x)", 1),
+        ("bool_xor(true,true,x)", 0),
+        ("bool_left_imp(false,true,x)", 0),
+        ("bool_right_imp(false,true,x)", 1),
+        ("array_bool_and([],x)", 1),
+        ("array_bool_or([],x)", 0),
+        ("array_bool_xor([],x)", 0),
+        ("bool_clause_reif([],[],x)", 0),
+        ("bool_clause_imp([],[false],x)", 1),
+        ("bool_lt_reif(true,false,x)", 0),
+        ("bool_lin_ne_reif([2],[true],1,x)", 1),
+        (
+            "bool_lin_eq([-9223372036854775808],[x],-9223372036854775808)",
+            1,
+        ),
+    ] {
+        let source = format!(
+            "var bool:x::is_defined_var;var int:n::is_defined_var;constraint {call}::defines_var(x);constraint bool2int(x,n)::defines_var(n);solve minimize n;"
+        );
+        let report = prepare("direction.fzn", &source)
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap();
+        assert_eq!(report.status, Status::Valid, "{call}");
+        assert_eq!(
+            report.objective.unwrap().argument.value,
+            Value::Integer(expected),
+            "{call}"
+        );
+    }
+}
+
+#[test]
+fn boolean_ambiguous_or_unavailable_outputs_produce_ordinary_incompleteness() {
+    for call in [
+        "bool_eq(x,alias)",
+        "bool_not(x,alias)",
+        "bool_xor(x,alias)",
+        "bool_xor(x,false,alias)",
+        "bool_and(x,true,true)",
+        "bool_eq_reif(x,true,false)",
+        "bool_le(x,true)",
+        "bool_eq_imp(false,true,x)",
+        "array_bool_or_imp([true],x)",
+        "bool_lin_eq([0],[x],0)",
+        "bool_lin_eq([1,1],[x,alias],0)",
+        "bool_lin_eq([2],[x],1)",
+        "bool_lin_eq([1],[x],2)",
+        "bool_lin_eq_reif([1],[x],0,alias)",
+        "bool_clause_imp([x],[],alias)",
+        "bool2int(x,2)",
+    ] {
+        let source = format!(
+            "var bool:x::is_defined_var;var bool:alias=x;constraint {call}::defines_var(x);solve satisfy;"
+        );
+        let model = prepare("unresolved.fzn", &source).unwrap();
+        let report = model.check(&Assignment::default()).unwrap();
+        assert_eq!(report.status, Status::Incomplete, "{call}");
+        assert!(!report.completeness.complete, "{call}");
+        assert!(
+            model
+                .check(&assignment("x=false;"))
+                .unwrap()
+                .completeness
+                .complete,
+            "{call}"
+        );
+    }
+    let model = prepare("missing.fzn", "var bool:x;var int:y;constraint bool_and_imp(x,true,false);constraint array_bool_xor_imp([x],false);constraint bool_lin_gt_imp([9223372036854775807,1],[true,x],y,false);constraint bool_clause_reif([],[],true);constraint bool_eq_reif(x,true,false);solve satisfy;").unwrap();
+    let report = model.check(&Assignment::default()).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(!report.completeness.complete);
+    assert_eq!(report.violations.len(), 1);
+    // Only the two domains and the full reification await inputs.
+    assert_eq!(report.completeness.blocked_checks.len(), 3);
+    for call in [
+        "bool_lin_gt([],[], -9223372036854775808)",
+        "bool_lin_lt([],[],9223372036854775807)",
+        "bool_lin_eq_imp([9223372036854775807,1],[true,true],0,false)",
+        "bool_lin_ne_reif([],[],0,false)",
+    ] {
+        let source = format!("constraint {call};solve satisfy;");
+        assert_eq!(
+            prepare("bounds.fzn", &source)
+                .unwrap()
+                .check(&Assignment::default())
+                .unwrap()
+                .status,
+            Status::Valid,
+            "{call}"
+        );
+    }
+    for call in [
+        "bool_lin_eq_imp([9223372036854775807,1],[true,true],0,true)",
+        "bool_lin_eq_reif([9223372036854775807,1],[true,true],0,false)",
+        "bool_lin_eq([9223372036854775807,1,-1],[true,true,true],9223372036854775807)",
+    ] {
+        let source = format!("constraint {call};solve satisfy;");
+        let error = prepare("overflow.fzn", &source)
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Execution, "{call}");
+        assert!(error.diagnostics[0].message.contains("overflow"));
+    }
+}
+
+#[test]
+fn boolean_source_admission_checks_declarations_arity_shape_and_roles() {
+    for source in [
+        "predicate bool_xor(var bool:a,var bool:b);constraint bool_xor(false,true);solve satisfy;",
+        "predicate bool_xor(var bool:a,var bool:b,var bool:c);constraint bool_xor(false,true,true);solve satisfy;",
+        "predicate array_bool_and(array[int] of var bool:a);constraint array_bool_and([]);solve satisfy;",
+        "predicate array_bool_or(array[int] of var bool:a,var bool:b);constraint array_bool_or([],false);solve satisfy;",
+        "predicate bool_lin_eq(array[int] of int:a,array[int] of var bool:b,var int:c);var int:n;constraint bool_lin_eq([1],[true],n);solve satisfy;",
+        "predicate bool_lin_le(array[int] of int:a,array[int] of var bool:b,int:c);constraint bool_lin_le([1],[true],2);solve satisfy;",
+        "predicate bool_lin_le(array[int] of int:a,array[int] of var bool:b,var int:c);var int:n;constraint bool_lin_le([1],[true],n);solve satisfy;",
+    ] {
+        prepare("declaration.fzn", source).unwrap();
+    }
+    for source in [
+        "predicate bool_xor(var bool:a,var bool:b);constraint bool_xor(false,true,true);solve satisfy;",
+        "predicate bool_xor(var bool:a,var bool:b,var bool:c);constraint bool_xor(false,true);solve satisfy;",
+        "predicate array_bool_and(array[int] of var bool:a);constraint array_bool_and([],true);solve satisfy;",
+        "predicate array_bool_or(array[int] of var bool:a,var bool:b);constraint array_bool_or([]);solve satisfy;",
+        "predicate bool_not(var bool:a,bool:b);solve satisfy;",
+        "predicate bool_lin_eq(array[int] of int:a,array[int] of var bool:b,int:c);solve satisfy;",
+        "predicate bool_lin_le(array[int] of int:a,array[int] of var bool:b,int:c);var int:n;constraint bool_lin_le([1],[true],n);solve satisfy;",
+        "predicate bool_lin_le(array[int] of var int:a,array[int] of var bool:b,int:c);solve satisfy;",
+        "predicate bool_eq(var bool:a,var bool:b);predicate bool_eq(var bool:x,var bool:y);solve satisfy;",
+        "predicate bool_clause(array[int] of var bool:a,array[int] of var int:b);solve satisfy;",
+        "constraint bool_eq(1,true);solve satisfy;",
+        "constraint bool_not([true],false);solve satisfy;",
+        "constraint bool_lin_eq([1,2],[true],0);solve satisfy;",
+        "constraint bool_lin_eq([1],[1],0);solve satisfy;",
+        "var int:x;constraint bool_lin_eq([x],[true],1);solve satisfy;",
+        "constraint bool_lin_eq([1],[true],false);solve satisfy;",
+        "constraint bool2int(true,false);solve satisfy;",
+        "constraint array_bool_xor_imp([]);solve satisfy;",
+        "constraint fzn_bool_xor(false,true);solve satisfy;",
+        "constraint bool_xor_reif(false,true,true);solve satisfy;",
+        "constraint gecode_gecode_bool_eq(false,false);solve satisfy;",
+        "var bool:x::is_defined_var;constraint bool_not(true,false)::defines_var(x);solve satisfy;",
+    ] {
+        let errors = prepare("bad-boolean.fzn", source).unwrap_err();
+        assert!(errors[0].location.is_some(), "{source}");
+    }
+}

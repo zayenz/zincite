@@ -34,7 +34,7 @@ try {
     assert.throws(() => models.exact.check(JSON.stringify({ entries: [{
         name: "missing", value: { kind: "scalar", value: { kind: "integer", value: "1" } }
     }] })), error => JSON.parse(error).kind === "assignment");
-    console.log(`Native/Wasm reports agree across ${cases.length * 2} checks; exact integers, arithmetic, relations, sets, global findings and input errors verified.`);
+    console.log(`Native/Wasm reports agree across ${cases.length * 2} checks; exact integers, arithmetic, relations, Booleans, sets, global findings and input errors verified.`);
 } finally {
     for (const model of Object.values(models)) model.free();
     rmSync(directory, { recursive: true, force: true });
@@ -98,6 +98,19 @@ function checkDetails(name, report) {
         assert.equal(linear.details.sum, "9007199254740993");
         assert.equal(linear.details.bound, "9007199254740994");
         assert.equal(linear.details.condition.result.variable.name, "at_least");
+    }
+    if (name === "exact-boolean-conflict") {
+        for (const kind of ["boolean_operation", "boolean_relation", "boolean_clause", "boolean_linear", "boolean_to_integer"]) {
+            assert(report.violations.some(finding => finding.details.kind === kind), kind);
+        }
+        const linear = report.violations.find(finding => finding.details.kind === "boolean_linear");
+        assert.equal(linear.details.sum, "9007199254740992");
+        assert.equal(linear.details.bound.value.value, "0");
+        assert.equal(linear.details.bound.variable.name, "boolean_total");
+    }
+    if (name === "exact-boolean-incomplete-invalid") {
+        assert(report.violations.some(finding => finding.details.kind === "boolean_to_integer"));
+        assert(report.completeness.blocked_checks.length > 0);
     }
     if (name === "infeasible") {
         assert.equal(report.violations.length, 3);

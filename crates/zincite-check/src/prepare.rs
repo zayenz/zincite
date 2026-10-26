@@ -186,7 +186,22 @@ impl Source<'_> {
             is_var,
             is_array: true,
         };
-        let expected = if let Some(operation) = ArithmeticOperation::from_name(name) {
+        if !name.as_bytes()[0].is_ascii_alphabetic() {
+            return Err(self.error(node, "predicate names must start with a letter"));
+        }
+        let children: Vec<_> = node.child_nodes().collect();
+        if children.len() != 1 || children[0].kind() != NodeKind::ParameterList {
+            return Err(self.error(
+                node,
+                "predicate declarations require parameters and cannot have a body or annotations",
+            ));
+        }
+        let parameters: Vec<_> = children[0].child_nodes().collect();
+        let expected = if let Some(boolean) = BooleanName::from_name(name) {
+            boolean
+                .signature(parameters.len())
+                .ok_or_else(|| self.error(node, "predicate declaration has the wrong arity"))?
+        } else if let Some(operation) = ArithmeticOperation::from_name(name) {
             let mut arguments = vec![scalar(ValueType::Integer, true); operation.input_count() + 1];
             if operation.has_fixed_exponent() {
                 arguments[1].is_var = false;
@@ -226,17 +241,6 @@ impl Source<'_> {
                 }
             }
         };
-        if !name.as_bytes()[0].is_ascii_alphabetic() {
-            return Err(self.error(node, "predicate names must start with a letter"));
-        }
-        let children: Vec<_> = node.child_nodes().collect();
-        if children.len() != 1 || children[0].kind() != NodeKind::ParameterList {
-            return Err(self.error(
-                node,
-                "predicate declarations require parameters and cannot have a body or annotations",
-            ));
-        }
-        let parameters: Vec<_> = children[0].child_nodes().collect();
         if parameters.len() != expected.len() {
             return Err(self.error(node, "predicate declaration has the wrong arity"));
         }
@@ -250,8 +254,9 @@ impl Source<'_> {
                     "predicate formal names must be distinct and start with a letter",
                 ));
             }
-            let allow_fixed_set = name == "set_in" && index == 1;
-            signature.push(self.formal_parameter(parameter, expected, allow_fixed_set)?);
+            let allow_fixed =
+                (name == "set_in" && index == 1) || (name == "bool_lin_le" && index == 2);
+            signature.push(self.formal_parameter(parameter, expected, allow_fixed)?);
         }
         Ok(signature)
     }
@@ -260,7 +265,7 @@ impl Source<'_> {
         &self,
         parameter: &SyntaxNode,
         expected: ArgumentType,
-        allow_fixed_set: bool,
+        allow_fixed: bool,
     ) -> Result<TypeSpec> {
         let types: Vec<_> = parameter.child_nodes().collect();
         if types.len() != 1
@@ -274,7 +279,7 @@ impl Source<'_> {
             ));
         }
         let ty = self.type_spec(types[0], true)?;
-        let valid_role = ty.is_var == expected.is_var || (allow_fixed_set && !ty.is_var);
+        let valid_role = ty.is_var == expected.is_var || (allow_fixed && !ty.is_var);
         if ty.kind != expected.kind || !valid_role || ty.is_array != expected.is_array {
             return Err(self.error(parameter, "predicate parameter type, fixed/variable role or array shape does not match the supported operation"));
         }
@@ -397,10 +402,10 @@ impl Source<'_> {
 }
 
 #[derive(Clone)]
-struct ArgumentType {
-    kind: ValueType,
-    is_var: bool,
-    is_array: bool,
+pub(super) struct ArgumentType {
+    pub(super) kind: ValueType,
+    pub(super) is_var: bool,
+    pub(super) is_array: bool,
 }
 
 #[derive(Clone)]
@@ -1007,7 +1012,14 @@ impl<'a> Lowerer<'a> {
         }
         let name = self.source.name(call)?;
         let args: Vec<_> = call.child_nodes().collect();
-        let arity = if let Some(relation) = RelationName::from_name(&name) {
+        let boolean = BooleanName::from_name(&name);
+        let arity = if let Some(boolean) = boolean {
+            boolean.mode_for_arity(args.len()).ok_or_else(|| {
+                self.source
+                    .error(call, format!("'{name}' has an unsupported argument count"))
+            })?;
+            args.len()
+        } else if let Some(relation) = RelationName::from_name(&name) {
             relation.arity()
         } else {
             match name.as_str() {
@@ -1026,7 +1038,9 @@ impl<'a> Lowerer<'a> {
                 .source
                 .error(call, format!("'{name}' expects {arity} arguments")));
         }
-        let predicate = if let Some(operation) = ArithmeticOperation::from_name(&name) {
+        let predicate = if let Some(boolean) = boolean {
+            self.boolean_predicate(call, boolean, &args)?
+        } else if let Some(operation) = ArithmeticOperation::from_name(&name) {
             self.integer_arithmetic(operation, &args)?
         } else if let Some(relation) = RelationName::from_name(&name) {
             self.integer_relation(call, relation, &args)?
@@ -1079,6 +1093,83 @@ impl<'a> Lowerer<'a> {
             predicate,
         });
         Ok(())
+    }
+
+    fn boolean_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: BooleanName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        let condition = match name
+            .mode_for_arity(args.len())
+            .expect("admitted Boolean arity")
+        {
+            RelationMode::Plain => RelationCondition::Plain,
+            RelationMode::Reified => RelationCondition::Reified {
+                result: self.scalar(args[args.len() - 1], ValueType::Boolean)?,
+            },
+            RelationMode::Implied => RelationCondition::Implied {
+                guard: self.scalar(args[args.len() - 1], ValueType::Boolean)?,
+            },
+        };
+        Ok(match name.kind {
+            BooleanKind::Relation(relation) => Predicate::BooleanRelation {
+                relation,
+                left: self.scalar(args[0], ValueType::Boolean)?,
+                right: self.scalar(args[1], ValueType::Boolean)?,
+                condition,
+            },
+            BooleanKind::Linear(relation) => {
+                let coefficients = self
+                    .array(args[0], ValueType::Integer)?
+                    .into_iter()
+                    .map(|operand| match operand {
+                        Operand::Literal(Value::Integer(value)) => Ok(value),
+                        _ => Err(self.source.error(
+                            args[0],
+                            "linear coefficients must be fixed integer parameters",
+                        )),
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                let terms = self.array(args[1], ValueType::Boolean)?;
+                if coefficients.len() != terms.len() {
+                    return Err(self.source.error(
+                        call,
+                        "linear coefficient and variable arrays must have equal lengths",
+                    ));
+                }
+                Predicate::BooleanLinear {
+                    relation,
+                    coefficients,
+                    terms,
+                    bound: self.scalar(args[2], ValueType::Integer)?,
+                    condition,
+                }
+            }
+            BooleanKind::Scalar(operation) => Predicate::BooleanOperation {
+                operation,
+                inputs: args[..operation.input_count()]
+                    .iter()
+                    .map(|node| self.scalar(node, ValueType::Boolean))
+                    .collect::<Result<_>>()?,
+                condition,
+            },
+            BooleanKind::Reduction(operation) => Predicate::BooleanOperation {
+                operation,
+                inputs: self.array(args[0], ValueType::Boolean)?,
+                condition,
+            },
+            BooleanKind::Clause => Predicate::BooleanClause {
+                positive: self.array(args[0], ValueType::Boolean)?,
+                negative: self.array(args[1], ValueType::Boolean)?,
+                condition,
+            },
+            BooleanKind::ToInteger => Predicate::BooleanToInteger {
+                boolean: self.scalar(args[0], ValueType::Boolean)?,
+                integer: self.scalar(args[1], ValueType::Integer)?,
+            },
+        })
     }
 
     fn integer_relation(
@@ -1193,6 +1284,12 @@ impl<'a> Lowerer<'a> {
         let Some(signature) = self.predicates.get(name).cloned() else {
             return Ok(());
         };
+        if args.len() != signature.len() {
+            return Err(self.source.error(
+                call,
+                "call argument count does not match its predicate declaration",
+            ));
+        }
         for (argument, formal) in args.iter().zip(signature) {
             let operands = if formal.is_array {
                 self.array(argument, formal.kind)?

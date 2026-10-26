@@ -58,6 +58,39 @@ CURRENT |= {
     "fzn_gecode_int_pow",
 }
 
+CURRENT |= {
+    prefix + "bool_" + shape + relation + suffix
+    for prefix in ("", "gecode_", "fzn_")
+    for shape in ("", "lin_")
+    for relation in ("eq", "ne", "lt", "le", "gt", "ge")
+    for suffix in ("", "_reif", "_imp")
+}
+CURRENT |= {
+    prefix + name
+    for prefix in ("", "gecode_", "fzn_")
+    for name in (
+        "bool_not",
+        "bool_and",
+        "bool_and_imp",
+        "bool_or",
+        "bool_or_imp",
+        "bool_xor",
+        "bool_xor_imp",
+        "bool_left_imp",
+        "bool_right_imp",
+        "array_bool_and",
+        "array_bool_and_imp",
+        "array_bool_or",
+        "array_bool_or_imp",
+        "array_bool_xor",
+        "array_bool_xor_imp",
+        "bool_clause",
+        "bool_clause_reif",
+        "bool_clause_imp",
+        "bool2int",
+    )
+}
+
 
 @dataclass(frozen=True)
 class Declaration:
@@ -632,8 +665,12 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
     arithmetic_names = arithmetic.split("match name {", 1)[1].split("_ =>", 1)[0]
     relations = (ROOT / "crates/zincite-check/src/relations.rs").read_text()
     relation_names = relations.split("match name {", 1)[1].split("_ =>", 1)[0]
+    boolean = (ROOT / "crates/zincite-check/src/boolean.rs").read_text()
+    boolean_names = boolean.split("match name {", 1)[1].split("_ =>", 1)[0]
     admitted = set(
-        re.findall(r'"([a-z_]+)"', arity + arithmetic_names + relation_names)
+        re.findall(
+            r'"([a-z_0-9]+)"', arity + arithmetic_names + relation_names + boolean_names
+        )
     )
     if admitted != CURRENT:
         raise ValueError("current admission changed; review current-support rows")

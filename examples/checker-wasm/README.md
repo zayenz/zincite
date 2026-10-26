@@ -113,6 +113,11 @@ var int: x;
 var set of int: exact_tools;
 var int: incremented ::is_defined_var;
 var bool: at_least ::is_defined_var;
+var bool: opposite ::is_defined_var;
+var bool: both ::is_defined_var;
+var bool: clause_value ::is_defined_var;
+var int: boolean_total ::is_defined_var;
+var int: flag_int ::is_defined_var;
 constraint int_lin_eq([1],[x],9007199254740993)::checker_constraint("exact",[9007199254740993]);
 constraint set_eq(exact_tools,{9007199254740993});
 constraint int_plus(x,1,incremented)::defines_var(incremented);
@@ -122,6 +127,14 @@ constraint int_gt(x,9007199254740992);
 constraint gecode_int_lin_lt_reif([1],[x],9007199254740994,at_least);
 constraint int_ge_imp(x,9007199254740993,at_least);
 constraint int_lin_eq_imp([2],[9223372036854775807],0,false);
+constraint bool_not(at_least,opposite)::defines_var(opposite);
+constraint bool_left_imp(opposite,at_least,both)::defines_var(both);
+constraint array_bool_xor([at_least,opposite],true);
+constraint bool_clause_imp([both],[at_least],clause_value)::defines_var(clause_value);
+constraint bool_lin_eq([9007199254740993,-1],[at_least,opposite],boolean_total)::defines_var(boolean_total);
+constraint bool2int(opposite,flag_int)::defines_var(flag_int);
+constraint bool_eq_reif(at_least,opposite,false);
+constraint bool_lin_ge([1],[both],flag_int);
 solve minimize x;
 FZN
 target/debug/zincite-check --export "$checker_run/exact.json" "$checker_run/exact.fzn"
@@ -135,18 +148,21 @@ compares every observable report with the native CLI's `--load` path. The CLI
 receives literal `.dzn` assignments made from the same typed values in a temporary
 directory. The consumer removes those temporary assignments when finished.
 
-The ten named cases cover valid, invalid, incomplete and invalid-with-incomplete
+The twelve named cases cover valid, invalid, incomplete and invalid-with-incomplete
 reports, application metadata, Boolean and array input, set definitions and domain
 failures, strict resource conflicts, and the distinct integers 9007199254740992
 and 9007199254740993 as both integers and set endpoints. The exact-value model
 also derives arithmetic and reified Boolean outputs and checks conflicting
 supplied outputs above JavaScript's exact-number range. It compares scalar and
 linear relation findings and skips an overflowing product under a false
-implication guard. A second pass exercises
+implication guard. Boolean cases exercise negation, functional implication,
+parity, clause equivalence, channeling and a Boolean linear result above 2^53.
+They compare typed conflicts and an incomplete candidate with a known channel
+violation. A second pass exercises
 reuse after changing and removing inputs. Small boundary checks also reject a
 malformed artifact, a JSON number supplied as an integer and an unknown assignment
-name. Expected output ends with `Native/Wasm reports agree across 20 checks; exact
-integers, arithmetic, relations, sets, global findings and input errors verified.` The native suite owns
+name. Expected output ends with `Native/Wasm reports agree across 24 checks; exact
+integers, arithmetic, relations, Booleans, sets, global findings and input errors verified.` The native suite owns
 the wider evaluator coverage.
 
 

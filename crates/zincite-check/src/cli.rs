@@ -166,7 +166,13 @@ pub fn render_text(report: &CheckReport) -> String {
             check_text(&violation.check)
         );
         match &violation.details {
-            ViolationKind::IntegerRelation {
+            ViolationKind::BooleanRelation {
+                relation,
+                left,
+                right,
+                condition,
+            }
+            | ViolationKind::IntegerRelation {
                 relation,
                 left,
                 right,
@@ -197,6 +203,71 @@ pub fn render_text(report: &CheckReport) -> String {
                         .collect::<Vec<_>>()
                         .join(", "),
                     condition_text(condition)
+                );
+            }
+            ViolationKind::BooleanLinear {
+                relation,
+                coefficients,
+                terms,
+                sum,
+                bound,
+                condition,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  coefficients = {coefficients:?}; terms = [{}]; sum = {sum}; {sum} {relation} ({}){}",
+                    terms
+                        .iter()
+                        .map(argument_text)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    argument_text(bound),
+                    condition_text(condition)
+                );
+            }
+            ViolationKind::BooleanOperation {
+                operation,
+                inputs,
+                condition,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  {operation:?}([{}]){}",
+                    inputs
+                        .iter()
+                        .map(argument_text)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    condition_text(condition)
+                );
+            }
+            ViolationKind::BooleanClause {
+                positive,
+                negative,
+                condition,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  clause positive = [{}]; negative = [{}]{}",
+                    positive
+                        .iter()
+                        .map(argument_text)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    negative
+                        .iter()
+                        .map(argument_text)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    condition_text(condition)
+                );
+            }
+            ViolationKind::BooleanToInteger { boolean, integer } => {
+                let _ = writeln!(
+                    text,
+                    "  bool2int({}) = ({})",
+                    argument_text(boolean),
+                    argument_text(integer)
                 );
             }
             ViolationKind::IntegerArithmetic {

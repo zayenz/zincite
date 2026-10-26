@@ -528,3 +528,215 @@ fn completed_relation_reports_survive_serialization_with_legacy_shapes() {
         );
     }
 }
+
+#[test]
+fn parser_free_boolean_loading_rebuilds_definitions_and_validates_typed_contracts() {
+    let boolean = |value| json!({"Literal":{"kind":"boolean","value":value}});
+    let mut original = executable();
+    let mut reference = original["model"]["slots"][0]["reference"].clone();
+    reference["name"] = json!("b");
+    reference["metadata"]["is_defined"] = json!(true);
+    original["model"]["slots"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"kind":"boolean","default":null,"reference":reference}));
+    original["model"]["variables"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"reference":reference,"slot":1,"domains":[{"kind":"boolean"}]}));
+    original["model"]["bindings"]["b"] =
+        json!({"elements":[{"Variable":1}],"is_array":false,"kind":"boolean","assignable":true});
+    original["model"]["slots"][0]["reference"]["metadata"]["is_defined"] = json!(true);
+    original["model"]["variables"][0]["reference"]["metadata"]["is_defined"] = json!(true);
+    let reference = original["model"]["constraints"][0]["reference"].clone();
+    let constraints = [
+        ("gecode_bool_clause_imp", Some("b"), json!({"BooleanClause":{"positive":[],"negative":[],"condition":{"Reified":{"result":{"Variable":1}}}}})),
+        ("bool_lin_eq", Some("x"), json!({"BooleanLinear":{"relation":"equal","coefficients":["9007199254740993"],"terms":[{"Variable":1}],"bound":{"Variable":0},"condition":"Plain"}})),
+        ("fzn_bool_eq", None, json!({"BooleanRelation":{"relation":"equal","left":{"Variable":1},"right":boolean(false),"condition":"Plain"}})),
+        ("bool_not", None, json!({"BooleanOperation":{"operation":"not","inputs":[{"Variable":1}],"condition":{"Reified":{"result":boolean(true)}}}})),
+        ("fzn_bool2int", None, json!({"BooleanToInteger":{"boolean":{"Variable":1},"integer":{"Variable":0}}})),
+    ].into_iter().enumerate().map(|(index,(name,defines,predicate))| {
+        let mut reference = reference.clone();
+        reference["ordinal"] = json!(index+1);
+        reference["predicate"] = json!(name);
+        reference["metadata"]["defines"] = json!(defines);
+        json!({"reference":reference,"predicate":predicate})
+    }).collect::<Vec<_>>();
+    original["model"]["constraints"] = json!(constraints);
+    let loaded = PreparedModel::from_json(&original.to_string()).unwrap();
+    assert_eq!(
+        loaded.check(&Assignment::default()).unwrap().status,
+        Status::Valid
+    );
+    let candidate = Assignment {
+        entries: vec![
+            AssignmentEntry {
+                name: "b".into(),
+                value: AssignmentValue::Scalar(Value::Boolean(true)),
+                location: None,
+            },
+            AssignmentEntry {
+                name: "x".into(),
+                value: AssignmentValue::Scalar(Value::Integer(2)),
+                location: None,
+            },
+        ],
+    };
+    let report = loaded.check(&candidate).unwrap();
+    assert_eq!(report.violations.len(), 5);
+    let report = serde_json::to_value(report).unwrap();
+    assert_eq!(
+        report["violations"][1]["details"]["sum"],
+        "9007199254740993"
+    );
+    assert_eq!(
+        report["violations"][1]["details"]["bound"]["variable"]["name"],
+        "x"
+    );
+    assert_eq!(
+        serde_json::from_str::<Json>(&loaded.to_json().unwrap()).unwrap(),
+        original
+    );
+    for (pointer, replacement, message) in [
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("bool_clause_imp_imp"),
+            "report predicate",
+        ),
+        (
+            "/model/constraints/0/predicate/BooleanClause/condition",
+            json!({"Implied":{"guard":boolean(false)}}),
+            "report predicate",
+        ),
+        (
+            "/model/constraints/1/predicate/BooleanLinear/coefficients",
+            json!([]),
+            "equal lengths",
+        ),
+        (
+            "/model/constraints/1/predicate/BooleanLinear/coefficients/0",
+            json!(1),
+            "string",
+        ),
+        (
+            "/model/constraints/1/predicate/BooleanLinear/terms/0",
+            json!({"Variable":0}),
+            "operand type",
+        ),
+        (
+            "/model/constraints/1/predicate/BooleanLinear/bound",
+            boolean(true),
+            "operand type",
+        ),
+        (
+            "/model/constraints/1/predicate/BooleanLinear/condition",
+            json!({"Reified":{"result":boolean(false)}}),
+            "report predicate",
+        ),
+        (
+            "/model/constraints/2/predicate/BooleanRelation/left",
+            json!({"Variable":20}),
+            "unknown slot",
+        ),
+        (
+            "/model/constraints/2/predicate/BooleanRelation/relation",
+            json!("not_equal"),
+            "report predicate",
+        ),
+        (
+            "/model/constraints/3/predicate/BooleanOperation/inputs",
+            json!([]),
+            "input count",
+        ),
+        (
+            "/model/constraints/3/predicate/BooleanOperation/condition/Reified/result",
+            json!({"Variable":0}),
+            "operand type",
+        ),
+        (
+            "/model/constraints/3/predicate/BooleanOperation/condition",
+            json!("Plain"),
+            "report predicate",
+        ),
+        (
+            "/model/constraints/4/predicate/BooleanToInteger/boolean",
+            json!({"Variable":0}),
+            "operand type",
+        ),
+        (
+            "/model/constraints/4/predicate/BooleanToInteger/integer",
+            boolean(false),
+            "operand type",
+        ),
+        (
+            "/model/constraints/0/reference/metadata/defines",
+            json!("x"),
+            "does not occur",
+        ),
+    ] {
+        let mut malformed = original.clone();
+        *malformed.pointer_mut(pointer).unwrap() = replacement;
+        let error = PreparedModel::from_json(&malformed.to_string()).unwrap_err();
+        assert!(
+            error.message.contains(message),
+            "{pointer}: {}",
+            error.message
+        );
+    }
+    // A prefixed scalar XOR cannot use the bare predicate's asserted arity.
+    let mut malformed = original.clone();
+    malformed["model"]["constraints"][3]["reference"]["predicate"] = json!("fzn_bool_xor");
+    malformed["model"]["constraints"][3]["predicate"] = json!({"BooleanOperation":{"operation":"xor","inputs":[boolean(false),boolean(true)],"condition":"Plain"}});
+    assert!(PreparedModel::from_json(&malformed.to_string()).is_err());
+}
+
+#[cfg(feature = "prepare")]
+#[test]
+fn boolean_round_trips_preserve_reports_exact_values_and_text() {
+    use zincite_check::{parse_assignment, prepare};
+    let model = prepare("boolean.fzn", r#"
+        var bool:b::is_defined_var;
+        var int:x::is_defined_var;
+        constraint bool_clause_imp([],[],b)::defines_var(b);
+        constraint bool_lin_eq([9007199254740993],[b],x)::defines_var(x)::checker_constraint("weighted",[9007199254740993]);
+        constraint bool_eq(b,false);
+        constraint bool_not(b,true);
+        constraint bool2int(b,x);
+        solve minimize x;
+    "#).unwrap();
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for candidate in ["", "b=true;x=2;", "b=false;", "x=1;", ""] {
+        let assignment = parse_assignment("candidate.dzn", candidate).unwrap();
+        let before = model.check(&assignment).unwrap();
+        let after = loaded.check(&assignment).unwrap();
+        assert_eq!(
+            serde_json::to_value(&before).unwrap(),
+            serde_json::to_value(&after).unwrap()
+        );
+        let text = zincite_check::cli::render_text(&before);
+        assert_eq!(text, zincite_check::cli::render_text(&after));
+        if candidate == "b=true;x=2;" {
+            assert_eq!(before.violations.len(), 5);
+            for expected in [
+                "clause positive = []",
+                "negative = []",
+                "sum = 9007199254740993",
+                "x = 2",
+                "Not([b = true])",
+                "bool2int(b = true)",
+                "entities=[9007199254740993]",
+            ] {
+                assert!(text.contains(expected), "{expected}: {text}");
+            }
+            let json = serde_json::to_value(before).unwrap();
+            assert_eq!(
+                json["violations"][0]["details"]["condition"]["kind"],
+                "reified"
+            );
+            assert_eq!(
+                json["violations"][1]["details"]["coefficients"][0],
+                "9007199254740993"
+            );
+        }
+    }
+}

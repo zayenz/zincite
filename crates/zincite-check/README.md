@@ -131,6 +131,14 @@ these source forms, not equivalence for arbitrary MiniZinc models. The detailed
 control sources and observations are in the repository's
 [compilation contract](../../.zdev/checker/background/compilation-contract.md).
 
+Compile-only Boolean controls with this recipe preserve explicit `bool_or`,
+`bool_not`, `bool_lin_eq` and `bool_le_reif` calls, their definition annotations,
+application IDs and labels. An inspected high-level Boolean equivalence instead
+lowers to clauses and copies variable annotations such as `checker_value` and
+`output_var` onto constraints. Current preparation diagnoses those misplaced
+annotations. Explicit primitive controls establish their own compilation contract;
+compiler-profile work in checker-030/031 must address the broader source form.
+
 ## Shared-bench workshop example
 
 Two independent jobs need exclusive access to one bench. The application edits
@@ -240,7 +248,8 @@ or a MiniZinc installation.
   integer literal or reference. An available objective value appears in reports;
   the checker makes no optimality claim.
 - Exactly the predicates and aliases in the coverage table below. Linear coefficients
-  and bounds are fixed integers; coefficient and operand arrays have equal lengths.
+  are fixed integers; integer-linear bounds are fixed and Boolean-linear bounds
+  accept integer operands. Coefficient and operand arrays have equal lengths.
   Bodyless declarations for these names validate types, fixed/variable roles and
   scalar/array shapes independently of formal spelling. A declared fixed length
   or restricted domain also constrains calls. `fzn_disjunctive_strict` requires
@@ -332,15 +341,51 @@ by both application models:
 | `int_min(x,y,r)`, `int_max(x,y,r)` | Minimum or maximum | Final argument `r` |
 | `int_pow(x,y,r)`, `int_pow_fixed(x,y,r)` | Integer power; the latter requires a fixed exponent | Final argument `r` |
 | `gecode_int_pow(x,y,r)`, `gecode_gecode_int_pow(x,y,r)`, `fzn_gecode_int_pow(x,y,r)` | Integer power with fixed exponent in `0..2147483646` | Final argument `r` |
+| Boolean scalar comparisons `bool_eq/ne/lt/le/gt/ge(x,y)` | Compare Boolean values with `false < true` | Either unique operand for equality or disequality |
+| Boolean scalar and linear comparisons with `_reif` | Final Boolean equals the named comparison | Final Boolean result |
+| Boolean scalar and linear comparisons with `_imp` | Final Boolean implies the named comparison | None |
+| `bool_not(x,y)` | `y = not x` | Either unique Boolean operand |
+| `bool_and/or/xor(x,y,b)` | Final Boolean equals AND, OR or XOR | Final result `b` |
+| Bare `bool_xor(x,y)` | Assert XOR | Either unique operand as the other's complement |
+| `bool_left_imp(x,y,b)`, `bool_right_imp(x,y,b)` | `b = (y -> x)`, `b = (x -> y)` | Final result `b` |
+| `array_bool_and/or/xor(x)` or `(x,b)` | Assert a true reduction or equate its result with `b` | Final result in the two-argument form |
+| Scalar `bool_and/or/xor_imp` and reduction `_imp` | Final Boolean guards the named calculation | None |
+| `bool_clause(p,n)` | Some positive literal is true or some negative literal is false | None |
+| `bool_clause_reif(p,n,b)`, `bool_clause_imp(p,n,b)` | Final Boolean equals the clause; pinned Gecode `_imp` also uses equivalence | Final result `b` |
+| `bool2int(b,n)` | `false=0`, `true=1` | Either unique output; integer-to-Boolean only for 0 or 1 |
+| `bool_lin_eq(a,x,c)` | `sum(a[i]*int(x[i])) = c` | Unique integer bound or one nonzero-coefficient Boolean term giving exactly 0 or 1 |
+| `bool_lin_ne/lt/le/gt/ge(a,x,c)` | Compare that sum and integer bound `c` | None |
 
 All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
-`fzn_` spellings, for 108 relation names and 147 admitted names overall.
+`fzn_` spellings, for 108 integer relation names. The 55 Boolean base names also
+accept those exact prefixes, for 165 Boolean names and 312 admitted names overall.
+Prefixed scalar XOR uses three arguments; only bare `bool_xor` also admits the
+two-argument assertion. Matching declarations select one admitted arity and calls
+must use that arity; duplicate declarations diagnose.
 For example, `fzn_int_lin_gt_reif(a,x,c,b)` is full reification, while
 `gecode_int_ge_imp(x,y,b)` checks the comparison only when `b` is true.
 Linear arrays may be empty, with sum zero. A false implication guard bypasses
 missing integer terms and checked accumulation, including otherwise-overflowing
 products. Unresolved variables and their domain checks still make the report
 incomplete. Strict comparisons use direct `<` and `>` at the i64 boundaries.
+
+Empty Boolean AND is true; empty OR, XOR and clauses are false. Clause negative
+arrays contain the variables to complement. Standard `bool_lin_eq` declares a
+variable integer bound. Standard `bool_lin_le` declares a fixed bound, while
+Gecode declares a variable bound. Both written `bool_lin_le` signatures work;
+a written fixed declaration requires fixed bounds at its calls. Calls without
+a declaration accept an integer variable bound for every Boolean linear form.
+Their sums use checked i64 arithmetic in source order, with `false=0` and `true=1`.
+
+Boolean functional results and full reifiers derive from known inputs. Equality,
+disequality, negation and asserted scalar XOR can also copy or complement the
+other unique operand. Boolean channeling and linear equality derive only the
+unique directions in the table. Output occurrences count after alias resolution,
+including bounds and conditions. A repeated output, nonexact division or result
+outside 0/1 leaves a Boolean output unresolved. Ordinary false implication guards
+skip missing inputs and arithmetic; false reifiers still evaluate their relation.
+The pinned Gecode `bool_clause_imp` and its exact aliases use equivalence and can
+define their final Boolean. This exception follows its registered handler.
 
 The nine arithmetic names from `int_abs` through `int_max` also accept their
 exact `gecode_` and `fzn_` prefixes, such as `gecode_int_minus` and `fzn_int_negate`.
@@ -408,7 +453,11 @@ New comparisons use `integer_relation` or `linear_relation` with a typed `relati
 (`equal`, `not_equal`, `less`, `less_equal`, `greater`, `greater_equal`), typed
 operands and a `condition`: `plain`, `reified` with its Boolean `result`, or
 `implied` with its Boolean `guard`. Linear records also carry coefficients, sum
-and bound.
+and bound. Boolean findings use `boolean_relation`, `boolean_linear`,
+`boolean_operation`, `boolean_clause` and `boolean_to_integer`. Their arguments
+carry Boolean/integer values and variable references; conditions distinguish
+assertions, results and guards. Boolean linear findings carry a typed integer
+bound argument as well as exact coefficients and sum.
 Integer sets use compact sorted, disjoint, nonadjacent inclusive ranges; large
 intervals are never expanded just to store a value. Cardinality above i64::MAX is
 a located execution error. JSON writes values, coefficients, sums, bounds, domain endpoints

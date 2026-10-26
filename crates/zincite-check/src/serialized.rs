@@ -185,6 +185,14 @@ impl PreparedModel {
                 return Err(invalid("constraint ordinals must follow executable order"));
             }
             let predicate_name = match &constraint.predicate {
+                Predicate::BooleanRelation { .. }
+                | Predicate::BooleanLinear { .. }
+                | Predicate::BooleanOperation { .. }
+                | Predicate::BooleanClause { .. }
+                | Predicate::BooleanToInteger { .. } => {
+                    self.validate_boolean(constraint)?;
+                    &constraint.reference.predicate
+                }
                 Predicate::IntegerRelation {
                     relation,
                     left,
@@ -327,6 +335,104 @@ impl PreparedModel {
                     "constraint report predicate does not match its operation",
                 ));
             }
+        }
+        Ok(())
+    }
+
+    fn validate_boolean(&self, constraint: &Constraint) -> Result<(), Diagnostic> {
+        let mismatch =
+            || invalid("constraint report predicate does not match its Boolean operation or mode");
+        let name = BooleanName::from_name(&constraint.reference.predicate).ok_or_else(mismatch)?;
+        let (kind, arity, condition) = match &constraint.predicate {
+            Predicate::BooleanRelation {
+                relation,
+                left,
+                right,
+                condition,
+            } => {
+                self.validate_operand(left, ValueType::Boolean)?;
+                self.validate_operand(right, ValueType::Boolean)?;
+                (
+                    BooleanKind::Relation(*relation),
+                    2 + usize::from(condition.operand().is_some()),
+                    Some(condition),
+                )
+            }
+            Predicate::BooleanLinear {
+                relation,
+                coefficients,
+                terms,
+                bound,
+                condition,
+            } => {
+                if coefficients.len() != terms.len() {
+                    return Err(invalid(
+                        "Boolean linear coefficient and term arrays must have equal lengths",
+                    ));
+                }
+                for term in terms {
+                    self.validate_operand(term, ValueType::Boolean)?;
+                }
+                self.validate_operand(bound, ValueType::Integer)?;
+                (
+                    BooleanKind::Linear(*relation),
+                    3 + usize::from(condition.operand().is_some()),
+                    Some(condition),
+                )
+            }
+            Predicate::BooleanOperation {
+                operation,
+                inputs,
+                condition,
+            } => {
+                let (kind, count) = match name.kind {
+                    BooleanKind::Scalar(_) => {
+                        if inputs.len() != operation.input_count() {
+                            return Err(invalid(
+                                "scalar Boolean operation has the wrong input count",
+                            ));
+                        }
+                        (BooleanKind::Scalar(*operation), inputs.len())
+                    }
+                    BooleanKind::Reduction(_) => (BooleanKind::Reduction(*operation), 1),
+                    _ => return Err(mismatch()),
+                };
+                for input in inputs {
+                    self.validate_operand(input, ValueType::Boolean)?;
+                }
+                (
+                    kind,
+                    count + usize::from(condition.operand().is_some()),
+                    Some(condition),
+                )
+            }
+            Predicate::BooleanClause {
+                positive,
+                negative,
+                condition,
+            } => {
+                for input in positive.iter().chain(negative) {
+                    self.validate_operand(input, ValueType::Boolean)?;
+                }
+                (
+                    BooleanKind::Clause,
+                    2 + usize::from(condition.operand().is_some()),
+                    Some(condition),
+                )
+            }
+            Predicate::BooleanToInteger { boolean, integer } => {
+                self.validate_operand(boolean, ValueType::Boolean)?;
+                self.validate_operand(integer, ValueType::Integer)?;
+                (BooleanKind::ToInteger, 2, None)
+            }
+            _ => unreachable!("Boolean predicate selected by validation"),
+        };
+        let mode = condition.map_or(RelationMode::Plain, RelationCondition::mode);
+        if name.kind != kind || name.mode_for_arity(arity) != Some(mode) {
+            return Err(mismatch());
+        }
+        if let Some(operand) = condition.and_then(RelationCondition::operand) {
+            self.validate_operand(operand, ValueType::Boolean)?;
         }
         Ok(())
     }

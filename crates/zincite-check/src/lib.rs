@@ -4,6 +4,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+mod boolean;
+pub use boolean::BooleanOperation;
+use boolean::{BooleanKind, BooleanName};
 mod arithmetic;
 pub use arithmetic::ArithmeticOperation;
 mod relations;
@@ -42,6 +45,13 @@ impl Value {
     fn integer(&self) -> i64 {
         let Self::Integer(value) = self else {
             unreachable!("preparation validates integer operands")
+        };
+        *value
+    }
+
+    fn boolean(&self) -> bool {
+        let Self::Boolean(value) = self else {
+            unreachable!("admission validates Boolean operands")
         };
         *value
     }
@@ -250,6 +260,36 @@ pub struct ArgumentValue {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViolationKind {
+    BooleanRelation {
+        relation: IntegerRelation,
+        left: ArgumentValue,
+        right: ArgumentValue,
+        condition: RelationConditionValue,
+    },
+    BooleanLinear {
+        relation: IntegerRelation,
+        #[serde(serialize_with = "serialize_integers")]
+        coefficients: Vec<i64>,
+        terms: Vec<ArgumentValue>,
+        #[serde(serialize_with = "serialize_integer")]
+        sum: i64,
+        bound: ArgumentValue,
+        condition: RelationConditionValue,
+    },
+    BooleanOperation {
+        operation: BooleanOperation,
+        inputs: Vec<ArgumentValue>,
+        condition: RelationConditionValue,
+    },
+    BooleanClause {
+        positive: Vec<ArgumentValue>,
+        negative: Vec<ArgumentValue>,
+        condition: RelationConditionValue,
+    },
+    BooleanToInteger {
+        boolean: ArgumentValue,
+        integer: ArgumentValue,
+    },
     IntegerRelation {
         relation: IntegerRelation,
         left: ArgumentValue,
@@ -435,6 +475,37 @@ struct Variable {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Predicate {
+    BooleanRelation {
+        relation: IntegerRelation,
+        left: Operand,
+        right: Operand,
+        condition: RelationCondition,
+    },
+    BooleanLinear {
+        relation: IntegerRelation,
+        #[serde(
+            serialize_with = "serialize_integers",
+            deserialize_with = "deserialize_integers"
+        )]
+        coefficients: Vec<i64>,
+        terms: Vec<Operand>,
+        bound: Operand,
+        condition: RelationCondition,
+    },
+    BooleanOperation {
+        operation: BooleanOperation,
+        inputs: Vec<Operand>,
+        condition: RelationCondition,
+    },
+    BooleanClause {
+        positive: Vec<Operand>,
+        negative: Vec<Operand>,
+        condition: RelationCondition,
+    },
+    BooleanToInteger {
+        boolean: Operand,
+        integer: Operand,
+    },
     IntegerRelation {
         relation: IntegerRelation,
         left: Operand,
@@ -552,7 +623,13 @@ impl RelationCondition {
 impl Predicate {
     fn operands(&self) -> Vec<&Operand> {
         match self {
-            Self::IntegerRelation {
+            Self::BooleanRelation {
+                left,
+                right,
+                condition,
+                ..
+            }
+            | Self::IntegerRelation {
                 left,
                 right,
                 condition,
@@ -561,6 +638,29 @@ impl Predicate {
                 .into_iter()
                 .chain(condition.operand())
                 .collect(),
+            Self::BooleanLinear {
+                terms,
+                bound,
+                condition,
+                ..
+            } => terms
+                .iter()
+                .chain(std::iter::once(bound))
+                .chain(condition.operand())
+                .collect(),
+            Self::BooleanOperation {
+                inputs, condition, ..
+            } => inputs.iter().chain(condition.operand()).collect(),
+            Self::BooleanClause {
+                positive,
+                negative,
+                condition,
+            } => positive
+                .iter()
+                .chain(negative)
+                .chain(condition.operand())
+                .collect(),
+            Self::BooleanToInteger { boolean, integer } => vec![boolean, integer],
             Self::LinearRelation {
                 terms, condition, ..
             } => terms.iter().chain(condition.operand()).collect(),
@@ -594,9 +694,12 @@ impl Predicate {
 
     fn inactive_implication(&self, values: &[Option<Value>]) -> bool {
         match self {
-            Self::IntegerRelation { condition, .. } | Self::LinearRelation { condition, .. } => {
-                condition.inactive(values)
-            }
+            Self::BooleanRelation { condition, .. }
+            | Self::BooleanLinear { condition, .. }
+            | Self::BooleanOperation { condition, .. }
+            | Self::BooleanClause { condition, .. }
+            | Self::IntegerRelation { condition, .. }
+            | Self::LinearRelation { condition, .. } => condition.inactive(values),
             _ => false,
         }
     }
@@ -631,6 +734,12 @@ impl Constraint {
 
 #[derive(Clone, Copy, Debug)]
 enum DefinitionDirection {
+    BooleanCopy { input: usize, complement: bool },
+    BooleanResult,
+    BooleanLinearBound,
+    BooleanLinearTerm { term: usize },
+    BooleanToInteger,
+    IntegerToBoolean,
     IntegerEqual { input: usize },
     ReifiedRelation,
     IntegerArithmetic,
@@ -841,6 +950,135 @@ impl PreparedModel {
         let constraint = &self.constraints[definition.constraint];
         match (&constraint.predicate, definition.direction) {
             (
+                Predicate::BooleanRelation { left, right, .. },
+                DefinitionDirection::BooleanCopy { input, complement },
+            ) => Ok([left, right][input]
+                .value(values)
+                .map(|value| Value::Boolean(value.boolean() ^ complement))),
+            (
+                Predicate::BooleanOperation {
+                    inputs, condition, ..
+                },
+                DefinitionDirection::BooleanCopy { input, complement },
+            ) => {
+                let operands: Vec<_> = inputs.iter().chain(condition.operand()).collect();
+                Ok(operands[input]
+                    .value(values)
+                    .map(|value| Value::Boolean(value.boolean() ^ complement)))
+            }
+            (
+                Predicate::BooleanRelation {
+                    relation,
+                    left,
+                    right,
+                    ..
+                },
+                DefinitionDirection::ReifiedRelation,
+            ) => {
+                let (Some(left), Some(right)) = (left.value(values), right.value(values)) else {
+                    return Ok(None);
+                };
+                Ok(Some(Value::Boolean(relation.holds(
+                    i64::from(left.boolean()),
+                    i64::from(right.boolean()),
+                ))))
+            }
+            (
+                Predicate::BooleanLinear {
+                    relation,
+                    coefficients,
+                    terms,
+                    bound,
+                    ..
+                },
+                DefinitionDirection::ReifiedRelation,
+            ) => {
+                let Some(bound) = bound.value(values) else {
+                    return Ok(None);
+                };
+                Ok(self
+                    .linear_sum(constraint, coefficients, terms, None, values)?
+                    .map(|sum| Value::Boolean(relation.holds(sum, bound.integer()))))
+            }
+            (
+                Predicate::BooleanOperation {
+                    operation, inputs, ..
+                },
+                DefinitionDirection::BooleanResult,
+            ) => Ok(boolean_values(inputs, values)
+                .map(|inputs| Value::Boolean(operation.calculate(&inputs)))),
+            (
+                Predicate::BooleanClause {
+                    positive, negative, ..
+                },
+                DefinitionDirection::BooleanResult,
+            ) => {
+                let (Some(positive), Some(negative)) = (
+                    boolean_values(positive, values),
+                    boolean_values(negative, values),
+                ) else {
+                    return Ok(None);
+                };
+                Ok(Some(Value::Boolean(boolean::clause(&positive, &negative))))
+            }
+            (
+                Predicate::BooleanLinear {
+                    coefficients,
+                    terms,
+                    ..
+                },
+                DefinitionDirection::BooleanLinearBound,
+            ) => Ok(self
+                .linear_sum(constraint, coefficients, terms, None, values)?
+                .map(Value::Integer)),
+            (
+                Predicate::BooleanLinear {
+                    coefficients,
+                    terms,
+                    bound,
+                    ..
+                },
+                DefinitionDirection::BooleanLinearTerm { term },
+            ) => {
+                let Some(bound) = bound.value(values) else {
+                    return Ok(None);
+                };
+                let Some(sum) =
+                    self.linear_sum(constraint, coefficients, terms, Some(term), values)?
+                else {
+                    return Ok(None);
+                };
+                let numerator = bound
+                    .integer()
+                    .checked_sub(sum)
+                    .ok_or_else(|| constraint.linear_overflow())?;
+                let coefficient = coefficients[term];
+                let remainder = numerator
+                    .checked_rem(coefficient)
+                    .ok_or_else(|| constraint.linear_overflow())?;
+                if remainder != 0 {
+                    return Ok(None);
+                }
+                let value = numerator
+                    .checked_div(coefficient)
+                    .ok_or_else(|| constraint.linear_overflow())?;
+                Ok(boolean::from_integer(value).map(Value::Boolean))
+            }
+            (
+                Predicate::BooleanToInteger { boolean, .. },
+                DefinitionDirection::BooleanToInteger,
+            ) => Ok(boolean
+                .value(values)
+                .map(|value| Value::Integer(i64::from(value.boolean())))),
+            (
+                Predicate::BooleanToInteger { integer, .. },
+                DefinitionDirection::IntegerToBoolean,
+            ) => Ok(integer
+                .value(values)
+                .and_then(|value| boolean::from_integer(value.integer()))
+                .map(Value::Boolean)),
+
+            (
                 Predicate::IntegerRelation { left, right, .. },
                 DefinitionDirection::IntegerEqual { input },
             ) => Ok([left, right][input].value(values).cloned()),
@@ -996,8 +1234,18 @@ impl PreparedModel {
             .enumerate()
             .filter(|(index, _)| Some(*index) != skip)
             .map(|(_, (&coefficient, term))| {
-                term.value(values)
-                    .map(|value| (coefficient, value.integer()))
+                term.value(values).map(|value| {
+                    (
+                        coefficient,
+                        match value {
+                            Value::Integer(value) => *value,
+                            Value::Boolean(value) => i64::from(*value),
+                            Value::IntegerSet(_) => {
+                                unreachable!("admission validates linear terms")
+                            }
+                        },
+                    )
+                })
             })
             .collect::<Option<Vec<_>>>();
         terms
@@ -1104,6 +1352,98 @@ impl PreparedModel {
                 .expect("blocked constraints are excluded before evaluation")
         };
         match &constraint.predicate {
+            Predicate::BooleanRelation {
+                relation,
+                left,
+                right,
+                condition,
+            } => {
+                let holds = relation.holds(
+                    i64::from(left.value(values).expect("available operand").boolean()),
+                    i64::from(right.value(values).expect("available operand").boolean()),
+                );
+                Ok(
+                    (!condition.satisfied(holds, values)).then(|| ViolationKind::BooleanRelation {
+                        relation: *relation,
+                        left: argument(left),
+                        right: argument(right),
+                        condition: self.condition_value(condition, values),
+                    }),
+                )
+            }
+            Predicate::BooleanLinear {
+                relation,
+                coefficients,
+                terms,
+                bound,
+                condition,
+            } => {
+                let sum = self
+                    .linear_sum(constraint, coefficients, terms, None, values)?
+                    .expect("available linear terms");
+                let holds =
+                    relation.holds(sum, bound.value(values).expect("available bound").integer());
+                Ok(
+                    (!condition.satisfied(holds, values)).then(|| ViolationKind::BooleanLinear {
+                        relation: *relation,
+                        coefficients: coefficients.clone(),
+                        terms: terms.iter().map(argument).collect(),
+                        sum,
+                        bound: argument(bound),
+                        condition: self.condition_value(condition, values),
+                    }),
+                )
+            }
+            Predicate::BooleanOperation {
+                operation,
+                inputs,
+                condition,
+            } => {
+                let inputs_values =
+                    boolean_values(inputs, values).expect("available Boolean inputs");
+                Ok(
+                    (!condition.satisfied(operation.calculate(&inputs_values), values)).then(
+                        || ViolationKind::BooleanOperation {
+                            operation: *operation,
+                            inputs: inputs.iter().map(argument).collect(),
+                            condition: self.condition_value(condition, values),
+                        },
+                    ),
+                )
+            }
+            Predicate::BooleanClause {
+                positive,
+                negative,
+                condition,
+            } => {
+                let holds = boolean::clause(
+                    &boolean_values(positive, values).expect("available positive inputs"),
+                    &boolean_values(negative, values).expect("available negative inputs"),
+                );
+                Ok(
+                    (!condition.satisfied(holds, values)).then(|| ViolationKind::BooleanClause {
+                        positive: positive.iter().map(argument).collect(),
+                        negative: negative.iter().map(argument).collect(),
+                        condition: self.condition_value(condition, values),
+                    }),
+                )
+            }
+            Predicate::BooleanToInteger { boolean, integer } => {
+                let holds = i64::from(
+                    boolean
+                        .value(values)
+                        .expect("available Boolean input")
+                        .boolean(),
+                ) == integer
+                    .value(values)
+                    .expect("available integer input")
+                    .integer();
+                Ok((!holds).then(|| ViolationKind::BooleanToInteger {
+                    boolean: argument(boolean),
+                    integer: argument(integer),
+                }))
+            }
+
             Predicate::IntegerRelation {
                 relation,
                 left,
@@ -1440,6 +1780,103 @@ fn definition_direction(
         return Err(absent());
     }
     match &constraint.predicate {
+        Predicate::BooleanRelation {
+            relation,
+            condition,
+            ..
+        } => Ok(match condition {
+            RelationCondition::Plain
+                if occurrences.len() == 1
+                    && matches!(relation, IntegerRelation::Equal | IntegerRelation::NotEqual) =>
+            {
+                Some(DefinitionDirection::BooleanCopy {
+                    input: 1 - occurrences[0],
+                    complement: *relation == IntegerRelation::NotEqual,
+                })
+            }
+            RelationCondition::Reified { .. } if occurrences.as_slice() == [2] => {
+                Some(DefinitionDirection::ReifiedRelation)
+            }
+            _ => None,
+        }),
+        Predicate::BooleanLinear {
+            relation,
+            coefficients,
+            terms,
+            condition,
+            ..
+        } => {
+            let position = occurrences[0];
+            Ok(match condition {
+                RelationCondition::Plain
+                    if *relation == IntegerRelation::Equal && occurrences.len() == 1 =>
+                {
+                    if position == terms.len() {
+                        Some(DefinitionDirection::BooleanLinearBound)
+                    } else if coefficients[position] != 0 {
+                        Some(DefinitionDirection::BooleanLinearTerm { term: position })
+                    } else {
+                        None
+                    }
+                }
+                RelationCondition::Reified { .. }
+                    if occurrences.as_slice() == [terms.len() + 1] =>
+                {
+                    Some(DefinitionDirection::ReifiedRelation)
+                }
+                _ => None,
+            })
+        }
+        Predicate::BooleanOperation {
+            operation,
+            inputs,
+            condition,
+        } => Ok(match condition {
+            RelationCondition::Reified { .. }
+                if *operation == BooleanOperation::Not && occurrences.len() == 1 =>
+            {
+                Some(DefinitionDirection::BooleanCopy {
+                    input: 1 - occurrences[0],
+                    complement: true,
+                })
+            }
+            RelationCondition::Plain
+                if *operation == BooleanOperation::Xor
+                    && inputs.len() == 2
+                    && occurrences.len() == 1
+                    && matches!(
+                        BooleanName::from_name(&constraint.reference.predicate)
+                            .map(|name| name.kind),
+                        Some(BooleanKind::Scalar(_))
+                    ) =>
+            {
+                Some(DefinitionDirection::BooleanCopy {
+                    input: 1 - occurrences[0],
+                    complement: true,
+                })
+            }
+            RelationCondition::Reified { .. } if occurrences.as_slice() == [inputs.len()] => {
+                Some(DefinitionDirection::BooleanResult)
+            }
+            _ => None,
+        }),
+        Predicate::BooleanClause {
+            positive,
+            negative,
+            condition,
+        } => Ok((matches!(condition, RelationCondition::Reified { .. })
+            && occurrences.as_slice() == [positive.len() + negative.len()])
+        .then_some(DefinitionDirection::BooleanResult)),
+        Predicate::BooleanToInteger { .. } => Ok(if occurrences.len() == 1 {
+            Some(if occurrences[0] == 0 {
+                DefinitionDirection::IntegerToBoolean
+            } else {
+                DefinitionDirection::BooleanToInteger
+            })
+        } else {
+            None
+        }),
+
         Predicate::IntegerRelation {
             relation,
             condition,
@@ -1532,4 +1969,11 @@ impl Domain {
             _ => None,
         }
     }
+}
+
+fn boolean_values(operands: &[Operand], values: &[Option<Value>]) -> Option<Vec<bool>> {
+    operands
+        .iter()
+        .map(|operand| operand.value(values).map(Value::boolean))
+        .collect()
 }
