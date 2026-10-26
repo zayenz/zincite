@@ -302,6 +302,34 @@ pub fn render_text(report: &CheckReport) -> String {
                     argument_text(result)
                 );
             }
+            ViolationKind::FloatIntegerPower {
+                base,
+                exponent,
+                result,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  integer power({}, {exponent}) disagrees with {}",
+                    argument_text(base),
+                    argument_text(result)
+                );
+            }
+            ViolationKind::FloatArrayExtremum {
+                extremum,
+                inputs,
+                result,
+            } => {
+                let _ = writeln!(
+                    text,
+                    "  array {extremum:?}({}) disagrees with {}",
+                    inputs
+                        .iter()
+                        .map(argument_text)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                    argument_text(result)
+                );
+            }
             ViolationKind::FloatConversion {
                 operation,
                 input,

@@ -1919,7 +1919,7 @@ fn float_names_conditions_and_source_roles_follow_pinned_signatures() {
         "constraint float_lin_eq([1.0,2.0],[1.0],2.0);solve satisfy;",
         "predicate float_in(var float:x,var float:l,float:u);solve satisfy;",
         "predicate float_ceil(var int:x,var float:y);solve satisfy;",
-        "constraint float_sqrt(1.0,1.0);solve satisfy;",
+        "constraint gecode_float_acosh(1.0,1.0);solve satisfy;",
     ] {
         assert!(prepare("bad.fzn", text).is_err(), "{text}");
     }
@@ -2713,4 +2713,288 @@ fn set_source_rejects_invalid_roles_codes_and_invented_aliases() {
             "{statement}"
         );
     }
+}
+
+#[test]
+fn float_functions_calculate_forward_and_check_supplied_outputs() {
+    for (call, expected) in [
+        ("float_sqrt(4.0,y)", "2.0"),
+        ("float_exp(1.0,y)", "2.718281828459045"),
+        ("float_ln(2.0,y)", "0.6931471805599453"),
+        ("float_log10(100.0,y)", "2.0"),
+        ("float_log2(8.0,y)", "3.0"),
+        ("float_sin(0.5,y)", "0.479425538604203"),
+        ("float_cos(0.5,y)", "0.8775825618903728"),
+        ("float_tan(0.5,y)", "0.5463024898437905"),
+        ("float_asin(0.5,y)", "0.5235987755982989"),
+        ("float_acos(0.5,y)", "1.0471975511965979"),
+        ("float_atan(1.0,y)", "0.7853981633974483"),
+        ("float_sinh(1.0,y)", "1.1752011936438014"),
+        ("float_cosh(1.0,y)", "1.5430806348152437"),
+        ("float_tanh(1.0,y)", "0.7615941559557649"),
+        ("float_asinh(1.0,y)", "0.881373587019543"),
+        ("float_acosh(2.0,y)", "1.3169578969248166"),
+        ("float_atanh(0.5,y)", "0.5493061443340548"),
+        ("float_pow(-2.0,3.0,y)", "-8.0"),
+        ("float_pow(-2.0,-3.0,y)", "-0.125"),
+        ("float_pow(1e308,-2.0,y)", "0.0"),
+        ("float_pow(0.0,0.0,y)", "1.0"),
+        ("float_pow(4.0,0.5,y)", "2.0"),
+        ("gecode_float_pow_base(1.0,-1e308,y)", "1.0"),
+        ("gecode_float_pow_base(4.0,-0.5,y)", "0.5"),
+        ("gecode_float_pow(-2.0,3,y)", "-8.0"),
+        ("gecode_float_pow(-1.0,2147483646,y)", "1.0"),
+        ("array_float_minimum(y,[2.0,1.0,1.0000000001])", "1.0"),
+        ("array_float_maximum(y,[-2.0,-1.0])", "-1.0"),
+        ("gecode_float_array_min([2.0,1.0],y)", "1.0"),
+        ("gecode_float_array_max([-2.0,-1.0],y)", "-1.0"),
+    ] {
+        let source = format!(
+            "var float:y::is_defined_var;constraint {call}::defines_var(y);constraint float_eq(y,{expected});solve minimize y;"
+        );
+        let model = prepare("functions.fzn", &source).unwrap();
+        let derived = model.check(&Assignment::default()).unwrap();
+        assert_eq!(derived.status, Status::Valid, "{call}");
+        assert!(derived.completeness.complete, "{call}");
+        let wrong = expected.parse::<f64>().unwrap() + 1.0;
+        let supplied = model
+            .check(&assignment(&format!("y={wrong:.17};")))
+            .unwrap();
+        assert_eq!(supplied.status, Status::Invalid, "{call}");
+        assert!(matches!(
+            supplied.violations[0].details,
+            ViolationKind::FloatArithmetic { .. }
+                | ViolationKind::FloatIntegerPower { .. }
+                | ViolationKind::FloatArrayExtremum { .. }
+        ));
+        assert_eq!(
+            model.check(&Assignment::default()).unwrap().status,
+            Status::Valid
+        );
+    }
+}
+
+#[test]
+fn float_function_domains_are_exact_and_failures_are_located() {
+    for call in [
+        "float_sqrt(-0.0000000001,0.0)",
+        "float_ln(0.0,0.0)",
+        "float_log2(-1.0,0.0)",
+        "float_log10(0.0,0.0)",
+        "float_asin(1.0000000000000002,0.0)",
+        "float_acos(-1.0000000000000002,0.0)",
+        "float_acosh(0.9999999999999999,0.0)",
+        "float_atanh(1.0,0.0)",
+        "float_atanh(-1.0,0.0)",
+        "float_pow(-2.0,0.5,0.0)",
+        "float_pow(0.0,-1.0,0.0)",
+        "gecode_float_pow(0.0,0,1.0)",
+        "gecode_float_pow(1e308,2,0.0)",
+        "float_exp(1000.0,0.0)",
+        "float_sinh(1000.0,0.0)",
+        "float_cosh(-1000.0,0.0)",
+        "float_pow(1e308,2.0,0.0)",
+    ] {
+        let model = prepare("domain.fzn", &format!("constraint {call};solve satisfy;")).unwrap();
+        let error = model.check(&Assignment::default()).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Execution, "{call}");
+        assert_eq!(
+            error.diagnostics[0].location.as_ref().unwrap().source,
+            "domain.fzn"
+        );
+    }
+    for call in [
+        "float_sqrt(-0.0,y)",
+        "float_asin(1.0,y)",
+        "float_acos(-1.0,y)",
+        "float_acosh(1.0,y)",
+        "float_tan(1.5707963267948966,y)",
+        "float_tan(4.71238898038469,y)",
+        "float_asinh(1e308,y)",
+        "float_tanh(-1e308,y)",
+        "float_exp(-1000.0,y)",
+    ] {
+        let mut model = prepare(
+            "boundary.fzn",
+            &format!(
+                "var float:y::is_defined_var;constraint {call}::defines_var(y);solve minimize y;"
+            ),
+        )
+        .unwrap();
+        model.set_float_tolerance(zincite_check::FloatTolerance::new(0.0, 0.0).unwrap());
+        let report = model.check(&Assignment::default()).unwrap();
+        assert_eq!(report.status, Status::Valid, "{call}");
+        if call == "float_sqrt(-0.0,y)" {
+            let Value::Float(value) = report.objective.unwrap().argument.value else {
+                panic!()
+            };
+            assert_eq!(value.get().to_bits(), 0.0_f64.to_bits());
+        }
+    }
+    for source in [
+        "var float:y::is_defined_var;constraint float_exp(50.0,y)::defines_var(y);constraint float_floor(y,0);solve satisfy;",
+        "var float:y::is_defined_var;constraint float_exp(-1000.0,y)::defines_var(y);constraint float_div(1.0,y,0.0);solve satisfy;",
+    ] {
+        assert_eq!(
+            prepare("composed.fzn", source)
+                .unwrap()
+                .check(&Assignment::default())
+                .unwrap_err()
+                .kind,
+            ErrorKind::Execution
+        );
+    }
+}
+
+#[test]
+fn float_function_names_signatures_and_fixed_roles_follow_upstream() {
+    for name in [
+        "sqrt", "acos", "asin", "atan", "cos", "exp", "ln", "log10", "log2", "sin", "tan",
+    ] {
+        let input = if ["sqrt", "acos", "asin", "ln", "log10", "log2"].contains(&name) {
+            "1.0"
+        } else {
+            "0.0"
+        };
+        for prefix in ["", "gecode_", "fzn_"] {
+            let source = format!(
+                "predicate {prefix}float_{name}(var float:source_value, var float:target_value); var float:y::is_defined_var;constraint {prefix}float_{name}({input},y)::defines_var(y);solve satisfy;"
+            );
+            assert_eq!(
+                prepare("alias.fzn", &source)
+                    .unwrap()
+                    .check(&Assignment::default())
+                    .unwrap()
+                    .status,
+                Status::Valid
+            );
+        }
+    }
+    for prefix in ["", "gecode_", "fzn_"] {
+        for (name, signature, call) in [
+            (
+                "gecode_float_pow",
+                "var float:a,int:b,var float:c",
+                "2.0,3,y",
+            ),
+            (
+                "gecode_float_pow_base",
+                "float:a,var float:b,var float:c",
+                "2.0,3.0,y",
+            ),
+            (
+                "gecode_float_array_min",
+                "array[int] of var float:a,var float:b",
+                "[1.0,2.0],y",
+            ),
+            (
+                "gecode_float_array_max",
+                "array[1..2] of var float:a,var float:b",
+                "[1.0,2.0],y",
+            ),
+        ] {
+            let source = format!(
+                "predicate {prefix}{name}({signature});var float:y::is_defined_var;constraint {prefix}{name}({call})::defines_var(y);solve satisfy;"
+            );
+            assert_eq!(
+                prepare("alias.fzn", &source)
+                    .unwrap()
+                    .check(&Assignment::default())
+                    .unwrap()
+                    .status,
+                Status::Valid
+            );
+        }
+    }
+    for source in [
+        "constraint gecode_float_asinh(1.0,1.0);",
+        "constraint fzn_float_pow(2.0,3.0,8.0);",
+        "var float:b;constraint gecode_float_pow_base(b,2.0,4.0);",
+        "constraint gecode_float_pow_base(0.0,2.0,0.0);",
+        "constraint gecode_float_pow_base(-2.0,2.0,4.0);",
+        "var int:e;constraint gecode_float_pow(2.0,e,4.0);",
+        "constraint gecode_float_pow(2.0,2.0,4.0);",
+        "constraint gecode_float_pow(2.0,-1,0.5);",
+        "constraint gecode_float_pow(2.0,2147483647,1.0);",
+        "constraint array_float_minimum(0.0,[]);",
+        "constraint gecode_float_array_max([],0.0);",
+        "constraint array_float_maximum(0.0,[1]);",
+        "constraint float_exp([1.0],2.0);",
+        "predicate gecode_float_pow(var float:a,var int:b,var float:c);",
+        "predicate gecode_float_pow_base(var float:a,var float:b,var float:c);",
+        "predicate array_float_minimum(array[int] of var float:a,var float:b);",
+    ] {
+        assert!(
+            prepare("bad.fzn", &format!("{source}solve satisfy;")).is_err(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn float_functions_compose_with_aliases_domains_and_fresh_candidate_values() {
+    let source = r#"
+        var float:x;
+        var 0.0..1.0:root::is_defined_var;
+        var float:root_alias=root;
+        var float:cube::is_defined_var;
+        var float:smallest::is_defined_var;
+        var float:repeated::is_defined_var;
+        var float:repeat_alias=repeated;
+        constraint float_sqrt(x,root)::defines_var(root);
+        constraint gecode_float_pow(root_alias,3,cube)::defines_var(cube);
+        constraint array_float_minimum(smallest,[1.0000000001,1.0])::defines_var(smallest);
+        constraint float_sin(repeat_alias,repeated)::defines_var(repeated);
+        constraint float_eq(smallest,1.0000000001);
+        constraint float_le(cube,1.0);
+        solve minimize smallest;
+    "#;
+    let mut model = prepare("composed.fzn", source).unwrap();
+    let report = model.check(&assignment("x=4.0;")).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(!report.completeness.complete);
+    assert_eq!(report.violations.len(), 2);
+    assert!(matches!(
+        report.violations[0].details,
+        ViolationKind::Domain { .. }
+    ));
+    assert!(matches!(
+        report.violations[1].details,
+        ViolationKind::FloatRelation { .. }
+    ));
+    let Value::Float(minimum) = report.objective.unwrap().argument.value else {
+        panic!()
+    };
+    assert_eq!(minimum.get(), 1.0);
+    let report = model
+        .check(&assignment("x=1.0;repeated=0.0;root=0.0;cube=99.0;"))
+        .unwrap();
+    assert!(report.completeness.complete);
+    assert!(
+        report
+            .violations
+            .iter()
+            .any(|v| matches!(v.details, ViolationKind::FloatArithmetic { .. }))
+    );
+    assert!(report.violations.iter().any(|v| matches!(
+        v.details,
+        ViolationKind::FloatIntegerPower { exponent: 3, .. }
+    )));
+    assert_eq!(
+        model
+            .check(&assignment("x=1.0;repeated=0.0;"))
+            .unwrap()
+            .status,
+        Status::Valid
+    );
+    let missing = model.check(&assignment("repeated=0.0;")).unwrap();
+    assert_eq!(missing.status, Status::Incomplete);
+    model.set_float_tolerance(zincite_check::FloatTolerance::new(0.0, 0.0).unwrap());
+    let strict = model.check(&assignment("x=1.0;repeated=0.0;")).unwrap();
+    assert_eq!(strict.status, Status::Invalid);
+    assert_eq!(strict.violations.len(), 1);
+    assert_eq!(
+        strict.objective.unwrap().argument.value,
+        Value::Float(minimum)
+    );
 }

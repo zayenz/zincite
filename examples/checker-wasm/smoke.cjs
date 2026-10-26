@@ -5,11 +5,11 @@ const { tmpdir } = require("node:os");
 const { resolve, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-assert.equal(process.argv.length, 11,
-    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json CANDIDATES.json NATIVE_CHECKER");
-const [glue, schedule, exact, bench, floats, selection, sets, candidates, native] = process.argv.slice(2).map(path => resolve(path));
+assert.equal(process.argv.length, 12,
+    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json CANDIDATES.json NATIVE_CHECKER");
+const [glue, schedule, exact, bench, floats, selection, sets, functions, candidates, native] = process.argv.slice(2).map(path => resolve(path));
 const { PreparedModel } = require(glue);
-const paths = { schedule, exact, bench, floats, selection, sets };
+const paths = { schedule, exact, bench, floats, selection, sets, functions };
 const defaults = {};
 const models = Object.fromEntries(Object.entries(paths).map(([name, path]) =>
     [name, new PreparedModel(readFileSync(path, "utf8"))]));
@@ -24,6 +24,19 @@ try {
             const tolerance = candidate.tolerance ?? defaults[candidate.model];
             models[candidate.model].setFloatTolerance(tolerance.absolute, tolerance.relative);
             assert.deepEqual(JSON.parse(models[candidate.model].floatTolerance()), tolerance);
+            if (candidate.error) {
+                assert.throws(() => models[candidate.model].check(JSON.stringify(candidate.assignment)), thrown => {
+                    const error = JSON.parse(thrown);
+                    assert.equal(error.kind, candidate.error);
+                    assert.equal(error.diagnostics[0].location.line, 8);
+                    const text = error.diagnostics.map(({ location, message }) =>
+                        `${location.source}:${location.line}:${location.column}: ${message}`).join("\n");
+                    assert.equal(text, nativeReport(candidate));
+                    return true;
+                });
+                if (pass === 0) console.log(`${candidate.name}: located ${candidate.error} error`);
+                continue;
+            }
             const report = JSON.parse(models[candidate.model].check(JSON.stringify(candidate.assignment)));
             assert.equal(report.status, candidate.status, candidate.name);
             assert.equal(report.completeness.complete, candidate.complete, candidate.name);
@@ -44,7 +57,7 @@ try {
     }
     assert.throws(() => models.floats.check('{"entries":[{"name":"x","value":{"kind":"scalar","value":{"kind":"float","value":1e999}}}]}'));
     for (const value of [NaN, Infinity, -1]) assert.throws(() => models.floats.setFloatTolerance(value, 0));
-    console.log(`Native/Wasm reports agree across ${cases.length * 2} checks; finite floats, saved/custom tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, global findings and input errors verified.`);
+    console.log(`Native/Wasm reports and errors agree across ${cases.length * 2} checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, global findings and input errors verified.`);
 } finally {
     for (const model of Object.values(models)) model.free();
     rmSync(directory, { recursive: true, force: true });
@@ -63,6 +76,11 @@ function nativeReport(candidate) {
     const result = spawnSync(native, ["--load", "--format", "json", ...flags, paths[candidate.model], assignment],
         { encoding: "utf8" });
     if (result.error) throw result.error;
+    if (candidate.error) {
+        assert.equal(result.status, 2, result.stderr);
+        assert.equal(result.stdout, "");
+        return result.stderr.trim();
+    }
     assert.equal(result.status, candidate.status === "valid" ? 0 : 1, result.stderr);
     return JSON.parse(result.stdout);
 }

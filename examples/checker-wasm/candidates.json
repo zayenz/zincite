@@ -439,5 +439,151 @@
   },
   "status": "incomplete",
   "complete": false
+},
+{
+  "name": "functions-saved",
+  "model": "functions",
+  "assignment": {
+    "entries": [
+      {
+        "name": "x",
+        "value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "float",
+            "value": 4.0
+          }
+        }
+      }
+    ]
+  },
+  "status": "valid",
+  "complete": true
+},
+{
+  "name": "functions-custom",
+  "model": "functions",
+  "assignment": {
+    "entries": [
+      {
+        "name": "x",
+        "value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "float",
+            "value": 4.0
+          }
+        }
+      },
+      {
+        "name": "smallest",
+        "value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "float",
+            "value": 2.0001
+          }
+        }
+      }
+    ]
+  },
+  "status": "valid",
+  "complete": true,
+  "tolerance": {
+    "absolute": 0.001,
+    "relative": 0.0
+  }
+},
+{
+  "name": "functions-strict",
+  "model": "functions",
+  "assignment": {
+    "entries": [
+      {
+        "name": "x",
+        "value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "float",
+            "value": 4.0
+          }
+        }
+      }
+    ]
+  },
+  "status": "invalid",
+  "complete": true,
+  "tolerance": {
+    "absolute": 0.0,
+    "relative": 0.0
+  }
+},
+{
+  "name": "functions-conflict",
+  "model": "functions",
+  "assignment": {
+    "entries": [
+      {
+        "name": "x",
+        "value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "float",
+            "value": 4.0
+          }
+        }
+      },
+      {
+        "name": "cube",
+        "value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "float",
+            "value": 3.0
+          }
+        }
+      },
+      {
+        "name": "smallest",
+        "value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "float",
+            "value": 7.0
+          }
+        }
+      }
+    ]
+  },
+  "status": "invalid",
+  "complete": true
+},
+{
+  "name": "functions-missing",
+  "model": "functions",
+  "assignment": {
+    "entries": []
+  },
+  "status": "incomplete",
+  "complete": false
+},
+{
+  "name": "functions-domain",
+  "model": "functions",
+  "assignment": {
+    "entries": [
+      {
+        "name": "x",
+        "value": {
+          "kind": "scalar",
+          "value": {
+            "kind": "float",
+            "value": -1.0
+          }
+        }
+      }
+    ]
+  },
+  "error": "execution"
 }
 ]

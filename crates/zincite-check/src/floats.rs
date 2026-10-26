@@ -184,10 +184,38 @@ pub enum FloatOperation {
     Divide,
     Minimum,
     Maximum,
+    SquareRoot,
+    Power,
+    FixedBasePower,
+    Exponential,
+    NaturalLog,
+    Log10,
+    Log2,
+    Sine,
+    Cosine,
+    Tangent,
+    ArcSine,
+    ArcCosine,
+    ArcTangent,
+    HyperbolicSine,
+    HyperbolicCosine,
+    HyperbolicTangent,
+    InverseHyperbolicSine,
+    InverseHyperbolicCosine,
+    InverseHyperbolicTangent,
 }
 impl FloatOperation {
     pub(crate) fn input_count(self) -> usize {
-        if self == Self::Absolute { 1 } else { 2 }
+        match self {
+            Self::Add
+            | Self::Multiply
+            | Self::Divide
+            | Self::Minimum
+            | Self::Maximum
+            | Self::Power
+            | Self::FixedBasePower => 2,
+            _ => 1,
+        }
     }
     pub(crate) fn calculate(self, inputs: &[FiniteFloat]) -> Result<FiniteFloat, &'static str> {
         let x = inputs[0].get();
@@ -204,10 +232,119 @@ impl FloatOperation {
             }
             Self::Minimum => x.min(inputs[1].get()),
             Self::Maximum => x.max(inputs[1].get()),
+            Self::SquareRoot => {
+                if x < 0.0 {
+                    return Err("sqrt requires a nonnegative argument");
+                }
+                libm::sqrt(x)
+            }
+            Self::Power | Self::FixedBasePower => {
+                let exponent = inputs[1].get();
+                if self == Self::FixedBasePower && x <= 0.0 {
+                    return Err("fixed-base power requires a positive base");
+                }
+                if x < 0.0 && exponent.trunc() != exponent {
+                    return Err("negative float power base requires an integral exponent");
+                }
+                if x == 0.0 && exponent < 0.0 {
+                    return Err("zero float power base requires a nonnegative exponent");
+                }
+                libm::pow(x, exponent)
+            }
+            Self::Exponential => libm::exp(x),
+            Self::NaturalLog | Self::Log10 | Self::Log2 => {
+                if x <= 0.0 {
+                    return Err("logarithm requires a positive argument");
+                }
+                match self {
+                    Self::NaturalLog => libm::log(x),
+                    Self::Log10 => libm::log10(x),
+                    _ => libm::log2(x),
+                }
+            }
+            Self::Sine => libm::sin(x),
+            Self::Cosine => libm::cos(x),
+            Self::Tangent => libm::tan(x),
+            Self::ArcSine | Self::ArcCosine => {
+                if !(-1.0..=1.0).contains(&x) {
+                    return Err("inverse sine/cosine requires an argument in -1..1");
+                }
+                if self == Self::ArcSine {
+                    libm::asin(x)
+                } else {
+                    libm::acos(x)
+                }
+            }
+            Self::ArcTangent => libm::atan(x),
+            Self::HyperbolicSine => libm::sinh(x),
+            Self::HyperbolicCosine => libm::cosh(x),
+            Self::HyperbolicTangent => libm::tanh(x),
+            Self::InverseHyperbolicSine => libm::asinh(x),
+            Self::InverseHyperbolicCosine => {
+                if x < 1.0 {
+                    return Err("acosh requires an argument at least one");
+                }
+                libm::acosh(x)
+            }
+            Self::InverseHyperbolicTangent => {
+                if x <= -1.0 || x >= 1.0 {
+                    return Err("atanh requires an argument strictly between -1 and 1");
+                }
+                libm::atanh(x)
+            }
         };
         finite_result(result)
     }
 }
+/// Exact-order selection; tolerance only checks the supplied result.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FloatExtremum {
+    Minimum,
+    Maximum,
+}
+impl FloatExtremum {
+    pub(crate) fn calculate(self, inputs: &[FiniteFloat]) -> FiniteFloat {
+        inputs
+            .iter()
+            .copied()
+            .reduce(|left, right| match self {
+                Self::Minimum if right < left => right,
+                Self::Maximum if right > left => right,
+                _ => left,
+            })
+            .expect("validated nonempty float extremum")
+    }
+}
+
+pub(crate) fn validate_integer_exponent(exponent: i64) -> Result<(), &'static str> {
+    if !(0..=2147483646).contains(&exponent) {
+        return Err("Gecode float power exponent must be in 0..2147483646");
+    }
+    Ok(())
+}
+
+pub(crate) fn integer_power(
+    base: FiniteFloat,
+    mut exponent: i64,
+) -> Result<FiniteFloat, &'static str> {
+    if base.get() == 0.0 && exponent == 0 {
+        return Err("Gecode integer power excludes zero to the zero power");
+    }
+    let mut factor = base;
+    let mut result = FiniteFloat::new(1.0)?;
+    while exponent > 0 {
+        if exponent % 2 == 1 {
+            result = finite_result(result.get() * factor.get())?;
+        }
+        exponent /= 2;
+        if exponent > 0 {
+            factor = finite_result(factor.get() * factor.get())?;
+        }
+    }
+    Ok(result)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FloatConversion {
@@ -264,6 +401,11 @@ pub(crate) enum FloatName {
     },
     CodedImplication,
     Arithmetic(FloatOperation),
+    IntegerPower,
+    ArrayExtremum {
+        extremum: FloatExtremum,
+        result_first: bool,
+    },
     Conversion(FloatConversion),
     Membership(FloatMembership),
 }
@@ -416,6 +558,72 @@ impl FloatName {
             "float_max" | "gecode_float_max" | "fzn_float_max" => {
                 Self::Arithmetic(FloatOperation::Maximum)
             }
+            "float_sqrt" | "gecode_float_sqrt" | "fzn_float_sqrt" => {
+                Self::Arithmetic(FloatOperation::SquareRoot)
+            }
+            "float_acos" | "gecode_float_acos" | "fzn_float_acos" => {
+                Self::Arithmetic(FloatOperation::ArcCosine)
+            }
+            "float_asin" | "gecode_float_asin" | "fzn_float_asin" => {
+                Self::Arithmetic(FloatOperation::ArcSine)
+            }
+            "float_atan" | "gecode_float_atan" | "fzn_float_atan" => {
+                Self::Arithmetic(FloatOperation::ArcTangent)
+            }
+            "float_cos" | "gecode_float_cos" | "fzn_float_cos" => {
+                Self::Arithmetic(FloatOperation::Cosine)
+            }
+            "float_exp" | "gecode_float_exp" | "fzn_float_exp" => {
+                Self::Arithmetic(FloatOperation::Exponential)
+            }
+            "float_ln" | "gecode_float_ln" | "fzn_float_ln" => {
+                Self::Arithmetic(FloatOperation::NaturalLog)
+            }
+            "float_log10" | "gecode_float_log10" | "fzn_float_log10" => {
+                Self::Arithmetic(FloatOperation::Log10)
+            }
+            "float_log2" | "gecode_float_log2" | "fzn_float_log2" => {
+                Self::Arithmetic(FloatOperation::Log2)
+            }
+            "float_sin" | "gecode_float_sin" | "fzn_float_sin" => {
+                Self::Arithmetic(FloatOperation::Sine)
+            }
+            "float_tan" | "gecode_float_tan" | "fzn_float_tan" => {
+                Self::Arithmetic(FloatOperation::Tangent)
+            }
+            "float_acosh" => Self::Arithmetic(FloatOperation::InverseHyperbolicCosine),
+            "float_asinh" => Self::Arithmetic(FloatOperation::InverseHyperbolicSine),
+            "float_atanh" => Self::Arithmetic(FloatOperation::InverseHyperbolicTangent),
+            "float_cosh" => Self::Arithmetic(FloatOperation::HyperbolicCosine),
+            "float_sinh" => Self::Arithmetic(FloatOperation::HyperbolicSine),
+            "float_tanh" => Self::Arithmetic(FloatOperation::HyperbolicTangent),
+            "float_pow" => Self::Arithmetic(FloatOperation::Power),
+            "gecode_float_pow" | "gecode_gecode_float_pow" | "fzn_gecode_float_pow" => {
+                Self::IntegerPower
+            }
+            "gecode_float_pow_base"
+            | "gecode_gecode_float_pow_base"
+            | "fzn_gecode_float_pow_base" => Self::Arithmetic(FloatOperation::FixedBasePower),
+            "array_float_minimum" => Self::ArrayExtremum {
+                extremum: FloatExtremum::Minimum,
+                result_first: true,
+            },
+            "gecode_float_array_min"
+            | "gecode_gecode_float_array_min"
+            | "fzn_gecode_float_array_min" => Self::ArrayExtremum {
+                extremum: FloatExtremum::Minimum,
+                result_first: false,
+            },
+            "array_float_maximum" => Self::ArrayExtremum {
+                extremum: FloatExtremum::Maximum,
+                result_first: true,
+            },
+            "gecode_float_array_max"
+            | "gecode_gecode_float_array_max"
+            | "fzn_gecode_float_array_max" => Self::ArrayExtremum {
+                extremum: FloatExtremum::Maximum,
+                result_first: false,
+            },
             "int2float" | "gecode_int2float" | "fzn_int2float" => {
                 Self::Conversion(FloatConversion::IntegerToFloat)
             }
@@ -466,7 +674,25 @@ impl FloatName {
                 scalar(ValueType::Boolean, true),
             ],
             Self::Arithmetic(operation) => {
-                vec![scalar(ValueType::Float, true); operation.input_count() + 1]
+                let mut args = vec![scalar(ValueType::Float, true); operation.input_count() + 1];
+                if operation == FloatOperation::FixedBasePower {
+                    args[0].is_var = false;
+                }
+                args
+            }
+            Self::IntegerPower => vec![
+                scalar(ValueType::Float, true),
+                scalar(ValueType::Integer, false),
+                scalar(ValueType::Float, true),
+            ],
+            Self::ArrayExtremum { result_first, .. } => {
+                let result = scalar(ValueType::Float, true);
+                let inputs = array(ValueType::Float, true);
+                if result_first {
+                    vec![result, inputs]
+                } else {
+                    vec![inputs, result]
+                }
             }
             Self::Conversion(operation) => vec![
                 scalar(operation.input_type(), true),

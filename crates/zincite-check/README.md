@@ -424,9 +424,57 @@ reifiers, scalar ne, `float_abs`, `float_plus`, `float_times`, `float_div`,
 `gecode_gecode_float_rel_imp_fzn` and `fzn_gecode_float_rel_imp_fzn`. Codes 1–6
 mean equal, not equal, less-or-equal, less, greater-or-equal and greater.
 A false guard skips missing numerical operands/calculations; it is never an
-output. Float membership and ceil/floor/round have only bare names. Roots,
-powers and transcendental operations await checker-018. Float selection uses the
-same saved comparison policy as float-core.
+output. Float membership and ceil/floor/round have only bare names. Float selection
+uses the same saved comparison policy as float-core.
+
+Roots, powers and transcendental functions use the generic Rust implementation in
+`libm` 0.2.16, with default features disabled. Native and Wasm use this common
+backend without host math, MPFR or solver libraries. Strict checking compares its
+computed binary64 result exactly; another compiler's constant folding or an
+interval solver's rounding can differ. The saved default/custom comparison policy
+also applies to these results. Domain admission always uses exact bounds.
+
+The unary operations are `float_{sqrt,exp,ln,log10,log2,sin,cos,tan,asin,acos,atan}`
+and `float_{sinh,cosh,tanh,asinh,acosh,atanh}`. Only the first group also accepts
+the exact `gecode_` and `fzn_` prefixes. Trigonometric inputs are radians; inverse
+functions return principal values. `sqrt` requires `x >= 0`, logarithms `x > 0`,
+`asin`/`acos` `-1 <= x <= 1`, `acosh` `x >= 1`, and `atanh` `-1 < x < 1`.
+The other functions accept any finite input whose result is finite. Finite tangent
+arguments close to irrational poles are accepted; the checker adds no pole heuristic.
+
+`float_pow(base,exponent,result)` takes float operands. Negative bases require an
+exactly integral binary64 exponent; a zero base rejects negative exponents.
+Standard `0^0` is 1. Negative exponents use the backend's power function directly,
+so an overflowing positive power does not prevent a finite reciprocal result.
+`gecode_float_pow_base(base,exponent,result)` instead requires a fixed positive
+float base, including 1. `gecode_float_pow(base,exponent,result)` takes an exact
+fixed integer exponent in `0..2147483646`; it rejects `0^0` to match Gecode's
+nonzero-base requirement for exponent zero. Checked exponentiation by squaring
+keeps this exponent as an integer, transported as a decimal string. Both Gecode
+power calls also accept their literal `gecode_` and `fzn_` registry prefixes.
+
+Standard `array_float_minimum(result,values)` and `array_float_maximum(result,values)`
+put the result first; `gecode_float_array_min(values,result)` and
+`gecode_float_array_max(values,result)` put it last and accept their literal registry
+prefixes. All require nonempty float arrays. Exact numeric order selects and copies
+an input value; tolerance only compares a supplied result.
+
+Each function can define its unique result through `defines_var` when all inputs
+are available and the result does not occur among the inputs through an alias.
+Supplied results are checked without replacement. Derived values feed domains and
+downstream checks even when a declaration domain fails. Missing inputs produce
+structured incompleteness alongside established violations. Integer-power findings
+carry the typed base/result and exact exponent string; array-extremum findings
+carry the operation, input arguments and result. Scalar functions use the existing
+float-arithmetic finding.
+
+Preparation and loading reject wrong fixed roles, invalid fixed bases, integer
+exponents outside the supported range and empty extrema arrays. Undefined domains,
+zero denominators and nonfinite calculations give located execution errors.
+Underflow is allowed, including zero; signed zero normalizes to positive zero.
+An underflowed result used as a divisor diagnoses zero division, and a subsequent
+float-to-integer conversion still checks its i64 range. These direct operations do
+not establish full compiler-profile closure; checker-030/031 own that work.
 
 Rust callers configure the model directly:
 
@@ -467,6 +515,38 @@ changing `rounded` to 1 fails the compiled ceiling relations. The coded candidat
 These controls cover emitted definitions, paths, labels and float search metadata;
 they do not establish complete standard/Gecode compiler profiles.
 
+The [float-function control](../../examples/checker-compilation/float-function-controls.mzn)
+exercises roots, standard power syntax, logarithms, hyperbolic cosine and an array
+maximum against both pinned profiles:
+
+```sh
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-float-controls/functions-standard.paths --output-fzn-to-file target/checker-float-controls/functions-standard.fzn examples/checker-compilation/float-function-controls.mzn
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-float-controls/functions-gecode.paths --output-fzn-to-file target/checker-float-controls/functions-gecode.fzn examples/checker-compilation/float-function-controls.mzn
+```
+
+The standard profile emits `float_sqrt`, `float_pow`, `float_cosh`, `float_ln`
+and a `float_max` chain. Supplying `x=2.0;` gives a valid complete candidate.
+The Gecode profile emits `gecode_float_pow(x,3,cube)`,
+`gecode_float_pow_base(2.0,x,exponential)` and `gecode_float_array_max`, and
+expands cosh through two `float_exp` calls and float linear equations. Its power
+and extrema wrappers drop the forward definitions, so the inspected candidate
+also supplies `cube=8.0; exponential=4.0; X_INTRODUCED_27_=8.0;`. That introduced
+name belongs to this compiled control; inspect new output before supplying it.
+Without those values, the Gecode artifact gives an incomplete report. Changing
+`cube` to 7 gives typed power and array-extremum findings. The direct
+[FlatZinc control](../../examples/checker-compilation/float-functions.fzn) has
+explicit forward annotations and needs only its primary input.
+
+Both profiles preserve paths, source labels and the scalar application IDs.
+Gecode's array rewrite drops the array application ID while keeping its label.
+A separate inspected variant using an explicit named
+`array_float_maximum(maximum_value,[root,cube,exponential])` call emitted a
+standard `defines_var(maximum_value)` without its `is_defined_var` marker;
+preparation diagnoses that mismatch. To reproduce, replace the maximum-expression
+constraint with that call and declare `var float: maximum_value;`, using the same
+standard command. These controls establish their observed behavior; full profile
+closure and preservation of editing metadata belong to checker-030/031.
+
 Wasm uses `setFloatTolerance(absolute,relative)` with the same validation;
 `floatTolerance()` returns the current settings as JSON. The saved policy and
 correctly rounded finite transport give identical native/Wasm reports; the smoke
@@ -474,7 +554,7 @@ compares reports exactly. Search precision never changes checker tolerance.
 
 ## Functional completion
 
-The float-core names and directions are listed in the float policy above.
+The float names and directions are listed in the float policy above.
 The table below covers integer, Boolean and set operations, including constraints emitted
 by both application models:
 
@@ -561,7 +641,7 @@ profile or general preservation of editable domains and variables.
 
 All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
 `fzn_` spellings, for 108 integer relation names. The 55 Boolean base names also
-accept those exact prefixes, for 165 Boolean names and 527 admitted names overall.
+accept those exact prefixes, for 165 Boolean names and 581 admitted names overall.
 Prefixed scalar XOR uses three arguments; only bare `bool_xor` also admits the
 two-argument assertion. Matching declarations select one admitted arity and calls
 must use that arity; duplicate declarations diagnose.

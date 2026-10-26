@@ -1,0 +1,16 @@
+var float: x;
+var float: root ::is_defined_var;
+var float: cube ::is_defined_var;
+var float: exponential ::is_defined_var;
+var float: smallest ::is_defined_var;
+var float: largest ::is_defined_var;
+var float: hyperbolic ::is_defined_var;
+constraint float_sqrt(x,root)::defines_var(root)::checker_constraint("root",[18]);
+constraint gecode_float_pow(x,3,cube)::defines_var(cube);
+constraint gecode_float_pow_base(2.0,x,exponential)::defines_var(exponential);
+constraint array_float_minimum(smallest,[root,cube,exponential])::defines_var(smallest);
+constraint gecode_float_array_max([root,cube,exponential],largest)::defines_var(largest);
+constraint float_asinh(x,hyperbolic)::defines_var(hyperbolic);
+constraint float_eq(smallest,2.0000000001);
+constraint float_le(largest,64.0);
+solve minimize hyperbolic;

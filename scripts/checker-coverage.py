@@ -123,6 +123,35 @@ CURRENT |= {
 
 
 CURRENT |= {
+    prefix + "float_" + operation
+    for prefix in ("", "gecode_", "fzn_")
+    for operation in (
+        "sqrt",
+        "acos",
+        "asin",
+        "atan",
+        "cos",
+        "exp",
+        "ln",
+        "log10",
+        "log2",
+        "sin",
+        "tan",
+    )
+}
+CURRENT |= {
+    "float_" + operation
+    for operation in ("acosh", "asinh", "atanh", "cosh", "sinh", "tanh", "pow")
+}
+CURRENT |= {
+    prefix + "gecode_float_" + operation
+    for prefix in ("", "gecode_", "fzn_")
+    for operation in ("pow", "pow_base", "array_min", "array_max")
+}
+CURRENT |= {"array_float_minimum", "array_float_maximum"}
+
+
+CURRENT |= {
     prefix + "array_" + variable + kind + "_element"
     for prefix in ("", "gecode_", "fzn_")
     for variable in ("", "var_")

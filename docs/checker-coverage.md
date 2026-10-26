@@ -106,6 +106,8 @@ All other mathematical calls and aliases are planned work.
 | `float_eq/ne/le/lt(x,y)` and `float_lin_eq/ne/le/lt(a,x,c)` | Finite binary64; fixed coefficients/bound; saved tolerance; exact prefixes listed in the float policy | Equality copies a unique scalar or calculates a unique nonzero-coefficient term |
 | Float scalar/linear `_reif` and `_imp` forms | Full equivalence or guarded relation; false implication skips unavailable numerical operands | Full reifier only |
 | `float_abs(x,r)`, `float_plus/times/div/min/max(x,y,r)` | Finite intermediates; zero division diagnoses; registered `gecode_`/`fzn_` aliases | Unique final output |
+| Float roots, powers, exp/log, trig/inverse and hyperbolic/inverse functions | Portable libm; exact domains; finite binary64 results; exact fixed Gecode integer exponent | Unique final output |
+| Standard `array_float_minimum/maximum(r,xs)` and Gecode `gecode_float_array_min/max(xs,r)` | Nonempty float arrays; exact-order selection and tolerant supplied-result comparison | Result first (standard), last (Gecode) |
 | `int2float(x,r)`, `float_ceil/floor/round(x,r)` | Explicit nearest-even float conversion; exact i64 rounded outputs within `[-2^63,2^63)` | Unique final output |
 | `float_in(x,l,u)`, `float_dom(x,endpoints)`, `float_set_in(x,s)` | Fixed finite bounds/data/set; complete endpoint pairs; exact interval emptiness | None |
 | `gecode_float_rel_imp_fzn(x,code,y,guard)` and its literal registry aliases | Fixed code 1–6; final Boolean guards the comparison | None |
@@ -113,9 +115,9 @@ All other mathematical calls and aliases are planned work.
 | `gecode_[var_]int/bool_element`, `gecode_int/bool_element2d`, `gecode_set_element2d` and literal registry aliases | Explicit offset or validated rectangular row-major layout; distinct set 2D argument order | Selected result |
 | `gecode_bool/int/set/float_ite` and literal registry aliases | Boolean condition; only the selected input is required | Selected result |
 
-The checker admits 527 exact names, including 165 Boolean-family names,
+The checker admits 581 exact names, including 165 Boolean-family names,
 108 integer scalar/linear relation spellings, 80 float-core names, 57 selection
-names and 84 set-family names.
+names, 84 set-family names and 54 float-function names.
 The `fzn_disjunctive_strict` declaration is required for that external call.
 The other listed names accept calls without declarations. All matching declarations
 validate signatures, roles and shapes, with call checks for declared domains and
@@ -248,9 +250,9 @@ Gecode relation codes use the same six comparisons as integer codes
 ([handler](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2987)).
 `gecode_float_rel_imp_fzn` and its literal registered aliases take a guard in
 argument 4, have no output, and skip numerical inputs when that guard is false.
-Conditional selection belongs to checker-016; roots, powers and transcendental
-operations belong to checker-018. These direct operations do not establish full
-compiler-profile closure (checker-030/031) or official JSON support (checker-032).
+Conditional selection is documented under checker-016; roots, powers and
+transcendental operations under checker-018. These direct operations do not
+establish full compiler-profile closure (checker-030/031) or official JSON support (checker-032).
 
 <a id="family-016"></a>
 **checker-016 — elements and conditionals.** A known index or condition selects
@@ -275,7 +277,7 @@ still use compiler routes; direct support does not certify profile closure
 **checker-017 — finite-set primitives.** The checker supports the 26 assigned
 registry literals with their exact bare, `gecode_` and `fzn_` expansions, plus
 six source-only bare `set_eq/ne/le/lt/subset/superset_imp` names. This is 84 set
-names and 527 admitted names overall. It does not invent prefixed source-only
+names and 581 admitted names overall. It does not invent prefixed source-only
 implications, `equal_imp`, algebra reifiers or cardinality reifiers. Membership
 accepts integers against fixed or variable sets; `int_in` compatibility forms
 require fixed sets. Boolean membership maps false/true to 0/1 against fixed
@@ -303,18 +305,43 @@ validates codes even under a false guard. The checker guide records the small
 compile-only control; these family checks do not establish full profile closure.
 
 <a id="family-018"></a>
-**checker-018 — float functions.** Cover sqrt, powers, exp, logarithms,
-trigonometric/inverse trigonometric and hyperbolic/inverse hyperbolic functions,
-and float array extrema. Each forward result is unique on its defined domain;
-array extrema require nonempty arrays. Standard `array_float_minimum(m,xs)` and
-`array_float_maximum(m,xs)` calculate argument 1; Gecode's
-`gecode_float_array_min(xs,y)` and `gecode_float_array_max(xs,y)` calculate the
-final argument. Gecode's integer exponent is fixed and
-nonnegative, while its fixed-base power requires a positive base. The MPFR guard
-on a registration changes upstream availability, not this task's obligation.
-`float_cosh`, `float_sinh` and `float_tanh` occur in commented registration lines;
-the Gecode redefinitions decompose them through `exp` and arithmetic. All three
-still have standard direct-operation and profile-decomposition owners.
+**checker-018 — float functions.** The 54 assigned names directly check sqrt,
+powers, exp, logarithms, trigonometric/inverse trigonometric and
+hyperbolic/inverse hyperbolic functions, and float array extrema. Native and Wasm
+use generic Rust `libm` 0.2.16 without default, architecture or unstable features.
+The saved tolerance compares computed binary64 results; zero/zero compares them
+exactly and does not promise another compiler's constant-folding result.
+
+Domain checks use exact bounds: sqrt accepts nonnegative inputs; logarithms need
+positive inputs; asin/acos need `[-1,1]`, acosh `[1,infinity)` and atanh `(-1,1)`.
+Trig inputs are radians and inverse functions return principal values. Finite
+tangent arguments have no extra pole heuristic. Underflow is allowed; undefined
+operations and nonfinite results give located execution errors. The
+[checker guide](../crates/zincite-check/README.md#float-policy) records the full policy.
+
+Standard `float_pow` accepts negative bases only with exactly integral float
+exponents, rejects zero with negative exponents, and defines `0^0 = 1`.
+Gecode's integer power takes a fixed exact exponent in `0..2147483646` and rejects
+`0^0`; checked exponentiation by squaring never converts that exponent to float.
+Its fixed-base power needs a fixed positive base, including 1. Preparation and
+loading reject invalid fixed roles and exponent bounds.
+
+Each forward result is unique on its defined domain. Standard
+`array_float_minimum(m,xs)` and `array_float_maximum(m,xs)` calculate argument 1;
+Gecode's `gecode_float_array_min(xs,y)` and `gecode_float_array_max(xs,y)` calculate
+the final argument. Both reject empty arrays at preparation/loading. Exact order
+selects and copies an input; tolerance only compares a supplied result. The
+existing alias-aware worklist calculates outputs from available inputs, checks
+supplied values, and carries derived values through domains and downstream checks.
+Integer-power findings carry exact exponent strings; extrema carry typed inputs
+and result. Scalar functions use float-arithmetic findings.
+
+The 11 registered unary functions accept their literal registry prefixes. Bare
+hyperbolic/inverse-hyperbolic functions and standard power gain no invented
+prefixes. The MPFR guard changes upstream availability; the checker supports the
+assigned operations without MPFR. Gecode decomposes the commented cosh/sinh/tanh
+registrations through exp and arithmetic. Compiler-profile closure belongs to
+checker-030/031.
 
 <a id="family-019"></a>
 **checker-019 — counts and distributions.** Count occurrences, position-wise
@@ -491,7 +518,7 @@ its `_reif`, float and set fallbacks are absent on these legacy paths.
 | Prepared JSON | Existing versioned executable artifact with validated references, shapes, metadata and family operands; floats use finite JSON numbers; i64 values/payloads use exact decimal strings | Accepted through `PreparedModel::from_json`; separate from official FlatZinc-JSON |
 | Integers/sets | Each family: checked i64 for values and intermediate arithmetic; compact sorted disjoint integer ranges; explicit division/modulus/overflow errors and domain findings | Working for current operations; no scalar arithmetic wraparound |
 | Gecode universes | checker-017/027/028/029: respect explicit extension universes and offsets. `Int::Limits::max=INT_MAX-1`, min its negation; `Set::Limits::max=(Int::Limits::max/2)-1`, min its negation, cardinality `max-min+1` | Generic set operations use finite i64 sets; native complement checks the pinned Gecode universe; other extension families are planned |
-| Floats | checker-015/018: finite binary64 with explicit configurable absolute/relative tolerances and a zero-tolerance strict setting; settle formula/defaults, strict comparisons, domain checks, rounding/conversion and nonfinite/undefined behavior before admission | Finite scalar/domain/array/objective values and float-core operations work with saved absolute/relative settings; roots/powers/transcendentals await checker-018 |
+| Floats | checker-015/018: finite binary64 with explicit configurable absolute/relative tolerances and a zero-tolerance strict setting; settle formula/defaults, strict comparisons, domain checks, rounding/conversion and nonfinite/undefined behavior before admission | Finite scalar/domain/array/objective values and float-core operations work with saved absolute/relative settings; roots/powers/transcendentals and nonempty float-array extrema work with exact domain checks and portable libm |
 
 On Gecode's 32-bit `int` convention, the explicit integer bounds are
 `-2147483646..2147483646` and the set universe is
@@ -890,11 +917,11 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r276"></a>[R276](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3005) | ` int2float `, ` gecode_int2float `, ` fzn_int2float ` | ` p_int2float ` / ` GECODE_HAS_FLOAT_VARS ` | [D0557](#d0557) | ` int2float `, ` gecode_int2float `, ` fzn_int2float ` | [checker-015](#family-015) | last result; family domain rule |
 | <a id="r277"></a>[R277](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3007) | ` gecode_float_rel_imp_fzn `, ` gecode_gecode_float_rel_imp_fzn `, ` fzn_gecode_float_rel_imp_fzn ` | ` p_float_rel_imp ` / ` GECODE_HAS_FLOAT_VARS ` | [D3062](#d3062), [D3154](#d3154) | ` gecode_float_rel_imp_fzn `, ` gecode_gecode_float_rel_imp_fzn `, ` fzn_gecode_float_rel_imp_fzn ` | [checker-015](#family-015) | none (guard) |
 | <a id="r278"></a>[R278](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3008) | ` gecode_float_ite `, ` gecode_gecode_float_ite `, ` fzn_gecode_float_ite ` | ` p_float_ite ` / ` GECODE_HAS_FLOAT_VARS ` | [D2872](#d2872), [D3013](#d3013) | ` gecode_float_ite `, ` gecode_gecode_float_ite `, ` fzn_gecode_float_ite ` | [checker-016](#family-016) | selected result (known index/condition) |
-| <a id="r279"></a>[R279](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3009) | ` gecode_float_pow `, ` gecode_gecode_float_pow `, ` fzn_gecode_float_pow ` | ` p_float_pow ` / ` GECODE_HAS_FLOAT_VARS ` | [D3046](#d3046), [D3079](#d3079) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="r280"></a>[R280](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3010) | ` gecode_float_array_min `, ` gecode_gecode_float_array_min `, ` fzn_gecode_float_array_min ` | ` p_float_array_min ` / ` GECODE_HAS_FLOAT_VARS ` | [D3047](#d3047), [D3077](#d3077) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="r281"></a>[R281](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3011) | ` gecode_float_array_max `, ` gecode_gecode_float_array_max `, ` fzn_gecode_float_array_max ` | ` p_float_array_max ` / ` GECODE_HAS_FLOAT_VARS ` | [D3048](#d3048), [D3074](#d3074) | planned | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r279"></a>[R279](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3009) | ` gecode_float_pow `, ` gecode_gecode_float_pow `, ` fzn_gecode_float_pow ` | ` p_float_pow ` / ` GECODE_HAS_FLOAT_VARS ` | [D3046](#d3046), [D3079](#d3079) | ` gecode_float_pow `, ` gecode_gecode_float_pow `, ` fzn_gecode_float_pow ` | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r280"></a>[R280](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3010) | ` gecode_float_array_min `, ` gecode_gecode_float_array_min `, ` fzn_gecode_float_array_min ` | ` p_float_array_min ` / ` GECODE_HAS_FLOAT_VARS ` | [D3047](#d3047), [D3077](#d3077) | ` gecode_float_array_min `, ` gecode_gecode_float_array_min `, ` fzn_gecode_float_array_min ` | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r281"></a>[R281](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3011) | ` gecode_float_array_max `, ` gecode_gecode_float_array_max `, ` fzn_gecode_float_array_max ` | ` p_float_array_max ` / ` GECODE_HAS_FLOAT_VARS ` | [D3048](#d3048), [D3074](#d3074) | ` gecode_float_array_max `, ` gecode_gecode_float_array_max `, ` fzn_gecode_float_array_max ` | [checker-018](#family-018) | last result; family domain rule |
 | <a id="r282"></a>[R282](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3013) | ` float_abs `, ` gecode_float_abs `, ` fzn_float_abs ` | ` p_float_abs ` / ` GECODE_HAS_FLOAT_VARS ` | [D0517](#d0517) | ` float_abs `, ` gecode_float_abs `, ` fzn_float_abs ` | [checker-015](#family-015) | last result; family domain rule |
-| <a id="r283"></a>[R283](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3014) | ` float_sqrt `, ` gecode_float_sqrt `, ` fzn_float_sqrt ` | ` p_float_sqrt ` / ` GECODE_HAS_FLOAT_VARS ` | [D0530](#d0530) | planned | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r283"></a>[R283](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3014) | ` float_sqrt `, ` gecode_float_sqrt `, ` fzn_float_sqrt ` | ` p_float_sqrt ` / ` GECODE_HAS_FLOAT_VARS ` | [D0530](#d0530) | ` float_sqrt `, ` gecode_float_sqrt `, ` fzn_float_sqrt ` | [checker-018](#family-018) | last result; family domain rule |
 | <a id="r284"></a>[R284](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3015) | ` float_eq `, ` gecode_float_eq `, ` fzn_float_eq ` | ` p_float_eq ` / ` GECODE_HAS_FLOAT_VARS ` | [D0536](#d0536) | ` float_eq `, ` gecode_float_eq `, ` fzn_float_eq ` | [checker-015](#family-015) | exact equality slot |
 | <a id="r285"></a>[R285](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3016) | ` float_eq_reif `, ` gecode_float_eq_reif `, ` fzn_float_eq_reif ` | ` p_float_eq_reif ` / ` GECODE_HAS_FLOAT_VARS ` | [D0537](#d0537) | ` float_eq_reif `, ` gecode_float_eq_reif `, ` fzn_float_eq_reif ` | [checker-015](#family-015) | last Boolean (truth) |
 | <a id="r286"></a>[R286](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3017) | ` float_le `, ` gecode_float_le `, ` fzn_float_le ` | ` p_float_le ` / ` GECODE_HAS_FLOAT_VARS ` | [D0538](#d0538) | ` float_le `, ` gecode_float_le `, ` fzn_float_le ` | [checker-015](#family-015) | none |
@@ -913,17 +940,17 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r299"></a>[R299](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3031) | ` float_lin_lt `, ` gecode_float_lin_lt `, ` fzn_float_lin_lt ` | ` p_float_lin_lt ` / ` GECODE_HAS_FLOAT_VARS ` | [D0548](#d0548) | ` float_lin_lt `, ` gecode_float_lin_lt `, ` fzn_float_lin_lt ` | [checker-015](#family-015) | none |
 | <a id="r300"></a>[R300](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3032) | ` float_lin_le_reif `, ` gecode_float_lin_le_reif `, ` fzn_float_lin_le_reif ` | ` p_float_lin_le_reif ` / ` GECODE_HAS_FLOAT_VARS ` | [D0547](#d0547) | ` float_lin_le_reif `, ` gecode_float_lin_le_reif `, ` fzn_float_lin_le_reif ` | [checker-015](#family-015) | last Boolean (truth) |
 | <a id="r301"></a>[R301](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3033) | ` float_lin_lt_reif `, ` gecode_float_lin_lt_reif `, ` fzn_float_lin_lt_reif ` | ` p_float_lin_lt_reif ` / ` GECODE_HAS_FLOAT_VARS ` | [D0549](#d0549) | ` float_lin_lt_reif `, ` gecode_float_lin_lt_reif `, ` fzn_float_lin_lt_reif ` | [checker-015](#family-015) | last Boolean (truth) |
-| <a id="r302"></a>[R302](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3036) | ` gecode_float_pow_base `, ` gecode_gecode_float_pow_base `, ` fzn_gecode_float_pow_base ` | ` p_float_pow_base ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D3049](#d3049), [D3080](#d3080) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="r303"></a>[R303](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3037) | ` float_acos `, ` gecode_float_acos `, ` fzn_float_acos ` | ` p_float_acos ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0518](#d0518) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="r304"></a>[R304](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3038) | ` float_asin `, ` gecode_float_asin `, ` fzn_float_asin ` | ` p_float_asin ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0520](#d0520) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="r305"></a>[R305](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3039) | ` float_atan `, ` gecode_float_atan `, ` fzn_float_atan ` | ` p_float_atan ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0522](#d0522) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="r306"></a>[R306](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3040) | ` float_cos `, ` gecode_float_cos `, ` fzn_float_cos ` | ` p_float_cos ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0524](#d0524) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="r307"></a>[R307](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3042) | ` float_exp `, ` gecode_float_exp `, ` fzn_float_exp ` | ` p_float_exp ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0526](#d0526) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="r308"></a>[R308](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3043) | ` float_ln `, ` gecode_float_ln `, ` fzn_float_ln ` | ` p_float_ln ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0527](#d0527) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="r309"></a>[R309](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3044) | ` float_log10 `, ` gecode_float_log10 `, ` fzn_float_log10 ` | ` p_float_log10 ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0528](#d0528) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="r310"></a>[R310](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3045) | ` float_log2 `, ` gecode_float_log2 `, ` fzn_float_log2 ` | ` p_float_log2 ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0529](#d0529) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="r311"></a>[R311](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3046) | ` float_sin `, ` gecode_float_sin `, ` fzn_float_sin ` | ` p_float_sin ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0532](#d0532) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="r312"></a>[R312](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3048) | ` float_tan `, ` gecode_float_tan `, ` fzn_float_tan ` | ` p_float_tan ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0534](#d0534) | planned | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r302"></a>[R302](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3036) | ` gecode_float_pow_base `, ` gecode_gecode_float_pow_base `, ` fzn_gecode_float_pow_base ` | ` p_float_pow_base ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D3049](#d3049), [D3080](#d3080) | ` gecode_float_pow_base `, ` gecode_gecode_float_pow_base `, ` fzn_gecode_float_pow_base ` | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r303"></a>[R303](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3037) | ` float_acos `, ` gecode_float_acos `, ` fzn_float_acos ` | ` p_float_acos ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0518](#d0518) | ` float_acos `, ` gecode_float_acos `, ` fzn_float_acos ` | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r304"></a>[R304](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3038) | ` float_asin `, ` gecode_float_asin `, ` fzn_float_asin ` | ` p_float_asin ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0520](#d0520) | ` float_asin `, ` gecode_float_asin `, ` fzn_float_asin ` | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r305"></a>[R305](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3039) | ` float_atan `, ` gecode_float_atan `, ` fzn_float_atan ` | ` p_float_atan ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0522](#d0522) | ` float_atan `, ` gecode_float_atan `, ` fzn_float_atan ` | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r306"></a>[R306](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3040) | ` float_cos `, ` gecode_float_cos `, ` fzn_float_cos ` | ` p_float_cos ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0524](#d0524) | ` float_cos `, ` gecode_float_cos `, ` fzn_float_cos ` | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r307"></a>[R307](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3042) | ` float_exp `, ` gecode_float_exp `, ` fzn_float_exp ` | ` p_float_exp ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0526](#d0526) | ` float_exp `, ` gecode_float_exp `, ` fzn_float_exp ` | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r308"></a>[R308](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3043) | ` float_ln `, ` gecode_float_ln `, ` fzn_float_ln ` | ` p_float_ln ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0527](#d0527) | ` float_ln `, ` gecode_float_ln `, ` fzn_float_ln ` | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r309"></a>[R309](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3044) | ` float_log10 `, ` gecode_float_log10 `, ` fzn_float_log10 ` | ` p_float_log10 ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0528](#d0528) | ` float_log10 `, ` gecode_float_log10 `, ` fzn_float_log10 ` | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r310"></a>[R310](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3045) | ` float_log2 `, ` gecode_float_log2 `, ` fzn_float_log2 ` | ` p_float_log2 ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0529](#d0529) | ` float_log2 `, ` gecode_float_log2 `, ` fzn_float_log2 ` | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r311"></a>[R311](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3046) | ` float_sin `, ` gecode_float_sin `, ` fzn_float_sin ` | ` p_float_sin ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0532](#d0532) | ` float_sin `, ` gecode_float_sin `, ` fzn_float_sin ` | [checker-018](#family-018) | last result; family domain rule |
+| <a id="r312"></a>[R312](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L3048) | ` float_tan `, ` gecode_float_tan `, ` fzn_float_tan ` | ` p_float_tan ` / ` GECODE_HAS_FLOAT_VARS & GECODE_HAS_MPFR ` | [D0534](#d0534) | ` float_tan `, ` gecode_float_tan `, ` fzn_float_tan ` | [checker-018](#family-018) | last result; family domain rule |
 
 ## Include and selection index
 
@@ -3094,24 +3121,24 @@ Include/resource entry only; see the selection index.
 | <a id="d0515"></a>D0515 / 150 | ` predicate set_diff(var set of int: s, var set of int: t, var set of int: r) ` | S direct; G direct | C (qualified) | [checker-017](#family-017) | last result |
 | <a id="d0516"></a>D0516 / 152 | ` predicate set_symdiff(var set of int: s, var set of int: t, var set of int: r) ` | S direct; G direct | C (qualified) | [checker-017](#family-017) | last result |
 | <a id="d0517"></a>D0517 / 159 | ` predicate float_abs(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-015](#family-015) | last result; family domain rule |
-| <a id="d0518"></a>D0518 / 161 | ` predicate float_acos(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0519"></a>D0519 / 163 | ` predicate float_acosh(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0520"></a>D0520 / 165 | ` predicate float_asin(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0521"></a>D0521 / 167 | ` predicate float_asinh(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0522"></a>D0522 / 169 | ` predicate float_atan(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0523"></a>D0523 / 171 | ` predicate float_atanh(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0524"></a>D0524 / 173 | ` predicate float_cos(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0525"></a>D0525 / 175 | ` predicate float_cosh(var float: x, var float: y) ` | S direct; G decomposition → [D3116](#d3116) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0526"></a>D0526 / 177 | ` predicate float_exp(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0527"></a>D0527 / 179 | ` predicate float_ln(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0528"></a>D0528 / 181 | ` predicate float_log10(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0529"></a>D0529 / 183 | ` predicate float_log2(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0530"></a>D0530 / 185 | ` predicate float_sqrt(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0531"></a>D0531 / 187 | ` predicate float_pow(var float: x, var float: y, var float: z) ` | S direct; G decomposition → [D3081](#d3081) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0532"></a>D0532 / 189 | ` predicate float_sin(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0533"></a>D0533 / 191 | ` predicate float_sinh(var float: x, var float: y) ` | S direct; G decomposition → [D3115](#d3115) | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0534"></a>D0534 / 193 | ` predicate float_tan(var float: x, var float: y) ` | S direct; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d0535"></a>D0535 / 195 | ` predicate float_tanh(var float: x, var float: y) ` | S direct; G decomposition → [D3117](#d3117) | planned | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0518"></a>D0518 / 161 | ` predicate float_acos(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0519"></a>D0519 / 163 | ` predicate float_acosh(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0520"></a>D0520 / 165 | ` predicate float_asin(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0521"></a>D0521 / 167 | ` predicate float_asinh(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0522"></a>D0522 / 169 | ` predicate float_atan(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0523"></a>D0523 / 171 | ` predicate float_atanh(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0524"></a>D0524 / 173 | ` predicate float_cos(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0525"></a>D0525 / 175 | ` predicate float_cosh(var float: x, var float: y) ` | S direct; G decomposition → [D3116](#d3116) | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0526"></a>D0526 / 177 | ` predicate float_exp(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0527"></a>D0527 / 179 | ` predicate float_ln(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0528"></a>D0528 / 181 | ` predicate float_log10(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0529"></a>D0529 / 183 | ` predicate float_log2(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0530"></a>D0530 / 185 | ` predicate float_sqrt(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0531"></a>D0531 / 187 | ` predicate float_pow(var float: x, var float: y, var float: z) ` | S direct; G decomposition → [D3081](#d3081) | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0532"></a>D0532 / 189 | ` predicate float_sin(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0533"></a>D0533 / 191 | ` predicate float_sinh(var float: x, var float: y) ` | S direct; G decomposition → [D3115](#d3115) | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0534"></a>D0534 / 193 | ` predicate float_tan(var float: x, var float: y) ` | S direct; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d0535"></a>D0535 / 195 | ` predicate float_tanh(var float: x, var float: y) ` | S direct; G decomposition → [D3117](#d3117) | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
 | <a id="d0536"></a>D0536 / 198 | ` predicate float_eq(var float: x, var float: y) :: promise_commutative ` | S decomposition → [D1950](#d1950), [D1977](#d1977); G decomposition → [D1950](#d1950), [D1977](#d1977) | C (qualified) | [checker-015](#family-015) | exact equality slot |
 | <a id="d0537"></a>D0537 / 200 | ` predicate float_eq_reif(var float: x, var float: y, var bool: b) ` | S direct; G direct | C (qualified) | [checker-015](#family-015) | last Boolean (truth) |
 | <a id="d0538"></a>D0538 / 202 | ` predicate float_le(var float: x, var float: y) ` | S decomposition → [D1953](#d1953), [D1954](#d1954); G decomposition → [D1953](#d1953), [D1954](#d1954) | C (qualified) | [checker-015](#family-015) | none |
@@ -3146,9 +3173,9 @@ Include/resource entry only; see the selection index.
 | <a id="d0567"></a>D0567 / 286 | ` predicate array_var_set_element(var int: idx, array [int] of var set of int: xs, var set of int: y) ` | S decomposition → [D1357](#d1357), [D1959](#d1959); G decomposition → [D1357](#d1357), [D1959](#d1959) | C (qualified) | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="d0568"></a>D0568 / 301 | ` predicate bool_clause_reif(array [int] of var bool: xs, array [int] of var bool: ys, var bool: b) ` | S decomposition → [D1406](#d1406); G direct | C (qualified) | [checker-014](#family-014) | last Boolean (truth) |
 | <a id="d0569"></a>D0569 / 303 | ` predicate array_int_maximum(var int: m, array [int] of var int: xs) ` | S decomposition → [D1407](#d1407); G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d0570"></a>D0570 / 305 | ` predicate array_float_maximum(var float: m, array [int] of var float: xs) ` | S decomposition → [D1408](#d1408); G decomposition → [D3075](#d3075) | planned | [checker-018](#family-018) | argument 1 (extremum) |
+| <a id="d0570"></a>D0570 / 305 | ` predicate array_float_maximum(var float: m, array [int] of var float: xs) ` | S decomposition → [D1408](#d1408); G decomposition → [D3075](#d3075) | C (qualified) | [checker-018](#family-018) | argument 1 (extremum) |
 | <a id="d0571"></a>D0571 / 307 | ` predicate array_int_minimum(var int: m, array [int] of var int: xs) ` | S decomposition → [D1409](#d1409); G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d0572"></a>D0572 / 309 | ` predicate array_float_minimum(var float: m, array [int] of var float: xs) ` | S decomposition → [D1410](#d1410); G decomposition → [D3078](#d3078) | planned | [checker-018](#family-018) | argument 1 (extremum) |
+| <a id="d0572"></a>D0572 / 309 | ` predicate array_float_minimum(var float: m, array [int] of var float: xs) ` | S decomposition → [D1410](#d1410); G decomposition → [D3078](#d3078) | C (qualified) | [checker-018](#family-018) | argument 1 (extremum) |
 | <a id="d0573"></a>D0573 / 325 | ` predicate array_var_bool_element_nonshifted(var int: idx, array [int] of var bool: xs, var bool: y) ` | S decomposition → [D1402](#d1402); G decomposition → [D3068](#d3068) | C (qualified) | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="d0574"></a>D0574 / 330 | ` predicate array_var_int_element_nonshifted(var int: idx, array [int] of var int: xs, var int: y) ` | S decomposition → [D1403](#d1403); G decomposition → [D3069](#d3069) | C (qualified) | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="d0575"></a>D0575 / 335 | ` predicate array_var_float_element_nonshifted( var int: idx, array [int] of var float: xs, var float: y, ) ` | S decomposition → [D1404](#d1404); G decomposition → [D3070](#d3070) | C (qualified) | [checker-016](#family-016) | selected result (known index/condition) |
@@ -9841,10 +9868,10 @@ Include/resource entry only; see the selection index.
 | <a id="d3043"></a>D3043 / 280 | ` predicate gecode_set_channel_sorted(array[int] of var int: x, var set of int: y) ` | S outside profile; G direct | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
 | <a id="d3044"></a>D3044 / 284 | ` predicate gecode_array_set_intersect( array[int] of var set of int: x, var set of int: y, ) ` | S outside profile; G direct | planned | [checker-027](#family-027) | [unique outputs](#family-027) |
 | <a id="d3045"></a>D3045 / 292 | ` predicate gecode_set_element2d( array[int] of var set of int: x, var int: column, int: width, var int: row, int: height, var set of int: value, ) ` | S outside profile; G direct | C (qualified) | [checker-016](#family-016) | selected result (known index/condition) |
-| <a id="d3046"></a>D3046 / 302 | ` predicate gecode_float_pow(var float: x, int: n, var float: y) ` | S outside profile; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d3047"></a>D3047 / 305 | ` predicate gecode_float_array_min(array[int] of var float: x, var float: y) ` | S outside profile; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d3048"></a>D3048 / 308 | ` predicate gecode_float_array_max(array[int] of var float: x, var float: y) ` | S outside profile; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d3049"></a>D3049 / 311 | ` predicate gecode_float_pow_base(float: base, var float: x, var float: y) ` | S outside profile; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d3046"></a>D3046 / 302 | ` predicate gecode_float_pow(var float: x, int: n, var float: y) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d3047"></a>D3047 / 305 | ` predicate gecode_float_array_min(array[int] of var float: x, var float: y) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d3048"></a>D3048 / 308 | ` predicate gecode_float_array_max(array[int] of var float: x, var float: y) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d3049"></a>D3049 / 311 | ` predicate gecode_float_pow_base(float: base, var float: x, var float: y) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
 | <a id="d3050"></a>D3050 / 315 | ` predicate gecode_arg_min_int( array[int] of var int: x, int: offset, var int: index, bool: break_ties, ) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
 | <a id="d3051"></a>D3051 / 322 | ` predicate gecode_arg_max_int( array[int] of var int: x, int: offset, var int: index, bool: break_ties, ) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
 | <a id="d3052"></a>D3052 / 329 | ` predicate gecode_arg_min_bool( array[int] of var bool: x, int: offset, var int: index, bool: break_ties, ) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
@@ -9881,13 +9908,13 @@ Include/resource entry only; see the selection index.
 | --- | --- | --- | --- | --- | --- |
 | <a id="d3072"></a>D3072 / 4 | ` predicate bool_clause_reif(array[int] of var bool: as, array[int] of var bool: bs, var bool: b) ` | S outside profile; G direct | C (qualified) | [checker-014](#family-014) | last Boolean (truth) |
 | <a id="d3073"></a>D3073 / 8 | ` predicate array_int_maximum(var int: m, array[int] of var int: x) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d3074"></a>D3074 / 10 | ` predicate gecode_float_array_max(array[int] of var float: x, var float: m) ` | S outside profile; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d3074"></a>D3074 / 10 | ` predicate gecode_float_array_max(array[int] of var float: x, var float: m) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
 | <a id="d3075"></a>D3075 / 12 | ` predicate array_float_maximum(var float: m, array[int] of var float: x) ` | wrapper → ` gecode_float_array_max `, ` length ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d3076"></a>D3076 / 19 | ` predicate array_int_minimum(var int: m, array[int] of var int: x) ` | S outside profile; G direct | planned | [checker-020](#family-020) | [unique outputs](#family-020) |
-| <a id="d3077"></a>D3077 / 21 | ` predicate gecode_float_array_min(array[int] of var float: x, var float: m) ` | S outside profile; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d3077"></a>D3077 / 21 | ` predicate gecode_float_array_min(array[int] of var float: x, var float: m) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
 | <a id="d3078"></a>D3078 / 23 | ` predicate array_float_minimum(var float: m, array[int] of var float: x) ` | wrapper → ` gecode_float_array_min `, ` length ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
-| <a id="d3079"></a>D3079 / 30 | ` predicate gecode_float_pow(var float: x, int: n, var float: y) ` | S outside profile; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
-| <a id="d3080"></a>D3080 / 31 | ` predicate gecode_float_pow_base(float: base, var float: x, var float: y) ` | S outside profile; G direct | planned | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d3079"></a>D3079 / 30 | ` predicate gecode_float_pow(var float: x, int: n, var float: y) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
+| <a id="d3080"></a>D3080 / 31 | ` predicate gecode_float_pow_base(float: base, var float: x, var float: y) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |
 | <a id="d3081"></a>D3081 / 34 | ` predicate float_pow(var float: x, var float: exponent, var float: y) ` | wrapper → ` assert `, ` fix `, ` floor `, ` gecode_float_pow `, ` gecode_float_pow_base `, ` int2float `, ` is_fixed ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-842"></a>

@@ -1238,3 +1238,127 @@ fn parser_free_sets_validate_codes_legacy_encodings_and_canonical_ranges() {
         assert!(serde_json::from_value::<Assignment>(json!({"entries":[{"name":"s","value":{"kind":"scalar","value":{"kind":"integer_set","value":{"ranges":ranges}}}}]})).is_err());
     }
 }
+
+#[test]
+fn parser_free_float_functions_validate_operations_fixed_roles_and_shapes() {
+    let float = |value: f64| json!({"Literal":{"kind":"float","value":value}});
+    let mut artifact = executable();
+    artifact["model"]["slots"][0]["kind"] = json!("float");
+    artifact["model"]["bindings"]["x"]["kind"] = json!("float");
+    artifact["model"]["variables"][0]["domains"] = json!([{"kind":"float"}]);
+    for (name, predicate) in [
+        (
+            "float_sqrt",
+            json!({"FloatArithmetic":{"operation":"square_root","inputs":[float(4.0)],"result":{"Variable":0}}}),
+        ),
+        (
+            "gecode_float_pow_base",
+            json!({"FloatArithmetic":{"operation":"fixed_base_power","inputs":[float(2.0),float(3.0)],"result":{"Variable":0}}}),
+        ),
+        (
+            "gecode_float_pow",
+            json!({"FloatIntegerPower":{"base":float(-2.0),"exponent":"3","result":{"Variable":0}}}),
+        ),
+        (
+            "array_float_minimum",
+            json!({"FloatArrayExtremum":{"extremum":"minimum","inputs":[float(2.0),float(1.0)],"result":{"Variable":0}}}),
+        ),
+    ] {
+        artifact["model"]["constraints"][0]["reference"]["predicate"] = json!(name);
+        artifact["model"]["constraints"][0]["predicate"] = predicate;
+        let model = PreparedModel::from_json(&artifact.to_string()).unwrap();
+        let report = model.check(&serde_json::from_value(json!({"entries":[{"name":"x","value":{"kind":"scalar","value":{"kind":"float","value":99.0}}}]})).unwrap()).unwrap();
+        assert_eq!(report.status, Status::Invalid);
+        let details = serde_json::to_value(&report).unwrap()["violations"][0]["details"].clone();
+        if name == "gecode_float_pow" {
+            assert_eq!(details["exponent"], "3");
+        }
+        let variant = if name == "gecode_float_pow" {
+            "FloatIntegerPower"
+        } else if name == "array_float_minimum" {
+            "FloatArrayExtremum"
+        } else {
+            "FloatArithmetic"
+        };
+        let mut broken = artifact.clone();
+        broken["model"]["constraints"][0]["reference"]["predicate"] = json!("float_exp");
+        assert!(PreparedModel::from_json(&broken.to_string()).is_err());
+        for invalid in [
+            json!({"Variable":100}),
+            json!({"Literal":{"kind":"integer","value":"1"}}),
+        ] {
+            let mut broken = artifact.clone();
+            broken["model"]["constraints"][0]["predicate"][variant]["result"] = invalid;
+            assert!(PreparedModel::from_json(&broken.to_string()).is_err());
+        }
+        let mutations = match name {
+            "float_sqrt" => vec![
+                ("operation", json!("power")),
+                ("inputs", json!([])),
+                ("inputs", json!([float(4.0), float(2.0)])),
+                ("inputs", json!([{"Variable":100}])),
+            ],
+            "gecode_float_pow_base" => vec![
+                ("inputs", json!([{"Variable":0},float(3.0)])),
+                ("inputs", json!([float(0.0), float(3.0)])),
+                ("inputs", json!([float(-2.0), float(3.0)])),
+            ],
+            "gecode_float_pow" => vec![
+                ("exponent", json!(3)),
+                ("exponent", json!("3.0")),
+                ("exponent", json!("-1")),
+                ("exponent", json!("2147483647")),
+                ("base", json!({"Variable":100})),
+                ("base", json!({"Literal":{"kind":"integer","value":"2"}})),
+            ],
+            _ => vec![
+                ("inputs", json!([])),
+                ("inputs", json!([{"Variable":100}])),
+                (
+                    "inputs",
+                    json!([{"Literal":{"kind":"integer","value":"2"}}]),
+                ),
+                ("extremum", json!("maximum")),
+            ],
+        };
+        for (field, value) in mutations {
+            let mut broken = artifact.clone();
+            broken["model"]["constraints"][0]["predicate"][variant][field] = value;
+            assert!(
+                PreparedModel::from_json(&broken.to_string()).is_err(),
+                "{name}: {field}"
+            );
+        }
+    }
+}
+
+#[cfg(feature = "prepare")]
+#[test]
+fn float_functions_export_loading_preserves_reports_policy_and_text() {
+    let mut model = zincite_check::prepare(
+        "functions.fzn",
+        include_str!("../../../examples/checker-compilation/float-functions.fzn"),
+    )
+    .unwrap();
+    model.set_float_tolerance(zincite_check::FloatTolerance::new(2e-8, 3e-9).unwrap());
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    assert_eq!(loaded.float_tolerance(), model.float_tolerance());
+    for text in ["x=4.0;", "x=4.0;cube=3.0;smallest=7.0;", "x=9.0;", ""] {
+        let candidate = zincite_check::parse_assignment("candidate.dzn", text).unwrap();
+        let original = model.check(&candidate).unwrap();
+        let reloaded = loaded.check(&candidate).unwrap();
+        assert_eq!(
+            serde_json::to_value(&original).unwrap(),
+            serde_json::to_value(&reloaded).unwrap()
+        );
+        assert_eq!(
+            zincite_check::cli::render_text(&original),
+            zincite_check::cli::render_text(&reloaded)
+        );
+    }
+    let candidate = zincite_check::parse_assignment("candidate.dzn", "x=-1.0;").unwrap();
+    assert_eq!(
+        serde_json::to_value(model.check(&candidate).unwrap_err()).unwrap(),
+        serde_json::to_value(loaded.check(&candidate).unwrap_err()).unwrap()
+    );
+}

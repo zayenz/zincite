@@ -1496,14 +1496,56 @@ impl<'a> Lowerer<'a> {
                     code: Some(code),
                 }
             }
-            FloatName::Arithmetic(operation) => Predicate::FloatArithmetic {
-                operation,
-                inputs: args[..operation.input_count()]
+            FloatName::Arithmetic(operation) => {
+                let inputs = args[..operation.input_count()]
                     .iter()
                     .map(|arg| self.scalar(arg, ValueType::Float))
-                    .collect::<Result<_>>()?,
-                result: self.scalar(args[operation.input_count()], ValueType::Float)?,
-            },
+                    .collect::<Result<_>>()?;
+                if operation == FloatOperation::FixedBasePower {
+                    let base = self.constant_float(args[0])?;
+                    if base.get() <= 0.0 {
+                        return Err(self
+                            .source
+                            .error(args[0], "fixed-base power requires a positive base"));
+                    }
+                }
+                Predicate::FloatArithmetic {
+                    operation,
+                    inputs,
+                    result: self.scalar(args[operation.input_count()], ValueType::Float)?,
+                }
+            }
+            FloatName::IntegerPower => {
+                let exponent = self.constant_integer(args[1])?;
+                floats::validate_integer_exponent(exponent)
+                    .map_err(|message| self.source.error(args[1], message))?;
+                Predicate::FloatIntegerPower {
+                    base: self.scalar(args[0], ValueType::Float)?,
+                    exponent,
+                    result: self.scalar(args[2], ValueType::Float)?,
+                }
+            }
+            FloatName::ArrayExtremum {
+                extremum,
+                result_first,
+            } => {
+                let (inputs, result) = if result_first {
+                    (args[1], args[0])
+                } else {
+                    (args[0], args[1])
+                };
+                let elements = self.array(inputs, ValueType::Float)?;
+                if elements.is_empty() {
+                    return Err(self
+                        .source
+                        .error(inputs, "float array extremum needs a nonempty array"));
+                }
+                Predicate::FloatArrayExtremum {
+                    extremum,
+                    inputs: elements,
+                    result: self.scalar(result, ValueType::Float)?,
+                }
+            }
             FloatName::Conversion(operation) => Predicate::FloatConversion {
                 operation,
                 input: self.scalar(args[0], operation.input_type())?,

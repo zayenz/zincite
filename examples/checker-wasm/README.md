@@ -16,11 +16,12 @@ cargo build --locked -p zincite-check --lib --target wasm32-unknown-unknown --no
 wasm-bindgen --target nodejs --out-dir target/checker-wasm/node target/wasm32-unknown-unknown/release/zincite_check.wasm
 wasm-bindgen --target web --out-dir target/checker-wasm/web target/wasm32-unknown-unknown/release/zincite_check.wasm
 cargo tree --locked -p zincite-check --target wasm32-unknown-unknown --no-default-features --features wasm --edges normal,build
+cargo tree --locked -p zincite-check --target wasm32-unknown-unknown --no-default-features --features wasm --edges features
 ```
 
 The binding library and CLI must use the same version, currently 0.2.129. The
-dependency tree includes Serde and binding support; it excludes `zincite-syntax`
-and the formatter, linter and query crates. The package builds an `rlib` for Rust
+dependency tree includes Serde, generic Rust libm 0.2.16 and binding support; it
+excludes `zincite-syntax` and the formatter, linter and query crates. The package builds an `rlib` for Rust
 callers and a `cdylib` for the Wasm bindings. Native builds use the default
 `prepare` feature and keep both CLI entry points.
 
@@ -104,10 +105,10 @@ edits and job feedback using these bindings and the saved compiled model.
 
 ## Execute the native/Wasm comparison
 
-Build the bindings above, then export six artifacts with the native CLI. This
+Build the bindings above, then export seven artifacts with the native CLI. This
 setup uses both saved compiled workshop models and a tiny handwritten FlatZinc
-integer/set model, the saved float-core control, a direct selection control
-and a direct set control.
+integer/set model, the saved float-core control, a direct selection control,
+a direct set control, and a float-function control.
 This setup does not run MiniZinc:
 
 ```sh
@@ -148,7 +149,8 @@ target/debug/zincite-check --export "$checker_run/bench.json" examples/checker-c
 target/debug/zincite-check --float-absolute-tolerance 2e-9 --float-relative-tolerance 3e-9 --export "$checker_run/float.json" examples/checker-compilation/float-core.fzn
 target/debug/zincite-check --float-absolute-tolerance 2e-6 --float-relative-tolerance 3e-6 --export "$checker_run/selection.json" examples/checker-compilation/selection.fzn
 target/debug/zincite-check --export "$checker_run/sets.json" examples/checker-compilation/set-primitives.fzn
-node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" examples/checker-wasm/candidates.json target/debug/zincite-check
+target/debug/zincite-check --float-absolute-tolerance 2e-9 --float-relative-tolerance 3e-9 --export "$checker_run/functions.json" examples/checker-compilation/float-functions.fzn
+node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" examples/checker-wasm/candidates.json target/debug/zincite-check
 ```
 
 `smoke.cjs` reads only built bindings, prepared artifacts and typed assignment
@@ -157,7 +159,7 @@ compares every observable report with the native CLI's `--load` path. The CLI
 receives literal `.dzn` assignments made from the same typed values in a temporary
 directory. The consumer removes those temporary assignments when finished.
 
-The twenty-eight named cases cover valid, invalid, incomplete and invalid-with-incomplete
+The thirty-four named cases cover valid, invalid, incomplete and invalid-with-incomplete
 reports, application metadata, Boolean and array input, set definitions and domain
 failures, strict resource conflicts, and the distinct integers 9007199254740992
 and 9007199254740993 as both integers and set endpoints. The exact-value model
@@ -176,10 +178,13 @@ strict float tolerance. Set cases compare difference and symmetric difference,
 cardinality and reifier completion, sorted-element and native characteristic
 order findings, supplied-output conflicts, and incomplete input with a known
 violation. Their endpoints above 2^53 cross the same exact-string boundary.
-A second pass exercises reuse after changing and removing
-inputs. Small boundary checks also reject a
+Float-function cases compare square root, fixed integer and fixed-base powers,
+inverse hyperbolic sine and both extrema conventions. They exercise saved, custom
+and strict policy, typed supplied-output conflicts, missing input and a located
+domain error against the native CLI diagnostic. A second pass exercises reuse
+after changing and removing inputs. Small boundary checks also reject a
 malformed artifact, a JSON number supplied as an integer and an unknown assignment
-name. Expected output ends with `Native/Wasm reports agree across 56 checks; finite floats, saved/custom tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, global findings and input errors verified.` The native suite owns
+name. Expected output ends with `Native/Wasm reports and errors agree across 68 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, global findings and input errors verified.` The native suite owns
 the wider evaluator coverage.
 
 

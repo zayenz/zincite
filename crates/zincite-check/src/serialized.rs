@@ -216,6 +216,8 @@ impl PreparedModel {
                 Predicate::FloatRelation { .. }
                 | Predicate::FloatLinear { .. }
                 | Predicate::FloatArithmetic { .. }
+                | Predicate::FloatIntegerPower { .. }
+                | Predicate::FloatArrayExtremum { .. }
                 | Predicate::FloatConversion { .. }
                 | Predicate::FloatMembership { .. } => {
                     self.validate_float(constraint)?;
@@ -578,7 +580,44 @@ impl PreparedModel {
                 for operand in inputs.iter().chain(std::iter::once(result)) {
                     self.validate_operand(operand, ValueType::Float)?;
                 }
+                if *operation == FloatOperation::FixedBasePower
+                    && !matches!(&inputs[0], Operand::Literal(Value::Float(base)) if base.get() > 0.0)
+                {
+                    return Err(invalid("fixed-base power requires a fixed positive base"));
+                }
                 FloatName::Arithmetic(*operation)
+            }
+            Predicate::FloatIntegerPower {
+                base,
+                exponent,
+                result,
+            } => {
+                self.validate_operand(base, ValueType::Float)?;
+                self.validate_operand(result, ValueType::Float)?;
+                floats::validate_integer_exponent(*exponent).map_err(invalid)?;
+                FloatName::IntegerPower
+            }
+            Predicate::FloatArrayExtremum {
+                extremum,
+                inputs,
+                result,
+            } => {
+                if inputs.is_empty() {
+                    return Err(invalid("float array extremum needs a nonempty array"));
+                }
+                for operand in inputs.iter().chain(std::iter::once(result)) {
+                    self.validate_operand(operand, ValueType::Float)?;
+                }
+                let FloatName::ArrayExtremum {
+                    extremum: named, ..
+                } = name
+                else {
+                    return Err(mismatch());
+                };
+                if named != *extremum {
+                    return Err(mismatch());
+                }
+                name
             }
             Predicate::FloatConversion {
                 operation,

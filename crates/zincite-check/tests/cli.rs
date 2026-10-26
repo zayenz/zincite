@@ -379,3 +379,69 @@ fn float_cli_flags_save_settings_and_override_only_the_named_component() {
     );
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn float_function_cli_reports_typed_findings_and_located_domain_errors() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-check-functions-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let model = directory.join("functions.fzn");
+    let data = directory.join("candidate.dzn");
+    let artifact = directory.join("functions.json");
+    std::fs::write(
+        &model,
+        include_str!("../../../examples/checker-compilation/float-functions.fzn"),
+    )
+    .unwrap();
+    let exported = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+        .arg("--export")
+        .arg(&artifact)
+        .arg(&model)
+        .output()
+        .unwrap();
+    assert!(exported.status.success());
+    std::fs::write(&data, "x=4.0;cube=3.0;smallest=7.0;").unwrap();
+    for loaded in [false, true] {
+        for format in ["json", "text"] {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_zincite-check"));
+            if loaded {
+                command.arg("--load");
+            }
+            let result = command
+                .args(["--format", format])
+                .arg(if loaded { &artifact } else { &model })
+                .arg(&data)
+                .output()
+                .unwrap();
+            assert_eq!(result.status.code(), Some(1));
+            assert!(result.stderr.is_empty());
+            if format == "json" {
+                let report: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+                assert_eq!(
+                    report["violations"][0]["details"]["kind"],
+                    "float_integer_power"
+                );
+                assert_eq!(report["violations"][0]["details"]["exponent"], "3");
+                assert_eq!(
+                    report["violations"][1]["details"]["kind"],
+                    "float_array_extremum"
+                );
+            } else {
+                let text = String::from_utf8(result.stdout).unwrap();
+                assert!(text.contains("integer power") && text.contains("array Minimum"));
+            }
+        }
+    }
+    std::fs::write(&data, "x=-1.0;").unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+        .args(["--load", "--format", "json"])
+        .arg(&artifact)
+        .arg(&data)
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(2));
+    let error = String::from_utf8(result.stderr).unwrap();
+    assert!(error.contains("functions.fzn:8:1: sqrt requires a nonnegative argument"));
+    assert!(result.stdout.is_empty());
+    std::fs::remove_dir_all(directory).unwrap();
+}

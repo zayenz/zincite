@@ -15,7 +15,8 @@ use relations::{RelationMode, RelationName, checked_sum};
 mod floats;
 use floats::FloatName;
 pub use floats::{
-    FiniteFloat, FloatConversion, FloatMembership, FloatOperation, FloatSet, FloatTolerance,
+    FiniteFloat, FloatConversion, FloatExtremum, FloatMembership, FloatOperation, FloatSet,
+    FloatTolerance,
 };
 mod selection;
 pub use selection::ElementLayout;
@@ -356,6 +357,20 @@ pub enum ViolationKind {
         inputs: Vec<ArgumentValue>,
         result: ArgumentValue,
     },
+    FloatIntegerPower {
+        base: ArgumentValue,
+        #[serde(
+            serialize_with = "serialize_integer",
+            deserialize_with = "deserialize_integer"
+        )]
+        exponent: i64,
+        result: ArgumentValue,
+    },
+    FloatArrayExtremum {
+        extremum: FloatExtremum,
+        inputs: Vec<ArgumentValue>,
+        result: ArgumentValue,
+    },
     FloatConversion {
         operation: FloatConversion,
         input: ArgumentValue,
@@ -636,6 +651,20 @@ enum Predicate {
         inputs: Vec<Operand>,
         result: Operand,
     },
+    FloatIntegerPower {
+        base: Operand,
+        #[serde(
+            serialize_with = "serialize_integer",
+            deserialize_with = "deserialize_integer"
+        )]
+        exponent: i64,
+        result: Operand,
+    },
+    FloatArrayExtremum {
+        extremum: FloatExtremum,
+        inputs: Vec<Operand>,
+        result: Operand,
+    },
     FloatConversion {
         operation: FloatConversion,
         input: Operand,
@@ -890,9 +919,11 @@ impl Predicate {
                 terms, condition, ..
             } => terms.iter().chain(condition.operand()).collect(),
             Self::FloatArithmetic { inputs, result, .. }
+            | Self::FloatArrayExtremum { inputs, result, .. }
             | Self::IntegerArithmetic { inputs, result, .. } => {
                 inputs.iter().chain(std::iter::once(result)).collect()
             }
+            Self::FloatIntegerPower { base, result, .. } => vec![base, result],
             Self::FloatConversion { input, result, .. } => vec![input, result],
             Self::FloatMembership { element, .. } => vec![element],
             Self::Linear { terms, .. } => terms.iter().collect(),
@@ -1024,6 +1055,8 @@ enum DefinitionDirection {
     FloatReified,
     FloatLinear { term: usize },
     FloatArithmetic,
+    FloatIntegerPower,
+    FloatArrayExtremum,
     FloatConversion,
     BooleanCopy { input: usize, complement: bool },
     BooleanResult,
@@ -1329,6 +1362,27 @@ impl PreparedModel {
                         .map_err(|message| constraint.execution_error(message))?,
                 )))
             }
+            (
+                Predicate::FloatIntegerPower { base, exponent, .. },
+                DefinitionDirection::FloatIntegerPower,
+            ) => base
+                .value(values)
+                .map(|base| {
+                    floats::integer_power(base.float(), *exponent)
+                        .map(Value::Float)
+                        .map_err(|message| constraint.execution_error(message))
+                })
+                .transpose(),
+            (
+                Predicate::FloatArrayExtremum {
+                    extremum, inputs, ..
+                },
+                DefinitionDirection::FloatArrayExtremum,
+            ) => Ok(inputs
+                .iter()
+                .map(|input| input.value(values).map(Value::float))
+                .collect::<Option<Vec<_>>>()
+                .map(|inputs| Value::Float(extremum.calculate(&inputs)))),
             (
                 Predicate::FloatConversion {
                     operation, input, ..
@@ -1923,6 +1977,46 @@ impl PreparedModel {
                     result: argument(result),
                 }))
             }
+            Predicate::FloatIntegerPower {
+                base,
+                exponent,
+                result,
+            } => {
+                let expected = floats::integer_power(
+                    base.value(values).expect("available operand").float(),
+                    *exponent,
+                )
+                .map_err(|message| constraint.execution_error(message))?;
+                Ok((!self.float_tolerance.equal(
+                    expected,
+                    result.value(values).expect("available operand").float(),
+                ))
+                .then(|| ViolationKind::FloatIntegerPower {
+                    base: argument(base),
+                    exponent: *exponent,
+                    result: argument(result),
+                }))
+            }
+            Predicate::FloatArrayExtremum {
+                extremum,
+                inputs,
+                result,
+            } => {
+                let input_values: Vec<_> = inputs
+                    .iter()
+                    .map(|input| input.value(values).expect("available operand").float())
+                    .collect();
+                let expected = extremum.calculate(&input_values);
+                Ok((!self.float_tolerance.equal(
+                    expected,
+                    result.value(values).expect("available operand").float(),
+                ))
+                .then(|| ViolationKind::FloatArrayExtremum {
+                    extremum: *extremum,
+                    inputs: inputs.iter().map(argument).collect(),
+                    result: argument(result),
+                }))
+            }
             Predicate::FloatConversion {
                 operation,
                 input,
@@ -2507,6 +2601,12 @@ fn definition_direction(
         }),
         Predicate::FloatArithmetic { inputs, .. } => Ok((occurrences.as_slice() == [inputs.len()])
             .then_some(DefinitionDirection::FloatArithmetic)),
+        Predicate::FloatIntegerPower { .. } => {
+            Ok((occurrences.as_slice() == [1]).then_some(DefinitionDirection::FloatIntegerPower))
+        }
+        Predicate::FloatArrayExtremum { inputs, .. } => Ok((occurrences.as_slice()
+            == [inputs.len()])
+        .then_some(DefinitionDirection::FloatArrayExtremum)),
         Predicate::FloatConversion { .. } => {
             Ok((occurrences.as_slice() == [1]).then_some(DefinitionDirection::FloatConversion))
         }
