@@ -5446,3 +5446,362 @@ fn packing_and_rectangle_reports_round_trip_and_recompute_edits() {
         }
     }
 }
+
+#[test]
+fn set_global_aliases_signatures_and_fixed_roles() {
+    for prefix in ["", "gecode_", "fzn_"] {
+        for (root, signature, args) in [
+            ("disjoint", "var set of int:a,var set of int:b", "{1},{2}"),
+            (
+                "array_set_union",
+                "array[int] of var set of int:a,var set of int:b",
+                "[{1},{2}],1..2",
+            ),
+            (
+                "array_set_partition",
+                "array[int] of var set of int:a,set of int:b",
+                "[{1},{2}],1..2",
+            ),
+            ("set_convex", "var set of int:a", "1..2"),
+            (
+                "array_set_seq",
+                "array[int] of var set of int:a",
+                "[{1},{},{2}]",
+            ),
+            (
+                "array_set_seq_union",
+                "array[int] of var set of int:a,var set of int:b",
+                "[{1},{2}],1..2",
+            ),
+            (
+                "gecode_set_weights",
+                "array[int] of int:a,array[int] of int:b,var set of int:c,var int:d",
+                "[2,1,2],[-3,5,9],1..2,2",
+            ),
+            (
+                "gecode_set_convex_hull",
+                "var set of int:a,var set of int:b",
+                "{1,3},1..3",
+            ),
+            (
+                "gecode_set_atmost_one",
+                "array[int] of var set of int:a,int:b",
+                "[{1},{2}],1",
+            ),
+            (
+                "gecode_array_set_intersect",
+                "array[int] of var set of int:a,var set of int:b",
+                "[1..3,2..4],2..3",
+            ),
+            ("gecode_set_min", "var set of int:a,var int:b", "{1,3},1"),
+            (
+                "gecode_set_min_reif",
+                "var set of int:a,var int:b,var bool:c",
+                "{},1,false",
+            ),
+            (
+                "gecode_set_min_imp",
+                "var set of int:a,var int:b,var bool:c",
+                "{},1,false",
+            ),
+            ("gecode_set_max", "var set of int:a,var int:b", "{1,3},3"),
+            (
+                "gecode_set_max_reif",
+                "var set of int:a,var int:b,var bool:c",
+                "{1,3},1,false",
+            ),
+            (
+                "gecode_set_max_imp",
+                "var set of int:a,var int:b,var bool:c",
+                "{1,3},3,true",
+            ),
+        ] {
+            let name = format!("{prefix}{root}");
+            let source =
+                format!("predicate {name}({signature});constraint {name}({args});solve satisfy;");
+            let model = prepare("aliases.fzn", &source).unwrap();
+            let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+            assert_eq!(
+                loaded.check(&Assignment::default()).unwrap().status,
+                Status::Valid,
+                "{name}"
+            );
+        }
+    }
+    for source in [
+        "predicate array_set_partition(array[int] of var set of int:x,var set of int:y);constraint array_set_partition([],{});solve satisfy;",
+        "var set of int:s;constraint array_set_partition([],s);solve satisfy;",
+    ] {
+        assert!(prepare("partition.fzn", source).is_ok());
+    }
+    for source in [
+        "constraint array_set_union([]);solve satisfy;",
+        "constraint array_set_union([1],{});solve satisfy;",
+        "constraint gecode_set_atmost_one([], -1);solve satisfy;",
+        "var 1..1:c;constraint gecode_set_atmost_one([],c);solve satisfy;",
+        "var 1..1:w;constraint gecode_set_weights([1],[w],{},0);solve satisfy;",
+        "constraint gecode_set_weights([1],[],{},0);solve satisfy;",
+        "predicate array_set_union(array[int] of set of int:a,var set of int:b);solve satisfy;",
+        "predicate gecode_set_weights(array[int] of var int:a,array[int] of int:b,var set of int:c,var int:d);solve satisfy;",
+        "predicate gecode_set_atmost_one(array[int] of var set of int:a,var int:b);solve satisfy;",
+        "predicate set_convex(set of int:a);solve satisfy;",
+        "constraint set_min({1},1);solve satisfy;",
+        "constraint gecode_gecode_array_set_union([],{});solve satisfy;",
+        "constraint array_set_union_reif([],{},true);solve satisfy;",
+    ] {
+        assert!(prepare("bad.fzn", source).is_err(), "{source}");
+    }
+}
+
+#[test]
+fn set_global_empty_wide_order_and_cardinality_contracts() {
+    for (call, status) in [
+        ("array_set_union([],{})", Status::Valid),
+        ("array_set_partition([],{})", Status::Valid),
+        ("array_set_seq_union([],{})", Status::Valid),
+        (
+            "gecode_array_set_intersect([],-1073741822..1073741822)",
+            Status::Valid,
+        ),
+        (
+            "gecode_array_set_intersect([9007199254740993..9223372036854775807,9007199254740994..9223372036854775807],9007199254740994..9223372036854775807)",
+            Status::Valid,
+        ),
+        (
+            "gecode_set_convex_hull({-9223372036854775808,9223372036854775807},-9223372036854775808..9223372036854775807)",
+            Status::Valid,
+        ),
+        ("gecode_set_convex_hull({},{})", Status::Valid),
+        ("set_convex({})", Status::Valid),
+        (
+            "set_convex(-9223372036854775808..9223372036854775807)",
+            Status::Valid,
+        ),
+        ("set_convex({1,3})", Status::Invalid),
+        ("array_set_seq([])", Status::Valid),
+        ("array_set_seq([{3},{},{2}])", Status::Invalid),
+        ("array_set_seq_union([{1},{},{2}],1..2)", Status::Valid),
+        ("array_set_seq_union([{2},{},{1}],1..2)", Status::Invalid),
+        ("array_set_partition([{1},{1}],{1})", Status::Invalid),
+        ("gecode_set_atmost_one([],3)", Status::Valid),
+        ("gecode_set_atmost_one([{}],0)", Status::Valid),
+        ("gecode_set_atmost_one([{1}],0)", Status::Invalid),
+        ("gecode_set_atmost_one([{}],1)", Status::Invalid),
+        ("gecode_set_atmost_one([{1}],2)", Status::Invalid),
+        ("gecode_set_atmost_one([1..2,3..4],2)", Status::Valid),
+        ("gecode_set_atmost_one([1..2,2..3],2)", Status::Valid),
+        ("gecode_set_atmost_one([1..2,1..2],2)", Status::Invalid),
+        ("gecode_set_min({},1)", Status::Invalid),
+        ("gecode_set_max({},1)", Status::Invalid),
+        ("gecode_set_min_reif({},1,false)", Status::Valid),
+        ("gecode_set_max_reif({},1,true)", Status::Invalid),
+        ("gecode_set_min_imp({},1,true)", Status::Invalid),
+        ("gecode_set_max_imp({},1,false)", Status::Valid),
+    ] {
+        let source = format!("constraint {call};solve satisfy;");
+        assert_eq!(
+            prepare("sets.fzn", &source)
+                .unwrap()
+                .check(&Assignment::default())
+                .unwrap()
+                .status,
+            status,
+            "{call}"
+        );
+    }
+    let identity = prepare("identity.fzn", "var set of int:s::is_defined_var;var int:c::is_defined_var;constraint gecode_array_set_intersect([],s)::defines_var(s);constraint set_card(s,c)::defines_var(c);solve minimize c;").unwrap();
+    assert_eq!(
+        identity
+            .check(&Assignment::default())
+            .unwrap()
+            .objective
+            .unwrap()
+            .argument
+            .value,
+        Value::Integer(zincite_check::GECODE_SET_CARDINALITY)
+    );
+    let partial=prepare("partial.fzn","var set of int:missing;var int:n;var bool:b::is_defined_var;constraint gecode_set_min_reif({},n,b)::defines_var(b);constraint gecode_set_max_imp(missing,n,false);constraint array_set_seq([{3},missing,{2}]);constraint array_set_partition([{1},missing,{1}],{});constraint gecode_set_atmost_one([{},missing],1);constraint gecode_set_max({},n);solve satisfy;").unwrap();
+    let report = partial.check(&Assignment::default()).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(!report.completeness.complete);
+    assert_eq!(report.violations.len(), 4);
+    assert!(
+        !report
+            .completeness
+            .unresolved_variables
+            .iter()
+            .any(|v| v.name == "b")
+    );
+    let json = serde_json::to_value(&report).unwrap();
+    let finding = &json["violations"][0]["details"]["finding"];
+    assert_eq!(
+        finding["conflicts"],
+        serde_json::json!([{"first":1,"second":3}])
+    );
+    assert_eq!(finding["entries"][1]["unresolved"]["name"], "missing");
+    assert_eq!(finding["entries"][0]["position"], 1);
+    for call in [
+        "gecode_set_atmost_one([-9223372036854775808..9223372036854775807],0)",
+        "gecode_set_atmost_one([-9223372036854775808..9223372036854775807,-9223372036854775808..9223372036854775807],1)",
+    ] {
+        let error = prepare("overflow.fzn", &format!("constraint {call};solve satisfy;"))
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Execution);
+        assert!(error.diagnostics[0].location.is_some());
+    }
+}
+
+#[test]
+fn weighted_sets_use_first_rows_coverage_and_checked_key_order() {
+    for (args, status) in [
+        ("[],[],{},0", Status::Valid),
+        (
+            "[3,1,2],[-5,9007199254740993,0],1..3,9007199254740988",
+            Status::Valid,
+        ),
+        ("[2,1,2],[3,5,3],1..2,8", Status::Valid),
+        ("[2,1,2],[3,5,9],1..2,8", Status::Valid),
+        ("[2,1,2],[3,5,9],1..2,14", Status::Invalid),
+        ("[1],[0],{2},0", Status::Invalid),
+    ] {
+        assert_eq!(
+            prepare(
+                "weights.fzn",
+                &format!("constraint gecode_set_weights({args});solve satisfy;")
+            )
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap()
+            .status,
+            status,
+            "{args}"
+        );
+    }
+    let missing=prepare("coverage.fzn","var int:total::is_defined_var;constraint gecode_set_weights([1,3],[0,-1],-9223372036854775808..9223372036854775807,total)::defines_var(total);solve satisfy;").unwrap().check(&Assignment::default()).unwrap();
+    assert_eq!(missing.status, Status::Invalid);
+    assert!(!missing.completeness.complete);
+    let json = serde_json::to_value(missing).unwrap();
+    let finding = &json["violations"][0]["details"]["finding"];
+    assert_eq!(finding["expected"], serde_json::Value::Null);
+    assert_eq!(finding["result"]["unresolved"]["name"], "total");
+    assert_eq!(finding["uncovered"]["ranges"].as_array().unwrap().len(), 3);
+    assert_eq!(
+        finding["rows"][1],
+        serde_json::json!({"position":2,"element":"3","weight":"-1"})
+    );
+    // The final mathematical total fits, but the ascending-key intermediate does not.
+    let error=prepare("overflow.fzn","constraint gecode_set_weights([3,1,2],[-1,9223372036854775807,1],1..3,9223372036854775807);solve satisfy;").unwrap().check(&Assignment::default()).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Execution);
+    assert!(error.diagnostics[0].location.is_some());
+}
+
+#[test]
+fn set_global_completion_edits_conflicts_and_round_trips() {
+    let model = prepare(
+        "set-globals.fzn",
+        include_str!("../../../examples/checker-compilation/set-globals.fzn"),
+    )
+    .unwrap();
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for (candidate, status, complete) in [
+        (
+            "left={1};right={3};selected={9007199254740993};probe=9007199254740993;",
+            Status::Valid,
+            true,
+        ),
+        (
+            "left={1};right={1};selected={9007199254740993};probe=9007199254740993;total=7;combined={3};",
+            Status::Invalid,
+            true,
+        ),
+        (
+            "left={3};right={1};selected={1,3};probe=3;",
+            Status::Invalid,
+            true,
+        ),
+        ("left={1};right={1};", Status::Invalid, false),
+        ("", Status::Incomplete, false),
+    ] {
+        let input = assignment(candidate);
+        let report = model.check(&input).unwrap();
+        assert_eq!(report.status, status, "{candidate}");
+        assert_eq!(report.completeness.complete, complete);
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(
+            json,
+            serde_json::to_value(loaded.check(&input).unwrap()).unwrap()
+        );
+        if candidate.contains("total=7") {
+            let finding = json["violations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|v| v["details"]["finding"]["operation"] == "weights")
+                .unwrap();
+            assert_eq!(
+                finding["details"]["finding"]["expected"],
+                "9007199254740993"
+            );
+            assert_eq!(
+                finding["check"]["constraint"]["metadata"]["application"]["entities"][0],
+                "9007199254740993"
+            );
+            assert!(
+                zincite_check::cli::render_text(&report)
+                    .contains("set weighted sum: expected 9007199254740993")
+            );
+        }
+    }
+    for (source, status) in [
+        (
+            "var set of int:s::is_defined_var;constraint array_set_union([s],s)::defines_var(s);solve satisfy;",
+            Status::Incomplete,
+        ),
+        (
+            "var set of int:s::is_defined_var;constraint array_set_union([s],{})::defines_var(s);solve satisfy;",
+            Status::Incomplete,
+        ),
+        (
+            "var int:n::is_defined_var;constraint gecode_set_min({},n)::defines_var(n);solve satisfy;",
+            Status::Invalid,
+        ),
+        (
+            "var bool:b::is_defined_var;var int:n;constraint gecode_set_min_imp({},n,b)::defines_var(b);solve satisfy;",
+            Status::Incomplete,
+        ),
+        (
+            "var set of int:s::is_defined_var;constraint array_set_partition([{1},{1}],s)::defines_var(s);constraint set_eq(s,{});solve satisfy;",
+            Status::Invalid,
+        ),
+        (
+            "var set of int:s::is_defined_var;constraint array_set_seq_union([{2},{1}],s)::defines_var(s);constraint set_eq(s,{});solve satisfy;",
+            Status::Invalid,
+        ),
+        (
+            "var set of 1..1:s::is_defined_var;constraint array_set_union([{2}],s)::defines_var(s);constraint set_eq(s,{});solve satisfy;",
+            Status::Invalid,
+        ),
+        (
+            "var 0..0:n::is_defined_var;constraint gecode_set_weights([1],[2],{1},n)::defines_var(n);constraint int_le(n,1);solve satisfy;",
+            Status::Invalid,
+        ),
+    ] {
+        let report = prepare("definition.fzn", source)
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap();
+        assert_eq!(report.status, status, "{source}");
+        if source.contains("constraint set_eq(s,{})") || source.contains("constraint int_le(n,1)") {
+            assert_eq!(report.violations.len(), 2);
+            assert!(report.completeness.complete);
+        }
+    }
+    for source in [
+        "var set of int:s;constraint array_set_union([],s)::defines_var(s);solve satisfy;",
+        "var set of int:s::is_defined_var;constraint array_set_union([],s)::defines_var(s);constraint gecode_set_convex_hull({},s)::defines_var(s);solve satisfy;",
+    ] {
+        assert!(prepare("markers.fzn", source).is_err());
+    }
+}

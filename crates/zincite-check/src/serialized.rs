@@ -277,6 +277,10 @@ impl PreparedModel {
                     }
                     &constraint.reference.predicate
                 }
+                Predicate::SetGlobal(global) => {
+                    self.validate_set_global(constraint, global)?;
+                    &constraint.reference.predicate
+                }
                 Predicate::Ordering(ordering) => {
                     self.validate_ordering(constraint, ordering)?;
                     &constraint.reference.predicate
@@ -711,6 +715,55 @@ impl PreparedModel {
                 }
             }
             _ => return Err(mismatch()),
+        }
+        Ok(())
+    }
+
+    fn validate_set_global(
+        &self,
+        constraint: &Constraint,
+        global: &SetGlobal,
+    ) -> Result<(), Diagnostic> {
+        if SetGlobalName::from_name(&constraint.reference.predicate) != Some(global.name()) {
+            return Err(invalid(
+                "set-global predicate name does not match its executable operation or mode",
+            ));
+        }
+        global.validate_shape().map_err(invalid)?;
+        match global {
+            SetGlobal::Aggregate {
+                entries, result, ..
+            } => {
+                for operand in entries.iter().chain(std::iter::once(result)) {
+                    self.validate_operand(operand, ValueType::IntegerSet)?;
+                }
+            }
+            SetGlobal::Convex { set } => self.validate_operand(set, ValueType::IntegerSet)?,
+            SetGlobal::Hull { set, result } => {
+                self.validate_operand(set, ValueType::IntegerSet)?;
+                self.validate_operand(result, ValueType::IntegerSet)?;
+            }
+            SetGlobal::Sequence { entries } | SetGlobal::AtMostOne { entries, .. } => {
+                for operand in entries {
+                    self.validate_operand(operand, ValueType::IntegerSet)?;
+                }
+            }
+            SetGlobal::Weights { set, result, .. } => {
+                self.validate_operand(set, ValueType::IntegerSet)?;
+                self.validate_operand(result, ValueType::Integer)?;
+            }
+            SetGlobal::Extremum {
+                set,
+                integer,
+                condition,
+                ..
+            } => {
+                self.validate_operand(set, ValueType::IntegerSet)?;
+                self.validate_operand(integer, ValueType::Integer)?;
+                if let Some(operand) = condition.operand() {
+                    self.validate_operand(operand, ValueType::Boolean)?;
+                }
+            }
         }
         Ok(())
     }

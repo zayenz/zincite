@@ -2372,3 +2372,137 @@ fn parser_free_packing_and_rectangles_validate_contracts_and_exact_reports() {
         json!({"Variable":0});
     assert!(PreparedModel::from_json(&rectangles.to_string()).is_err());
 }
+
+#[test]
+fn parser_free_set_globals_validate_variants_types_fixed_data_and_reports() {
+    let integer = |value: &str| json!({"Literal":{"kind":"integer","value":value}});
+    let set = |lower: &str, upper: &str| json!({"Literal":{"kind":"integer_set","value":{"ranges":[{"lower":lower,"upper":upper}]}}});
+    let mut weights = executable();
+    weights["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_set_weights");
+    weights["model"]["constraints"][0]["predicate"] = json!({"SetGlobal":{"Weights":{
+        "elements":["2","1","2"],"weights":["-1","9007199254740993","5"],"set":set("1","2"),"result":{"Variable":0}
+    }}});
+    let input = Assignment {
+        entries: vec![AssignmentEntry {
+            name: "x".into(),
+            value: AssignmentValue::Scalar(Value::Integer(0)),
+            location: None,
+        }],
+    };
+    let model = PreparedModel::from_json(&weights.to_string()).unwrap();
+    let report = serde_json::to_value(model.check(&input).unwrap()).unwrap();
+    assert_eq!(
+        report["violations"][0]["details"]["finding"]["expected"],
+        "9007199254740992"
+    );
+    assert_eq!(
+        report,
+        serde_json::to_value(
+            PreparedModel::from_json(&model.to_json().unwrap())
+                .unwrap()
+                .check(&input)
+                .unwrap()
+        )
+        .unwrap()
+    );
+    for (path, value) in [
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("gecode_set_min"),
+        ),
+        (
+            "/model/constraints/0/predicate/SetGlobal/Weights/weights",
+            json!(["1"]),
+        ),
+        (
+            "/model/constraints/0/predicate/SetGlobal/Weights/elements/0",
+            json!({"Variable":0}),
+        ),
+        (
+            "/model/constraints/0/predicate/SetGlobal/Weights/result",
+            set("1", "2"),
+        ),
+        (
+            "/model/constraints/0/predicate/SetGlobal/Weights/set",
+            integer("1"),
+        ),
+        (
+            "/model/constraints/0/predicate/SetGlobal/Weights/result",
+            json!({"Variable":99}),
+        ),
+        (
+            "/model/constraints/0/predicate/SetGlobal/Weights/set/Literal/value/ranges",
+            json!([{"lower":"2","upper":"1"}]),
+        ),
+        (
+            "/model/constraints/0/reference/metadata/defines",
+            json!("missing"),
+        ),
+    ] {
+        let mut bad = weights.clone();
+        *bad.pointer_mut(path).unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&bad.to_string()).is_err(),
+            "{path}"
+        );
+    }
+    let mut artifact = executable();
+    for (name, operation, status) in [
+        (
+            "array_set_union",
+            json!({"Aggregate":{"operation":"union","entries":[],"result":set("1","1")}}),
+            Status::Invalid,
+        ),
+        (
+            "gecode_array_set_intersect",
+            json!({"Aggregate":{"operation":"intersection","entries":[],"result":set("-1073741822","1073741822")}}),
+            Status::Incomplete,
+        ),
+        (
+            "set_convex",
+            json!({"Convex":{"set":set("1","2")}}),
+            Status::Incomplete,
+        ),
+        (
+            "gecode_set_convex_hull",
+            json!({"Hull":{"set":set("1","2"),"result":set("1","3")}}),
+            Status::Invalid,
+        ),
+        (
+            "array_set_seq",
+            json!({"Sequence":{"entries":[set("2","3"),set("1","2")]}}),
+            Status::Invalid,
+        ),
+        (
+            "gecode_set_atmost_one",
+            json!({"AtMostOne":{"entries":[set("1","2"),set("1","2")],"cardinality":"2"}}),
+            Status::Invalid,
+        ),
+        (
+            "gecode_set_min_reif",
+            json!({"Extremum":{"set":{"Literal":{"kind":"integer_set","value":{"ranges":[]}}},"integer":{"Variable":0},"maximum":false,"condition":{"Reified":{"result":{"Literal":{"kind":"boolean","value":true}}}}}}),
+            Status::Invalid,
+        ),
+        (
+            "gecode_set_max_imp",
+            json!({"Extremum":{"set":set("1","1"),"integer":{"Variable":0},"maximum":true,"condition":{"Implied":{"guard":{"Literal":{"kind":"boolean","value":false}}}}}}),
+            Status::Incomplete,
+        ),
+    ] {
+        artifact["model"]["constraints"][0]["reference"]["predicate"] = json!(name);
+        artifact["model"]["constraints"][0]["predicate"] = json!({"SetGlobal":operation});
+        let model = PreparedModel::from_json(&artifact.to_string()).unwrap();
+        assert_eq!(
+            model.check(&Assignment::default()).unwrap().status,
+            status,
+            "{name}"
+        );
+        artifact["model"]["constraints"][0]["reference"]["predicate"] =
+            json!("array_set_seq_union");
+        assert!(PreparedModel::from_json(&artifact.to_string()).is_err());
+    }
+    artifact["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_set_atmost_one");
+    artifact["model"]["constraints"][0]["predicate"] =
+        json!({"SetGlobal":{"AtMostOne":{"entries":[],"cardinality":"-1"}}});
+    assert!(PreparedModel::from_json(&artifact.to_string()).is_err());
+}

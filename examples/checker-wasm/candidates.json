@@ -1772,5 +1772,302 @@
         },
         "status": "incomplete",
         "complete": false
+    },
+    {
+        "name": "set-globals-valid",
+        "model": "setGlobals",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "left",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "right",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "3",
+                                        "upper": "3"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "selected",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "9007199254740993",
+                                        "upper": "9007199254740993"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "probe",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "valid",
+        "complete": true
+    },
+    {
+        "name": "set-globals-conflict",
+        "model": "setGlobals",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "left",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "right",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "selected",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "9007199254740993",
+                                        "upper": "9007199254740993"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "probe",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                },
+                {
+                    "name": "combined",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "3",
+                                        "upper": "3"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "total",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "7"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "set-globals-nonconvex",
+        "model": "setGlobals",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "left",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "3",
+                                        "upper": "3"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "right",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "selected",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    },
+                                    {
+                                        "lower": "3",
+                                        "upper": "3"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "probe",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "3"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "set-globals-incomplete-invalid",
+        "model": "setGlobals",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "left",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "right",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": false
+    },
+    {
+        "name": "set-globals-omitted",
+        "model": "setGlobals",
+        "assignment": {
+            "entries": []
+        },
+        "status": "incomplete",
+        "complete": false
     }
 ]

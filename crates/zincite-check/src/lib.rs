@@ -54,8 +54,15 @@ mod selection;
 pub use selection::ElementLayout;
 use selection::{SelectionForm, SelectionName, SelectionPosition};
 mod serialized;
+mod set_globals;
+pub use set_globals::{
+    SetAggregate, SetArgument, SetCardinalityFault, SetGlobalFinding, SetPair, SetWeight,
+};
+use set_globals::{SetGlobal, SetGlobalName};
 mod sets;
-pub use sets::{IntegerSet, SetOperation, SetRelation};
+pub use sets::{
+    GECODE_SET_CARDINALITY, GECODE_SET_MAX, GECODE_SET_MIN, IntegerSet, SetOperation, SetRelation,
+};
 use sets::{SetKind, SetName};
 
 #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
@@ -389,6 +396,9 @@ pub enum ViolationKind {
     },
     Ordering {
         finding: OrderingFinding,
+    },
+    SetGlobal {
+        finding: SetGlobalFinding,
     },
     Count {
         entries: Vec<ArgumentValue>,
@@ -724,6 +734,7 @@ enum Predicate {
     Automaton(Automaton),
     Circuit(Circuit),
     Ordering(Ordering),
+    SetGlobal(SetGlobal),
     Counting(Counting),
     Table(Table),
     Element {
@@ -962,6 +973,7 @@ impl Predicate {
             Self::Scheduling(schedule) => schedule.operands(),
             Self::Circuit(circuit) => circuit.operands(),
             Self::Ordering(ordering) => ordering.operands(),
+            Self::SetGlobal(global) => global.operands(),
             Self::Counting(counting) => counting.operands(false),
             Self::Table(table) => table.operands(),
             Self::Element {
@@ -1107,6 +1119,7 @@ impl Predicate {
             Self::Scheduling(schedule) => schedule.required_operands(values),
             Self::Circuit(circuit) => circuit.required_operands(values),
             Self::Ordering(ordering) => ordering.required_operands(values),
+            Self::SetGlobal(global) => global.required_operands(values),
             Self::Counting(counting) => counting.operands(true),
             Self::Element {
                 indices,
@@ -1130,6 +1143,7 @@ impl Predicate {
 
     fn inactive_implication(&self, values: &[Option<Value>]) -> bool {
         match self {
+            Self::SetGlobal(global) => global.inactive(values),
             Self::Table(table) => table.condition.inactive(values),
             Self::Counting(Counting::Count { condition, .. }) => condition.inactive(values),
             Self::SetRelation { condition, .. }
@@ -1176,6 +1190,7 @@ impl Constraint {
 
 #[derive(Clone, Copy, Debug)]
 enum DefinitionDirection {
+    SetGlobal,
     BinPacking,
     Table,
     Circuit,
@@ -1424,6 +1439,9 @@ impl PreparedModel {
             }
             (Predicate::Circuit(circuit), DefinitionDirection::Circuit) => {
                 circuit.derive(definition.output, values, constraint)
+            }
+            (Predicate::SetGlobal(global), DefinitionDirection::SetGlobal) => {
+                global.derive(values, constraint)
             }
             (Predicate::Ordering(ordering), DefinitionDirection::Ordering) => {
                 ordering.derive(definition.output, values, constraint)
@@ -2012,6 +2030,7 @@ impl PreparedModel {
             Predicate::Scheduling(schedule) => self.evaluate_schedule(constraint, schedule, values),
             Predicate::Circuit(circuit) => self.evaluate_circuit(constraint, circuit, values),
             Predicate::Ordering(ordering) => self.evaluate_ordering(constraint, ordering, values),
+            Predicate::SetGlobal(global) => self.evaluate_set_global(constraint, global, values),
             Predicate::Counting(counting) => self.evaluate_counting(constraint, counting, values),
             Predicate::Automaton(automaton) => Ok(self.evaluate_automaton(automaton, values)),
             Predicate::Table(table) => Ok(self.evaluate_table(table, values)),
@@ -2816,6 +2835,9 @@ fn definition_direction(
         Predicate::Circuit(circuit) => Ok(circuit
             .can_define(output)
             .then_some(DefinitionDirection::Circuit)),
+        Predicate::SetGlobal(global) => Ok(global
+            .can_define(output)
+            .then_some(DefinitionDirection::SetGlobal)),
         Predicate::Ordering(ordering) => Ok(ordering
             .can_define(output)
             .then_some(DefinitionDirection::Ordering)),

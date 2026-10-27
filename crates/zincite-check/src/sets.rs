@@ -3,6 +3,11 @@
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
+/// Gecode Set::Limits, fixed by the pinned solver's integer limits.
+pub const GECODE_SET_MIN: i64 = -1073741822;
+pub const GECODE_SET_MAX: i64 = 1073741822;
+pub const GECODE_SET_CARDINALITY: i64 = 2147483645;
+
 use super::RelationMode;
 #[cfg(feature = "prepare")]
 use super::{ValueType, prepare::ArgumentType};
@@ -77,6 +82,25 @@ impl IntegerSet {
             [range] => Some((range.lower, range.upper)),
             _ => None,
         }
+    }
+
+    pub fn minimum(&self) -> Option<i64> {
+        self.ranges.first().map(|range| range.lower)
+    }
+
+    pub fn maximum(&self) -> Option<i64> {
+        self.ranges.last().map(|range| range.upper)
+    }
+
+    pub fn hull(&self) -> Self {
+        match (self.minimum(), self.maximum()) {
+            (Some(lower), Some(upper)) => Self::interval(lower, upper),
+            _ => Self::empty(),
+        }
+    }
+
+    pub fn is_convex(&self) -> bool {
+        self.ranges.len() <= 1
     }
 
     pub fn is_empty(&self) -> bool {
@@ -316,7 +340,7 @@ impl SetRelation {
             Self::Less => left.lex_cmp(right).is_lt(),
             Self::Disjoint => left.is_disjoint(right),
             Self::Complement => {
-                let universe = IntegerSet::interval(-1073741822, 1073741822);
+                let universe = IntegerSet::interval(GECODE_SET_MIN, GECODE_SET_MAX);
                 left.is_subset(&universe)
                     && right.is_subset(&universe)
                     && left.is_disjoint(right)
@@ -402,6 +426,7 @@ impl SetName {
         use SetOperation::*;
         use SetRelation::*;
         let (kind, mode) = match name {
+            "disjoint" | "gecode_disjoint" | "fzn_disjoint" => (Relation(Disjoint), Plain),
             "set_eq" | "gecode_set_eq" | "fzn_set_eq" => (Relation(Equal), Plain),
             "set_eq_reif" | "gecode_set_eq_reif" | "fzn_set_eq_reif" => (Relation(Equal), Reified),
             "set_ne" | "gecode_set_ne" | "fzn_set_ne" => (Relation(NotEqual), Plain),

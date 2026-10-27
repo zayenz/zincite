@@ -299,6 +299,9 @@ pub fn render_text(report: &CheckReport) -> String {
             ViolationKind::Circuit { finding } => {
                 let _ = writeln!(text, "  {}", circuit_text(finding));
             }
+            ViolationKind::SetGlobal { finding } => {
+                let _ = writeln!(text, "  {}", set_global_text(finding));
+            }
             ViolationKind::Ordering { finding } => {
                 let _ = writeln!(text, "  {}", ordering_text(finding));
             }
@@ -1131,6 +1134,99 @@ fn scheduling_text(fault: &crate::SchedulingFault) -> String {
             "resource{} at {time}: usage {usage} {} bound {bound}; positions {tasks:?}",
             machine.map_or(String::new(), |machine| format!(" on machine {machine}")),
             if *upper { "exceeds" } else { "below" },
+        ),
+    }
+}
+
+fn set_global_text(finding: &crate::SetGlobalFinding) -> String {
+    use crate::SetGlobalFinding::*;
+    let value = |argument: &crate::SetArgument| {
+        argument
+            .value
+            .as_ref()
+            .map(argument_text)
+            .unwrap_or_else(|| "unresolved".into())
+    };
+    let pairs = |pairs: &[crate::SetPair]| {
+        pairs
+            .iter()
+            .map(|pair| format!("{} and {}", pair.first, pair.second))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match finding {
+        Aggregate {
+            aggregate,
+            expected,
+            result,
+            conflicts,
+            ..
+        } => format!(
+            "set {aggregate:?}: expected {}; supplied {}; conflicting positions {}",
+            expected
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| "unresolved".into()),
+            value(result),
+            pairs(conflicts)
+        ),
+        Convex { set, hull } => format!("set {} is not convex; hull {hull}", value(set)),
+        Hull {
+            expected, result, ..
+        } => format!("set hull: expected {expected}; supplied {}", value(result)),
+        Sequence { conflicts, .. } => {
+            format!("set sequence conflicts at positions {}", pairs(conflicts))
+        }
+        AtMostOne {
+            cardinality,
+            faults,
+            ..
+        } => {
+            let faults = faults
+                .iter()
+                .map(|fault| match fault {
+                    crate::SetCardinalityFault::Cardinality { position, actual } => {
+                        format!("position {position} has cardinality {actual}")
+                    }
+                    crate::SetCardinalityFault::Intersection {
+                        first,
+                        second,
+                        actual,
+                    } => format!("positions {first} and {second} intersect in {actual} members"),
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            format!(
+                "sets need cardinality {cardinality} and pair intersections at most 1: {faults}"
+            )
+        }
+        Weights {
+            expected,
+            result,
+            uncovered,
+            ..
+        } => format!(
+            "set weighted sum: expected {}; supplied {}; unlisted members {uncovered}",
+            expected
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "undefined".into()),
+            value(result)
+        ),
+        Extremum {
+            maximum,
+            expected,
+            integer,
+            truth,
+            condition,
+            ..
+        } => format!(
+            "set {}: expected {}; supplied {}; proposition {truth}{}",
+            if *maximum { "maximum" } else { "minimum" },
+            expected
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "empty set (false)".into()),
+            value(integer),
+            condition_text(condition)
         ),
     }
 }

@@ -5,11 +5,11 @@ const { tmpdir } = require("node:os");
 const { resolve, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-assert.equal(process.argv.length, 20,
-    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json LEGACY.json FLEX.json PACKING.json CANDIDATES.json NATIVE_CHECKER");
-const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, candidates, native] = process.argv.slice(2).map(path => resolve(path));
+assert.equal(process.argv.length, 21,
+    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json LEGACY.json FLEX.json PACKING.json SET_GLOBALS.json CANDIDATES.json NATIVE_CHECKER");
+const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, candidates, native] = process.argv.slice(2).map(path => resolve(path));
 const { PreparedModel } = require(glue);
-const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing };
+const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals };
 const defaults = {};
 const models = Object.fromEntries(Object.entries(paths).map(([name, path]) =>
     [name, new PreparedModel(readFileSync(path, "utf8"))]));
@@ -57,7 +57,7 @@ try {
     }
     assert.throws(() => models.floats.check('{"entries":[{"name":"x","value":{"kind":"scalar","value":{"kind":"float","value":1e999}}}]}'));
     for (const value of [NaN, Infinity, -1]) assert.throws(() => models.floats.setFloatTolerance(value, 0));
-    console.log(`Native/Wasm reports and errors agree across ${cases.length * 2} checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, legacy and explicit-end scheduling, bin packing and rectangles, global findings and input errors verified.`);
+    console.log(`Native/Wasm reports and errors agree across ${cases.length * 2} checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, legacy and explicit-end scheduling, bin packing and rectangles, aggregate/ordered/weighted sets, global findings and input errors verified.`);
 } finally {
     for (const model of Object.values(models)) model.free();
     rmSync(directory, { recursive: true, force: true });
@@ -117,6 +117,26 @@ function decimal(value) {
 }
 
 function checkDetails(name, report) {
+    if (name === "set-globals-valid") assert.equal(report.objective.argument.value.value, "9007199254740993");
+    if (name === "set-globals-conflict") {
+        const weights = report.violations.find(item => item.details.finding?.operation === "weights");
+        assert.equal(weights.details.finding.expected, "9007199254740993");
+        assert.equal(weights.details.finding.rows[3].weight, "5");
+        assert.equal(weights.details.finding.set.value.variable.name, "selected");
+        assert.deepEqual(weights.check.constraint.metadata.application, { id: "weights", entities: ["9007199254740993"] });
+        const partition = report.violations.find(item => item.details.finding?.aggregate === "partition");
+        assert.deepEqual(partition.details.finding.conflicts, [{ first: 1, second: 2 }]);
+    }
+    if (name === "set-globals-nonconvex") {
+        const convex = report.violations.find(item => item.details.finding?.operation === "convex");
+        assert.deepEqual(convex.details.finding.hull, { ranges: [{ lower: "1", upper: "3" }] });
+        const sequence = report.violations.find(item => item.details.finding?.operation === "sequence");
+        assert.deepEqual(sequence.details.finding.conflicts, [{ first: 1, second: 3 }]);
+    }
+    if (name === "set-globals-incomplete-invalid") {
+        assert(report.violations.some(item => item.details.finding?.aggregate === "partition"));
+        assert(report.completeness.blocked_checks.length > 0);
+    }
     if (name === "packing-conflict") {
         assert.equal(report.violations.length, 4);
         const packing = report.violations[0];

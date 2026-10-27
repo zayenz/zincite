@@ -832,3 +832,73 @@ fn packing_cli_source_load_and_typed_text_agree() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn set_global_text_and_loaded_reports_preserve_exact_findings() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-set-global-cli-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let source = directory.join("sets.fzn");
+    let artifact = directory.join("sets.json");
+    let candidate = directory.join("candidate.dzn");
+    std::fs::write(
+        &source,
+        include_str!("../../../examples/checker-compilation/set-globals.fzn"),
+    )
+    .unwrap();
+    std::fs::write(
+        &candidate,
+        "left={1};right={1};selected={9007199254740993};probe=9007199254740993;total=7;",
+    )
+    .unwrap();
+    let export = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+        .arg("--export")
+        .arg(&artifact)
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(
+        export.status.success(),
+        "{}",
+        String::from_utf8_lossy(&export.stderr)
+    );
+    for format in ["json", "text"] {
+        let run = |load: bool| {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_zincite-check"));
+            if load {
+                command.arg("--load");
+            }
+            command
+                .args(["--format", format])
+                .arg(if load { &artifact } else { &source })
+                .arg(&candidate)
+                .output()
+                .unwrap()
+        };
+        let direct = run(false);
+        let loaded = run(true);
+        assert_eq!(direct.status.code(), Some(1));
+        assert_eq!(loaded.status.code(), Some(1));
+        assert!(direct.stderr.is_empty());
+        assert!(loaded.stderr.is_empty());
+        assert_eq!(direct.stdout, loaded.stdout);
+        let text = String::from_utf8(direct.stdout).unwrap();
+        if format == "text" {
+            assert!(text.contains("set weighted sum: expected 9007199254740993"));
+            assert!(text.contains("conflicting positions 1 and 2"));
+        } else {
+            let report: serde_json::Value = serde_json::from_str(&text).unwrap();
+            let weights = report["violations"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|v| v["details"]["finding"]["operation"] == "weights")
+                .unwrap();
+            assert_eq!(
+                weights["details"]["finding"]["expected"],
+                "9007199254740993"
+            );
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

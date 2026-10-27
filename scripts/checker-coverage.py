@@ -339,6 +339,30 @@ CURRENT |= {
 }
 
 
+CURRENT |= {
+    prefix + name
+    for prefix in ("", "gecode_", "fzn_")
+    for name in (
+        "disjoint",
+        "array_set_union",
+        "array_set_partition",
+        "set_convex",
+        "array_set_seq",
+        "array_set_seq_union",
+        "gecode_set_weights",
+        "gecode_set_convex_hull",
+        "gecode_set_atmost_one",
+        "gecode_array_set_intersect",
+        "gecode_set_min",
+        "gecode_set_min_reif",
+        "gecode_set_min_imp",
+        "gecode_set_max",
+        "gecode_set_max_reif",
+        "gecode_set_max_imp",
+    )
+}
+
+
 @dataclass(frozen=True)
 class Declaration:
     file: str
@@ -825,7 +849,29 @@ def output_rule(name: str, task: int, *, wrapper: bool = False) -> str:
         return "none"
     if task == 26:
         return "argument 1 (loads)" if name == "gecode_bin_packing_load" else "none"
-    if task in {27, 28}:
+    if task == 27:
+        aliases = {
+            prefix + root: root
+            for prefix in ("", "gecode_", "fzn_")
+            for root in (
+                "disjoint",
+                "set_convex",
+                "array_set_seq",
+                "gecode_set_atmost_one",
+                "gecode_set_min",
+                "gecode_set_max",
+                "gecode_set_weights",
+            )
+        }
+        name = aliases.get(name, name)
+        if name in {"disjoint", "set_convex", "array_set_seq", "gecode_set_atmost_one"}:
+            return "none"
+        if name in {"gecode_set_min", "gecode_set_max"}:
+            return "argument 2 (nonempty extremum)"
+        if name == "gecode_set_weights":
+            return "argument 4 (covered weighted sum)"
+        return "argument 2 (aggregate or hull)"
+    if task == 28:
         return f"[unique outputs](#family-{task:03})"
     return "compiler lowering; emitted definitions"
 
@@ -1018,6 +1064,13 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
     admitted |= {
         prefix + name
         for name in re.findall(r'"([a-z_0-9]+)"', automata_names)
+        for prefix in ("", "gecode_", "fzn_")
+    }
+    set_globals = (ROOT / "crates/zincite-check/src/set_globals.rs").read_text()
+    global_names = set_globals.split("match base {", 1)[1].split("_ =>", 1)[0]
+    admitted |= {
+        prefix + name
+        for name in re.findall(r'"([a-z_0-9]+)"', global_names)
         for prefix in ("", "gecode_", "fzn_")
     }
     if admitted != CURRENT:

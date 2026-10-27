@@ -299,6 +299,8 @@ impl Source<'_> {
             counting.signature()
         } else if let Some(selection) = SelectionName::from_name(name) {
             selection.signature()
+        } else if let Some(global) = SetGlobalName::from_name(name) {
+            global.signature()
         } else if let Some(set) = SetName::from_name(name) {
             let element = if matches!(set.kind, SetKind::Membership { .. }) {
                 parameters
@@ -368,7 +370,10 @@ impl Source<'_> {
             let allow_fixed = (SetName::from_name(name)
                 .is_some_and(|set| matches!(set.kind, SetKind::Membership { .. }))
                 && index == 1)
-                || (name == "bool_lin_le" && index == 2);
+                || (name == "bool_lin_le" && index == 2)
+                || (SetGlobalName::from_name(name)
+                    == Some(SetGlobalName::Aggregate(SetAggregate::Partition))
+                    && index == 1);
             signature.push(self.formal_parameter(parameter, expected, allow_fixed)?);
         }
         Ok(signature)
@@ -1196,6 +1201,7 @@ impl<'a> Lowerer<'a> {
         let float = FloatName::from_name(&name);
         let selection = SelectionName::from_name(&name);
         let set = SetName::from_name(&name);
+        let set_global = SetGlobalName::from_name(&name);
         let arity = if packing {
             4
         } else if let Some(rectangles) = rectangles {
@@ -1214,6 +1220,8 @@ impl<'a> Lowerer<'a> {
             counting.signature().len()
         } else if let Some(selection) = selection {
             selection.arity()
+        } else if let Some(global) = set_global {
+            global.signature().len()
         } else if let Some(set) = set {
             set.signature(ValueType::Integer).len()
         } else if let Some(float) = float {
@@ -1260,6 +1268,8 @@ impl<'a> Lowerer<'a> {
             self.counting_predicate(call, counting, &args)?
         } else if let Some(selection) = selection {
             self.selection_predicate(call, selection, &args)?
+        } else if let Some(global) = set_global {
+            self.set_global_predicate(call, global, &args)?
         } else if let Some(set) = set {
             self.set_predicate(set, &args)?
         } else if let Some(float) = float {
@@ -1671,6 +1681,70 @@ impl<'a> Lowerer<'a> {
             .validate_shape()
             .map_err(|message| self.source.error(call, message))?;
         Ok(Predicate::Counting(counting))
+    }
+
+    fn set_global_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: SetGlobalName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        let global = match name {
+            SetGlobalName::Aggregate(operation) => SetGlobal::Aggregate {
+                operation,
+                entries: self.array(args[0], ValueType::IntegerSet)?,
+                result: self.scalar(args[1], ValueType::IntegerSet)?,
+            },
+            SetGlobalName::Convex => SetGlobal::Convex {
+                set: self.scalar(args[0], ValueType::IntegerSet)?,
+            },
+            SetGlobalName::Hull => SetGlobal::Hull {
+                set: self.scalar(args[0], ValueType::IntegerSet)?,
+                result: self.scalar(args[1], ValueType::IntegerSet)?,
+            },
+            SetGlobalName::Sequence => SetGlobal::Sequence {
+                entries: self.array(args[0], ValueType::IntegerSet)?,
+            },
+            SetGlobalName::AtMostOne => SetGlobal::AtMostOne {
+                entries: self.array(args[0], ValueType::IntegerSet)?,
+                cardinality: self.constant_integer(args[1])?,
+            },
+            SetGlobalName::Weights => SetGlobal::Weights {
+                elements: self
+                    .fixed_array(args[0], ValueType::Integer)?
+                    .iter()
+                    .map(Value::integer)
+                    .collect(),
+                weights: self
+                    .fixed_array(args[1], ValueType::Integer)?
+                    .iter()
+                    .map(Value::integer)
+                    .collect(),
+                set: self.scalar(args[2], ValueType::IntegerSet)?,
+                result: self.scalar(args[3], ValueType::Integer)?,
+            },
+            SetGlobalName::Extremum { maximum, mode } => {
+                let condition = match mode {
+                    RelationMode::Plain => RelationCondition::Plain,
+                    RelationMode::Reified => RelationCondition::Reified {
+                        result: self.scalar(args[2], ValueType::Boolean)?,
+                    },
+                    RelationMode::Implied => RelationCondition::Implied {
+                        guard: self.scalar(args[2], ValueType::Boolean)?,
+                    },
+                };
+                SetGlobal::Extremum {
+                    set: self.scalar(args[0], ValueType::IntegerSet)?,
+                    integer: self.scalar(args[1], ValueType::Integer)?,
+                    maximum,
+                    condition,
+                }
+            }
+        };
+        global
+            .validate_shape()
+            .map_err(|message| self.source.error(call, message))?;
+        Ok(Predicate::SetGlobal(global))
     }
 
     fn set_predicate(&mut self, name: SetName, args: &[&SyntaxNode]) -> Result<Predicate> {

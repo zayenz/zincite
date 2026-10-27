@@ -1513,3 +1513,113 @@ all four declared interfaces, preserves labels and payloads, and keeps a marked
 linear right-end equation; its load array has the same missing-marker gap.
 These metadata/definition gaps belong to checker-030/031. Runtime admission does
 not relax definition requirements to conceal them.
+
+## Aggregate, ordered and weighted sets
+
+The checker admits the literal registry roots below and their `gecode_` and
+`fzn_` prefixes, applied once. A root that starts with `gecode_` therefore also
+has a `gecode_gecode_` spelling. These sixteen roots add 48 names, giving 869
+admitted names in total. Predicate declarations match positional types and roles
+regardless of their formal names. Set arguments accept compact integer ranges.
+
+| Root | Positional arguments | Marked scalar output |
+| --- | --- | --- |
+| `disjoint` | Two variable sets | None |
+| `array_set_union` | Variable set array, variable set result | Result |
+| `array_set_partition` | Variable set array, fixed universe or variable set result | Variable result |
+| `gecode_array_set_intersect` | Variable set array, variable set result | Result |
+| `array_set_seq` | Variable set array | None |
+| `array_set_seq_union` | Variable set array, variable set result | Result |
+| `set_convex` | Variable set | None |
+| `gecode_set_convex_hull` | Variable set, variable set hull | Hull |
+| `gecode_set_atmost_one` | Variable set array, fixed nonnegative cardinality | None |
+| `gecode_set_weights` | Fixed element array, fixed weight array, variable selected set, variable integer total | Covered total |
+| `gecode_set_min`, `gecode_set_max` | Variable set, variable integer | Integer for nonempty input |
+| `gecode_set_min_reif`, `gecode_set_max_reif` | Variable set, variable integer, variable Boolean | Boolean truth |
+| `gecode_set_min_imp`, `gecode_set_max_imp` | Variable set, variable integer, variable Boolean guard | None |
+
+Union, partition and sequence-union of an empty array equal the empty set.
+Partition also requires every pair to be disjoint. Repeated set aliases check
+normally and can expose a pair conflict. The empty Gecode intersection is exactly
+`-1073741822..1073741822`, with cardinality `2147483645`; exported constants
+`GECODE_SET_MIN`, `GECODE_SET_MAX` and `GECODE_SET_CARDINALITY` name that universe.
+Nonempty intersection starts from its first set and does not clip i64 members
+outside the Gecode universe. Generic storage still uses the full i64 range.
+
+A sequence requires each member of a set to precede every member of every later
+nonempty set. An empty middle set does not break this comparison. Sequence-union
+checks that order and the ordinary union. Convexity accepts empty sets and sets
+stored as one inclusive range. Hull is empty for empty input and otherwise spans
+the minimum through the maximum. Atmost_one requires each set to have the fixed
+cardinality and every pair intersection to have cardinality at most one. The
+individual cardinality rule applies even with fewer than two sets or cardinality
+zero or one. Cardinalities above i64::MAX give located execution errors.
+
+Plain min/max asserts nonemptiness and equality to the extremum. Empty input
+makes the proposition false. Full reification checks equivalence; implication
+checks guard → proposition. A false implication guard skips unavailable inputs.
+An empty set determines false reified truth without knowing the integer. A plain
+empty extremum supplies no integer and can report a violation with incomplete
+input.
+
+Weights use equally long fixed element/weight arrays. Pair order is arbitrary;
+weights may be negative or zero, and empty arrays are valid. The first original
+row for an element supplies its weight. Calculation visits distinct elements in
+ascending order and checks each i64 addition, including intermediate overflow.
+The selected set must be a subset of listed elements. A coverage finding carries
+compact uncovered ranges and does not derive a total. Calculation iterates the
+fixed mapping, so a huge selected interval never causes member enumeration.
+Original row positions and weights are available in typed findings. This direct
+Gecode mapping differs from the standard `fzn_sum_set` decomposition, which sums
+every matching row, including duplicates, and ignores unlisted members.
+
+Completion uses matching `defines_var` and `is_defined_var`, canonical targets
+and the usual competing-definition and default rules. A scalar set result that
+also occurs among the inputs has no supported direction. Partition or sequence
+failure does not prevent deriving a known aggregate. Supplied outputs stay
+supplied and are checked; derived domain violations do not suppress downstream
+checks. These operations do not invert a result into missing sets or define a
+whole array output.
+
+`set_global` findings distinguish aggregates, hull/convexity, sequence pairs,
+individual/intersection cardinalities, extrema and weights. They carry available
+arguments or unresolved variable references, one-based input positions, expected
+and supplied values, pair conflicts and uncovered ranges. Mathematical integers
+use decimal strings; positions use JSON numbers. Known pair/cardinality/coverage
+faults can accompany incomplete input. Existing set relations and native relation
+codes 1–10 keep their contracts and report shapes.
+
+### Compile-only set controls
+
+[set-global-controls.mzn](../../examples/checker-compilation/set-global-controls.mzn)
+uses public union, intersection, partition, disjoint, minimum and weighted-set
+calls. [set-global-gecode-controls.mzn](../../examples/checker-compilation/set-global-gecode-controls.mzn)
+uses native hull, convexity, ordering, fixed cardinality, extrema and intersection,
+plus the union and sum wrappers. Compile with MiniZinc 2.10.1, `--compile -O0
+--keep-paths --no-output-ozn`, `--stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc`,
+`-I crates/zincite-check/minizinc`, and either
+`--globals-dir crates/zincite-check/minizinc` or
+`--globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib`.
+Supply separate `--output-fzn-to-file` and `--output-paths-to-file` paths. These
+commands compile without solving and use the fixed source revisions from the
+coverage inventory.
+
+Inspection exposes profile limits for checker-030/031. The public standard
+partition folds its union to `1..4` and intersection to empty, merges the
+standalone disjoint check, and adds an argument-level `mzn_path` to a set literal;
+current preparation diagnoses that annotated literal. Its weighted total domain
+tightens from `-10..10` to `-1..7`. Both public profiles emit `defines_var` for the
+minimum while dropping its `is_defined_var`; public Gecode preparation diagnoses
+that missing marker. Its weighted total keeps `-10..10`. These controls therefore
+do not establish profile closure or a complete public source/load path.
+
+The native Gecode control prepares unchanged and keeps the new operations,
+constraint labels, application annotations and explicit scalar definition
+markers. Its `common`, `hull_result`, minimum, reifier and weighted total derive.
+The union wrapper introduces two equality-linked intermediate sets without
+definition markers; supplying those sets makes the candidate complete. The
+sequence-union check also constrains the union but has no definition marker.
+The [direct FlatZinc control](../../examples/checker-compilation/set-globals.fzn)
+provides a complete application-edit path without those compiler gaps, including
+values above 2^53 and original duplicate weight rows. Both native CLI forms and
+source/export/load checks exercise the direct and admitted native controls.
