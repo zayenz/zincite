@@ -54,6 +54,9 @@ mod selection;
 pub use selection::ElementLayout;
 use selection::{SelectionForm, SelectionName, SelectionPosition};
 mod serialized;
+mod set_channels;
+use set_channels::{SetChannel, SetChannelName};
+pub use set_channels::{SetChannelArgument, SetChannelFault, SetChannelFinding, SetChannelSide};
 mod set_globals;
 pub use set_globals::{
     SetAggregate, SetArgument, SetCardinalityFault, SetGlobalFinding, SetPair, SetWeight,
@@ -400,6 +403,9 @@ pub enum ViolationKind {
     SetGlobal {
         finding: SetGlobalFinding,
     },
+    SetChannel {
+        finding: SetChannelFinding,
+    },
     Count {
         entries: Vec<ArgumentValue>,
         selector: CountSelectorValue,
@@ -735,6 +741,7 @@ enum Predicate {
     Circuit(Circuit),
     Ordering(Ordering),
     SetGlobal(SetGlobal),
+    SetChannel(SetChannel),
     Counting(Counting),
     Table(Table),
     Element {
@@ -974,6 +981,7 @@ impl Predicate {
             Self::Circuit(circuit) => circuit.operands(),
             Self::Ordering(ordering) => ordering.operands(),
             Self::SetGlobal(global) => global.operands(),
+            Self::SetChannel(channel) => channel.operands(),
             Self::Counting(counting) => counting.operands(false),
             Self::Table(table) => table.operands(),
             Self::Element {
@@ -1120,6 +1128,7 @@ impl Predicate {
             Self::Circuit(circuit) => circuit.required_operands(values),
             Self::Ordering(ordering) => ordering.required_operands(values),
             Self::SetGlobal(global) => global.required_operands(values),
+            Self::SetChannel(channel) => channel.required_operands(values),
             Self::Counting(counting) => counting.operands(true),
             Self::Element {
                 indices,
@@ -1190,6 +1199,7 @@ impl Constraint {
 
 #[derive(Clone, Copy, Debug)]
 enum DefinitionDirection {
+    SetChannel,
     SetGlobal,
     BinPacking,
     Table,
@@ -1439,6 +1449,9 @@ impl PreparedModel {
             }
             (Predicate::Circuit(circuit), DefinitionDirection::Circuit) => {
                 circuit.derive(definition.output, values, constraint)
+            }
+            (Predicate::SetChannel(channel), DefinitionDirection::SetChannel) => {
+                channel.derive(definition.output, values, constraint)
             }
             (Predicate::SetGlobal(global), DefinitionDirection::SetGlobal) => {
                 global.derive(values, constraint)
@@ -2031,6 +2044,9 @@ impl PreparedModel {
             Predicate::Circuit(circuit) => self.evaluate_circuit(constraint, circuit, values),
             Predicate::Ordering(ordering) => self.evaluate_ordering(constraint, ordering, values),
             Predicate::SetGlobal(global) => self.evaluate_set_global(constraint, global, values),
+            Predicate::SetChannel(channel) => {
+                self.evaluate_set_channel(constraint, channel, values)
+            }
             Predicate::Counting(counting) => self.evaluate_counting(constraint, counting, values),
             Predicate::Automaton(automaton) => Ok(self.evaluate_automaton(automaton, values)),
             Predicate::Table(table) => Ok(self.evaluate_table(table, values)),
@@ -2712,6 +2728,11 @@ impl PreparedModel {
                     .into_iter()
                     .map(|outputs| (outputs, ValueType::Integer))
                     .collect(),
+                Predicate::SetChannel(channel) => channel
+                    .array_outputs()
+                    .into_iter()
+                    .map(|(outputs, kind)| (outputs.iter().collect(), kind))
+                    .collect(),
                 Predicate::Ordering(ordering) => ordering
                     .array_outputs()
                     .into_iter()
@@ -2835,6 +2856,9 @@ fn definition_direction(
         Predicate::Circuit(circuit) => Ok(circuit
             .can_define(output)
             .then_some(DefinitionDirection::Circuit)),
+        Predicate::SetChannel(channel) => Ok(channel
+            .can_define(output)
+            .then_some(DefinitionDirection::SetChannel)),
         Predicate::SetGlobal(global) => Ok(global
             .can_define(output)
             .then_some(DefinitionDirection::SetGlobal)),

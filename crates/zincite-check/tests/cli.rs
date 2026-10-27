@@ -902,3 +902,69 @@ fn set_global_text_and_loaded_reports_preserve_exact_findings() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn set_channel_cli_renders_typed_indices_after_loading() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-set-channels-cli-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let source = directory.join("model.fzn");
+    let artifact = directory.join("model.json");
+    let candidate = directory.join("candidate.dzn");
+    std::fs::write(
+        &source,
+        include_str!("../../../examples/checker-compilation/set-channels.fzn"),
+    )
+    .unwrap();
+    std::fs::write(
+        &candidate,
+        "left={1};right={3};selected={0};value=9007199254740993;",
+    )
+    .unwrap();
+    let export = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+        .arg("--export")
+        .arg(&artifact)
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(
+        export.status.success(),
+        "{}",
+        String::from_utf8_lossy(&export.stderr)
+    );
+    for format in ["json", "text"] {
+        let run = |load: bool| {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_zincite-check"));
+            if load {
+                command.arg("--load");
+            }
+            command
+                .args(["--format", format])
+                .arg(if load { &artifact } else { &source })
+                .arg(&candidate)
+                .output()
+                .unwrap()
+        };
+        let direct = run(false);
+        let loaded = run(true);
+        assert_eq!(direct.status.code(), Some(1));
+        assert_eq!(loaded.status.code(), Some(1));
+        assert!(direct.stderr.is_empty() && loaded.stderr.is_empty());
+        assert_eq!(direct.stdout, loaded.stdout);
+        let text = String::from_utf8(direct.stdout).unwrap();
+        if format == "text" {
+            assert!(
+                text.contains("selected sets")
+                    && text.contains("outside {1..2}")
+                    && text.contains("combined unresolved")
+            );
+        } else {
+            let report: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(
+                report["violations"][0]["details"]["finding"]["arguments"][1]["index"],
+                "1"
+            );
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

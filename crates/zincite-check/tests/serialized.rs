@@ -2506,3 +2506,155 @@ fn parser_free_set_globals_validate_variants_types_fixed_data_and_reports() {
         json!({"SetGlobal":{"AtMostOne":{"entries":[],"cardinality":"-1"}}});
     assert!(PreparedModel::from_json(&artifact.to_string()).is_err());
 }
+
+#[test]
+fn parser_free_set_channels_check_contracts_and_typed_findings() {
+    let set = |members: &[&str]| json!({"Literal":{"kind":"integer_set","value":{"ranges":members.iter().map(|member|json!({"lower":member,"upper":member})).collect::<Vec<_>>()}}});
+    let integer = |value: &str| json!({"Literal":{"kind":"integer","value":value}});
+    let boolean = |value: bool| json!({"Literal":{"kind":"boolean","value":value}});
+    let operations = [
+        (
+            "gecode_link_set_to_booleans",
+            json!({"Link":{"set":set(&["4"]),"flags":[boolean(false),boolean(true)],"offset":"3"}}),
+        ),
+        (
+            "gecode_int_set_channel",
+            json!({"IntSet":{"integers":[integer("1")],"sets":[set(&["1"])],"integer_offset":"1","set_offset":"1"}}),
+        ),
+        (
+            "gecode_inverse_set",
+            json!({"Inverse":{"forward":[set(&["3"])],"inverse":[set(&["2"])],"forward_offset":"2","inverse_offset":"3"}}),
+        ),
+        (
+            "gecode_range",
+            json!({"Range":{"integers":[integer("9007199254740993")],"offset":"2","selection":set(&["0","2"]),"result":set(&["0","9007199254740993"])}}),
+        ),
+        (
+            "gecode_precede_set",
+            json!({"Precede":{"sets":[set(&["1"]),set(&["2"])],"first":"1","second":"2"}}),
+        ),
+        (
+            "gecode_set_channel_sorted",
+            json!({"Sorted":{"integers":[integer("1"),integer("3")],"set":set(&["1","3"])}}),
+        ),
+        (
+            "gecode_array_set_element_union",
+            json!({"Selected":{"operation":"union","indices":set(&["1"]),"sets":[set(&["7"])],"result":set(&["7"]),"universe":null}}),
+        ),
+        (
+            "gecode_array_set_element_intersect",
+            json!({"Selected":{"operation":"intersection","indices":set(&["1"]),"sets":[set(&["7"])],"result":set(&["7"]),"universe":null}}),
+        ),
+        (
+            "gecode_array_set_element_partition",
+            json!({"Selected":{"operation":"partition","indices":set(&["1"]),"sets":[set(&["7"])],"result":set(&["7"]),"universe":null}}),
+        ),
+        (
+            "gecode_array_set_element_intersect_in",
+            json!({"Selected":{"operation":"intersection","indices":set(&[]),"sets":[],"result":set(&["7"]),"universe":{"ranges":[{"lower":"7","upper":"7"}]}}}),
+        ),
+    ];
+    for (root, operation) in operations {
+        for prefix in ["", "gecode_", "fzn_"] {
+            let mut artifact = executable();
+            artifact["model"]["constraints"][0]["reference"]["predicate"] =
+                json!(format!("{prefix}{root}"));
+            artifact["model"]["constraints"][0]["predicate"] = json!({"SetChannel":operation});
+            let model = PreparedModel::from_json(&artifact.to_string()).unwrap();
+            let report = model.check(&Assignment::default()).unwrap();
+            assert_eq!(report.status, Status::Incomplete);
+            assert!(report.violations.is_empty());
+            assert_eq!(
+                serde_json::to_value(&report).unwrap(),
+                serde_json::to_value(
+                    PreparedModel::from_json(&model.to_json().unwrap())
+                        .unwrap()
+                        .check(&Assignment::default())
+                        .unwrap()
+                )
+                .unwrap()
+            );
+            artifact["model"]["constraints"][0]["reference"]["predicate"] =
+                json!("set_channel_sorted");
+            assert!(PreparedModel::from_json(&artifact.to_string()).is_err());
+        }
+    }
+    let mut artifact = executable();
+    artifact["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_int_set_channel");
+    artifact["model"]["constraints"][0]["predicate"] = json!({"SetChannel":{"IntSet":{"integers":[{"Variable":0}],"sets":[set(&["1"])],"integer_offset":"1","set_offset":"0"}}});
+    let model = PreparedModel::from_json(&artifact.to_string()).unwrap();
+    let report = serde_json::to_value(model.check(&Assignment::default()).unwrap()).unwrap();
+    assert_eq!(report["status"], "invalid");
+    assert_eq!(report["completeness"]["complete"], false);
+    let finding = &report["violations"][0]["details"]["finding"];
+    assert_eq!(finding["arguments"][0]["index"], "1");
+    assert_eq!(finding["arguments"][0]["position"], 1);
+    assert_eq!(finding["arguments"][0]["unresolved"]["name"], "x");
+    assert_eq!(finding["faults"][0]["kind"], "padding");
+    for (path, value) in [
+        (
+            "/model/constraints/0/predicate/SetChannel/IntSet/integer_offset",
+            json!("-1"),
+        ),
+        (
+            "/model/constraints/0/predicate/SetChannel/IntSet/integer_offset",
+            json!("1073741823"),
+        ),
+        (
+            "/model/constraints/0/predicate/SetChannel/IntSet/set_offset",
+            json!("2147483647"),
+        ),
+        (
+            "/model/constraints/0/predicate/SetChannel/IntSet/integer_offset",
+            json!(1),
+        ),
+        (
+            "/model/constraints/0/predicate/SetChannel/IntSet/integers/0",
+            set(&[]),
+        ),
+        (
+            "/model/constraints/0/predicate/SetChannel/IntSet/integers/0",
+            json!({"Variable":99}),
+        ),
+        (
+            "/model/constraints/0/predicate/SetChannel/IntSet/sets/0",
+            integer("0"),
+        ),
+        (
+            "/model/constraints/0/reference/metadata/defines",
+            json!("missing"),
+        ),
+    ] {
+        let mut bad = artifact.clone();
+        *bad.pointer_mut(path).unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&bad.to_string()).is_err(),
+            "{path}"
+        );
+    }
+    artifact["model"]["constraints"][0]["reference"]["predicate"] =
+        json!("gecode_array_set_element_union");
+    artifact["model"]["constraints"][0]["predicate"] = json!({"SetChannel":{"Selected":{"operation":"sequence_union","indices":set(&[]),"sets":[],"result":set(&[]),"universe":null}}});
+    assert!(PreparedModel::from_json(&artifact.to_string()).is_err());
+}
+
+#[cfg(feature = "prepare")]
+#[test]
+fn loaded_set_channel_array_targets_match_complete_slots_and_types() {
+    let source = "var bool:a::is_defined_var;var bool:b::is_defined_var;array[1..2] of var bool:flags=[b,a];constraint gecode_link_set_to_booleans({3},[a,b],3)::defines_var(flags);solve satisfy;";
+    let model = zincite_check::prepare("array.fzn", source).unwrap();
+    assert_eq!(
+        model.check(&Assignment::default()).unwrap().status,
+        Status::Valid
+    );
+    let artifact: Json = serde_json::from_str(&model.to_json().unwrap()).unwrap();
+    for replacement in [
+        json!([{"Variable":0}]),
+        json!([{"Variable":0},{"Variable":0}]),
+        json!([{"Literal":{"kind":"boolean","value":true}},{"Variable":1}]),
+    ] {
+        let mut bad = artifact.clone();
+        bad["model"]["constraints"][0]["predicate"]["SetChannel"]["Link"]["flags"] = replacement;
+        assert!(PreparedModel::from_json(&bad.to_string()).is_err());
+    }
+}

@@ -5805,3 +5805,512 @@ fn set_global_completion_edits_conflicts_and_round_trips() {
         assert!(prepare("markers.fzn", source).is_err());
     }
 }
+
+#[test]
+fn set_channel_aliases_validate_positional_contracts() {
+    let contracts = [
+        (
+            "gecode_link_set_to_booleans",
+            "var set of int:aa,array[int] of var bool:bb,int:cc",
+            "{},[],0",
+        ),
+        (
+            "gecode_int_set_channel",
+            "array[int] of var int:aa,int:bb,array[int] of var set of int:cc,int:dd",
+            "[],0,[],0",
+        ),
+        (
+            "gecode_inverse_set",
+            "array[int] of var set of int:aa,array[int] of var set of int:bb,int:cc,int:dd",
+            "[],[],0,0",
+        ),
+        (
+            "gecode_range",
+            "array[int] of var int:aa,int:bb,var set of int:cc,var set of int:dd",
+            "[],0,{},{}",
+        ),
+        (
+            "gecode_precede_set",
+            "array[int] of var set of int:aa,int:bb,int:cc",
+            "[],1,2",
+        ),
+        (
+            "gecode_set_channel_sorted",
+            "array[int] of var int:aa,var set of int:bb",
+            "[],{}",
+        ),
+        (
+            "gecode_array_set_element_union",
+            "var set of int:aa,array[int] of var set of int:bb,var set of int:cc",
+            "{},[],{}",
+        ),
+        (
+            "gecode_array_set_element_intersect",
+            "var set of int:aa,array[int] of var set of int:bb,var set of int:cc",
+            "{},[],-1073741822..1073741822",
+        ),
+        (
+            "gecode_array_set_element_partition",
+            "var set of int:aa,array[int] of var set of int:bb,var set of int:cc",
+            "{},[],{}",
+        ),
+        (
+            "gecode_array_set_element_intersect_in",
+            "var set of int:aa,array[int] of var set of int:bb,var set of int:cc,set of int:dd",
+            "{},[],{3},{3}",
+        ),
+    ];
+    for (root, signature, args) in contracts {
+        for prefix in ["", "gecode_", "fzn_"] {
+            let name = format!("{prefix}{root}");
+            let source =
+                format!("predicate {name}({signature});constraint {name}({args});solve satisfy;");
+            assert_eq!(
+                prepare("aliases.fzn", &source)
+                    .unwrap()
+                    .check(&Assignment::default())
+                    .unwrap()
+                    .status,
+                Status::Valid,
+                "{name}"
+            );
+            for signature in [
+                signature.replacen("var", "", 1),
+                format!("{signature},int:extra"),
+            ] {
+                assert!(
+                    prepare(
+                        "signature.fzn",
+                        &format!("predicate {name}({signature});solve satisfy;")
+                    )
+                    .is_err(),
+                    "{name}"
+                );
+            }
+        }
+    }
+    for call in [
+        "link_set_to_booleans({},[],0)",
+        "gecode_gecode_gecode_range([],0,{},{})",
+        "gecode_range_reif([],0,{},{},true)",
+        "gecode_link_set_to_booleans({},[],-1)",
+        "gecode_link_set_to_booleans({},[],1073741824)",
+        "gecode_range([],9223372036854775807,{},{})",
+        "gecode_range([1],2147483647,{},{})",
+        "gecode_inverse_set([],[],-1,0)",
+        "gecode_int_set_channel([],1073741823,[{}],0)",
+        "gecode_int_set_channel([],1073741824,[],1)",
+        "gecode_precede_set([],1073741823,0)",
+        "gecode_precede_set([],-1073741823,0)",
+        "gecode_array_set_element_intersect_in({},[],{},2147483648..2147483649)",
+        "gecode_range([true],0,{},{})",
+        "gecode_link_set_to_booleans({},[1],0)",
+        "gecode_array_set_element_union({},[],{},0)",
+    ] {
+        assert!(
+            prepare(
+                "bad-channel.fzn",
+                &format!("constraint {call};solve satisfy;")
+            )
+            .is_err(),
+            "{call}"
+        );
+    }
+    assert!(
+        prepare(
+            "fixed.fzn",
+            "var int:k;constraint gecode_range([],k,{},{});solve satisfy;"
+        )
+        .is_err()
+    );
+    assert!(prepare("fixed.fzn", "var set of int:u;constraint gecode_array_set_element_intersect_in({},[],{},u);solve satisfy;").is_err());
+}
+
+#[test]
+fn set_channels_follow_selection_padding_and_membership_contracts() {
+    for (call, status) in [
+        ("gecode_array_set_element_union({},[],{})", Status::Valid),
+        (
+            "gecode_array_set_element_partition({},[],{})",
+            Status::Valid,
+        ),
+        (
+            "gecode_array_set_element_intersect({},[],-1073741822..1073741822)",
+            Status::Valid,
+        ),
+        (
+            "gecode_array_set_element_intersect_in({},[],{7},{7})",
+            Status::Valid,
+        ),
+        (
+            "gecode_array_set_element_intersect_in({1},[{1,7}],{1,7},{1})",
+            Status::Invalid,
+        ),
+        (
+            "gecode_array_set_element_intersect_in({1},[{1,7}],{1},{1})",
+            Status::Invalid,
+        ),
+        (
+            "gecode_array_set_element_union({0},[{}],{})",
+            Status::Invalid,
+        ),
+        (
+            "gecode_array_set_element_union(-9223372036854775808..9223372036854775807,[{}],{})",
+            Status::Invalid,
+        ),
+        (
+            "gecode_array_set_element_partition({1,2},[{7},{7}],{7})",
+            Status::Invalid,
+        ),
+        (
+            "gecode_link_set_to_booleans({4},[false,true],3)",
+            Status::Valid,
+        ),
+        (
+            "gecode_link_set_to_booleans({0},[false,true],3)",
+            Status::Invalid,
+        ),
+        (
+            "gecode_link_set_to_booleans({},[],1000000000)",
+            Status::Valid,
+        ),
+        ("gecode_link_set_to_booleans({3},[],3)", Status::Invalid),
+        (
+            "gecode_range([9007199254740993,7],1000000000,{1,1000000000},{0,9007199254740993})",
+            Status::Valid,
+        ),
+        ("gecode_range([],5,{}, {})", Status::Valid),
+        ("gecode_range([],5,{0},{0})", Status::Invalid),
+        ("gecode_int_set_channel([1,2],1,[{1},{2}],1)", Status::Valid),
+        ("gecode_int_set_channel([0],0,[{0}],0)", Status::Valid),
+        ("gecode_int_set_channel([1],1,[{}, {1}],0)", Status::Invalid),
+        ("gecode_int_set_channel([],3,[],1)", Status::Invalid),
+        ("gecode_int_set_channel([],3,[{}],0)", Status::Valid),
+        ("gecode_int_set_channel([1],0,[{0}],1)", Status::Valid),
+        ("gecode_int_set_channel([1],0,[{}],1)", Status::Invalid),
+        ("gecode_inverse_set([{4},{3}],[{2},{1}],1,3)", Status::Valid),
+        (
+            "gecode_inverse_set([], [{}],1000000000,1000000000)",
+            Status::Valid,
+        ),
+        ("gecode_inverse_set([], [{0}],2,3)", Status::Invalid),
+        ("gecode_inverse_set([{0}],[{}],1,3)", Status::Invalid),
+        ("gecode_precede_set([{1,2},{2}],1,2)", Status::Invalid),
+        ("gecode_precede_set([{1},{1,2},{2}],1,2)", Status::Valid),
+        ("gecode_precede_set([{2},{1}],1,2)", Status::Invalid),
+        ("gecode_precede_set([{1,2}],1,1)", Status::Valid),
+        ("gecode_precede_set([{}],1,2)", Status::Valid),
+        ("gecode_set_channel_sorted([1,3],{1,3})", Status::Valid),
+        ("gecode_set_channel_sorted([3,1],{1,3})", Status::Invalid),
+        ("gecode_set_channel_sorted([1,1],{1})", Status::Invalid),
+        ("gecode_set_channel_sorted([],{})", Status::Valid),
+        (
+            "gecode_set_channel_sorted([],-1073741822..1073741822)",
+            Status::Invalid,
+        ),
+    ] {
+        let source = format!("constraint {call};solve satisfy;");
+        let model = prepare("channel.fzn", &source).unwrap();
+        let report = model.check(&Assignment::default()).unwrap();
+        assert_eq!(report.status, status, "{call}");
+        assert!(report.completeness.complete, "{call}");
+        assert_eq!(
+            serde_json::to_value(&report).unwrap(),
+            serde_json::to_value(
+                PreparedModel::from_json(&model.to_json().unwrap())
+                    .unwrap()
+                    .check(&Assignment::default())
+                    .unwrap()
+            )
+            .unwrap()
+        );
+    }
+    let alias_model = prepare("repeated.fzn", "var set of int:shared;var set of int:result::is_defined_var;constraint gecode_array_set_element_partition({1,2},[shared,shared],result)::defines_var(result);constraint set_eq(result,{7});solve satisfy;").unwrap();
+    let alias_report = alias_model.check(&assignment("shared={7};")).unwrap();
+    assert_eq!(alias_report.status, Status::Invalid);
+    assert!(alias_report.completeness.complete);
+    assert_eq!(alias_report.violations.len(), 1);
+    for source in [
+        "var set of int:missing;constraint gecode_array_set_element_union({1},[{7},missing],{7});solve satisfy;",
+        "var int:missing;constraint gecode_range([7,missing],3,{0,3},{0,7});solve satisfy;",
+    ] {
+        let report = prepare("selected.fzn", source)
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap();
+        assert_eq!(report.status, Status::Incomplete);
+        assert!(
+            report
+                .completeness
+                .blocked_checks
+                .iter()
+                .all(|blocked| matches!(blocked.check, CheckRef::Domain { .. }))
+        );
+    }
+    for source in [
+        "var set of int:s;constraint gecode_int_set_channel([],3,[s],1);solve satisfy;",
+        "var int:x;constraint gecode_int_set_channel([x],0,[],0);solve satisfy;",
+        "var int:x;var set of int:s;constraint gecode_int_set_channel([x],1,[s],0);solve satisfy;",
+        "var set of int:s;constraint gecode_array_set_element_partition({1,2,3},[{1},{1},s],{});solve satisfy;",
+        "var int:x;constraint gecode_set_channel_sorted([x],{});solve satisfy;",
+    ] {
+        let report = prepare("partial.fzn", source)
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap();
+        assert_eq!(report.status, Status::Invalid, "{source}");
+        assert!(!report.completeness.complete);
+        assert!(
+            report
+                .completeness
+                .blocked_checks
+                .iter()
+                .all(|blocked| matches!(blocked.check, CheckRef::Domain { .. }))
+        );
+    }
+}
+
+#[test]
+fn set_channel_definitions_complete_only_determined_outputs() {
+    for (declarations, call, check, status, complete) in [
+        (
+            "var set of int:s::is_defined_var;",
+            "gecode_array_set_element_union({1},[{7},s],s)::defines_var(s)",
+            "set_eq(s,{7})",
+            Status::Valid,
+            true,
+        ),
+        (
+            "var set of int:s::is_defined_var;",
+            "gecode_array_set_element_union({1},[s],s)::defines_var(s)",
+            "set_eq(s,{7})",
+            Status::Incomplete,
+            false,
+        ),
+        (
+            "var set of int:s::is_defined_var;",
+            "gecode_array_set_element_union({0},[{7}],s)::defines_var(s)",
+            "set_eq(s,{7})",
+            Status::Invalid,
+            false,
+        ),
+        (
+            "var set of int:s::is_defined_var;",
+            "gecode_array_set_element_intersect_in({1},[{7}],s,{1})::defines_var(s)",
+            "set_eq(s,{7})",
+            Status::Invalid,
+            true,
+        ),
+        (
+            "var set of int:s::is_defined_var;",
+            "gecode_array_set_element_partition({1,2},[{7},{7}],s)::defines_var(s)",
+            "set_eq(s,{7})",
+            Status::Invalid,
+            true,
+        ),
+        (
+            "var set of int:s::is_defined_var;",
+            "gecode_link_set_to_booleans(s,[true,false],4)::defines_var(s)",
+            "set_eq(s,{4})",
+            Status::Valid,
+            true,
+        ),
+        (
+            "var bool:b::is_defined_var;",
+            "gecode_link_set_to_booleans({},[b,b],4)::defines_var(b)",
+            "bool_eq(b,false)",
+            Status::Valid,
+            true,
+        ),
+        (
+            "var bool:b::is_defined_var;",
+            "gecode_link_set_to_booleans({4},[b,b],4)::defines_var(b)",
+            "bool_eq(b,false)",
+            Status::Incomplete,
+            false,
+        ),
+        (
+            "var int:x::is_defined_var;",
+            "gecode_int_set_channel([x],1,[{1},{}],3)::defines_var(x)",
+            "int_eq(x,3)",
+            Status::Valid,
+            true,
+        ),
+        (
+            "var int:x::is_defined_var;",
+            "gecode_int_set_channel([x],1,[{},{}],3)::defines_var(x)",
+            "int_eq(x,3)",
+            Status::Invalid,
+            false,
+        ),
+        (
+            "var int:x::is_defined_var;",
+            "gecode_int_set_channel([x],1,[{1},{1}],3)::defines_var(x)",
+            "int_eq(x,3)",
+            Status::Invalid,
+            false,
+        ),
+        (
+            "var set of int:s::is_defined_var;",
+            "gecode_inverse_set([s],[{2}],2,3)::defines_var(s)",
+            "set_eq(s,{3})",
+            Status::Valid,
+            true,
+        ),
+        (
+            "var set of int:s::is_defined_var;",
+            "gecode_inverse_set([{3}],[s],2,3)::defines_var(s)",
+            "set_eq(s,{2})",
+            Status::Valid,
+            true,
+        ),
+        (
+            "var set of int:s::is_defined_var;",
+            "gecode_set_channel_sorted([1,3],s)::defines_var(s)",
+            "set_eq(s,{1,3})",
+            Status::Valid,
+            true,
+        ),
+        (
+            "var int:x::is_defined_var;",
+            "gecode_set_channel_sorted([x,x],{1,3})::defines_var(x)",
+            "int_eq(x,1)",
+            Status::Incomplete,
+            false,
+        ),
+        (
+            "var int:x::is_defined_var;",
+            "gecode_set_channel_sorted([x],1..1000000000)::defines_var(x)",
+            "int_eq(x,1)",
+            Status::Invalid,
+            false,
+        ),
+        (
+            "var set of 1..1:s::is_defined_var;",
+            "gecode_range([7],0,{0},s)::defines_var(s)",
+            "set_eq(s,{})",
+            Status::Invalid,
+            true,
+        ),
+    ] {
+        let source = format!("{declarations}constraint {call};constraint {check};solve satisfy;");
+        let report = prepare("definitions.fzn", &source)
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap();
+        assert_eq!(
+            (report.status, report.completeness.complete),
+            (status, complete),
+            "{source}"
+        );
+        if declarations.contains("set of 1..1") {
+            assert_eq!(report.violations.len(), 2);
+        }
+    }
+    let model = prepare("prefix.fzn", "var set of int:s::is_defined_var;constraint gecode_int_set_channel([1],1,[s,{1}],0)::defines_var(s);constraint set_eq(s,{0});solve satisfy;").unwrap();
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    let report = model.check(&Assignment::default()).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(report.completeness.complete);
+    assert_eq!(report.violations.len(), 1);
+    assert!(
+        matches!(&report.violations[0].check, CheckRef::Constraint { constraint } if constraint.predicate == "gecode_int_set_channel")
+    );
+    let json = serde_json::to_value(&report).unwrap();
+    assert_eq!(
+        json["violations"][0]["details"]["finding"]["arguments"][1]["value"]["value"],
+        serde_json::json!({"kind":"integer_set","value":{"ranges":[{"lower":"0","upper":"0"}]}})
+    );
+    assert_eq!(
+        json,
+        serde_json::to_value(loaded.check(&Assignment::default()).unwrap()).unwrap()
+    );
+    for source in [
+        "var int:x::is_defined_var;var set of int:s;constraint gecode_range([x],0,s,{})::defines_var(x);solve satisfy;",
+        "var set of int:s::is_defined_var;constraint gecode_link_set_to_booleans(s,[],0)::defines_var(s);constraint gecode_set_channel_sorted([],s)::defines_var(s);solve satisfy;",
+        "array[1..2] of var int:x::is_defined_var;constraint gecode_set_channel_sorted([x[1]],{})::defines_var(x);solve satisfy;",
+    ] {
+        // Unsupported definition directions stay unresolved; malformed targets/competing definitions fail.
+        let result = prepare("targets.fzn", source);
+        if source.contains("gecode_range") {
+            assert_eq!(
+                result
+                    .unwrap()
+                    .check(&Assignment::default())
+                    .unwrap()
+                    .status,
+                Status::Incomplete
+            );
+        } else {
+            assert!(result.is_err());
+        }
+    }
+}
+
+#[test]
+fn set_channel_reports_round_trip_after_edits_and_removed_inputs() {
+    let model = prepare(
+        "set-channels.fzn",
+        include_str!("../../../examples/checker-compilation/set-channels.fzn"),
+    )
+    .unwrap();
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for (candidate, status, complete) in [
+        (
+            "left={1};right={3};selected={1,2};value=9007199254740993;",
+            Status::Valid,
+            true,
+        ),
+        (
+            "left={1};right={1};selected={1,2};value=9007199254740993;ordered=[1,1];",
+            Status::Invalid,
+            true,
+        ),
+        (
+            "left={1};right={3};selected={0};value=7;",
+            Status::Invalid,
+            false,
+        ),
+        (
+            "left={1};right={3};selected={1,2};value=7;combined={2,3};",
+            Status::Invalid,
+            true,
+        ),
+        ("left={1};right={1};selected={1,2};", Status::Invalid, false),
+        ("", Status::Incomplete, false),
+    ] {
+        let report = model.check(&assignment(candidate)).unwrap();
+        assert_eq!(
+            (report.status, report.completeness.complete),
+            (status, complete),
+            "{candidate}"
+        );
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(
+            json,
+            serde_json::to_value(loaded.check(&assignment(candidate)).unwrap()).unwrap()
+        );
+        if candidate.contains("selected={0}") {
+            let finding = &json["violations"][0];
+            assert_eq!(finding["details"]["finding"]["arguments"][1]["index"], "1");
+            assert_eq!(
+                finding["details"]["finding"]["faults"][0]["members"]["ranges"][0]["lower"],
+                "0"
+            );
+            assert_eq!(
+                finding["details"]["finding"]["arguments"][3]["unresolved"]["name"],
+                "combined"
+            );
+            assert_eq!(
+                finding["check"]["constraint"]["metadata"]["application"]["entities"][0],
+                "9007199254740993"
+            );
+            let text = zincite_check::cli::render_text(&report);
+            assert!(
+                text.contains("selected sets")
+                    && text.contains("outside")
+                    && text.contains("combined unresolved")
+            );
+        }
+    }
+}

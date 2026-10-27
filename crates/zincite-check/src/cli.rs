@@ -299,6 +299,9 @@ pub fn render_text(report: &CheckReport) -> String {
             ViolationKind::Circuit { finding } => {
                 let _ = writeln!(text, "  {}", circuit_text(finding));
             }
+            ViolationKind::SetChannel { finding } => {
+                let _ = writeln!(text, "  {}", set_channel_text(finding));
+            }
             ViolationKind::SetGlobal { finding } => {
                 let _ = writeln!(text, "  {}", set_global_text(finding));
             }
@@ -1229,4 +1232,72 @@ fn set_global_text(finding: &crate::SetGlobalFinding) -> String {
             condition_text(condition)
         ),
     }
+}
+
+fn set_channel_text(finding: &crate::SetChannelFinding) -> String {
+    use crate::{SetChannelFault, SetChannelFinding::*};
+    let (operation, arguments, faults) = match finding {
+        Link {
+            arguments, faults, ..
+        } => ("set/Boolean channel", arguments, faults),
+        IntSet {
+            arguments, faults, ..
+        } => ("integer/set channel", arguments, faults),
+        Inverse {
+            arguments, faults, ..
+        } => ("inverse sets", arguments, faults),
+        Range {
+            arguments, faults, ..
+        } => ("set range", arguments, faults),
+        Precede {
+            arguments, faults, ..
+        } => ("set precedence", arguments, faults),
+        Sorted { arguments, faults } => ("sorted set channel", arguments, faults),
+        Selected {
+            arguments, faults, ..
+        } => ("selected sets", arguments, faults),
+    };
+    let arguments = arguments
+        .iter()
+        .map(|argument| {
+            let position = argument
+                .position
+                .map(|position| format!("[{position}]"))
+                .unwrap_or_default();
+            let index = argument
+                .index
+                .map(|index| format!(" (index {index})"))
+                .unwrap_or_default();
+            let value = argument
+                .value
+                .as_ref()
+                .map(argument_text)
+                .unwrap_or_else(|| {
+                    argument
+                        .unresolved
+                        .as_ref()
+                        .map(|reference| format!("{} unresolved", variable_name(reference)))
+                        .unwrap_or_else(|| "unresolved".into())
+                });
+            format!("{:?}{position}{index}={value}", argument.role)
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let position_text = |position: &Option<usize>| {
+        position
+            .map(|position| format!(" position {position}"))
+            .unwrap_or_default()
+    };
+    let faults = faults.iter().map(|fault| match fault {
+        SetChannelFault::Outside { side, position, members, allowed } => format!("{side:?}{} has members {members} outside {allowed}", position_text(position)),
+        SetChannelFault::Membership { position, index, set_position, set_index, expected } => format!("position {position} (index {index}), set position {set_position} (index {set_index}): expected membership {expected}"),
+        SetChannelFault::MembershipCount { position, index, memberships } => format!("position {position} (index {index}) needs exactly one bucket, found {memberships}"),
+        SetChannelFault::Padding { integer_indices, set_indices } => format!("padding conflict at integer indices {integer_indices}, set indices {set_indices}"),
+        SetChannelFault::Mismatch { side, position, expected } => format!("{side:?}{}: expected {expected}", position_text(position)),
+        SetChannelFault::Partition { first, second, intersection } => format!("selected positions {first} and {second} overlap in {intersection}"),
+        SetChannelFault::Precedence { position } => format!("position {position} has no earlier exclusive first member"),
+        SetChannelFault::Order { first, second } => format!("positions {first} and {second} are not strictly increasing"),
+        SetChannelFault::Cardinality { expected, actual } => format!("expected cardinality {expected}, actual {actual}"),
+    }).collect::<Vec<_>>().join("; ");
+    format!("{operation}: {faults}; {arguments}")
 }

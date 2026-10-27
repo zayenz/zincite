@@ -363,6 +363,24 @@ CURRENT |= {
 }
 
 
+CURRENT |= {
+    prefix + name
+    for prefix in ("", "gecode_", "fzn_")
+    for name in (
+        "gecode_link_set_to_booleans",
+        "gecode_int_set_channel",
+        "gecode_inverse_set",
+        "gecode_range",
+        "gecode_precede_set",
+        "gecode_set_channel_sorted",
+        "gecode_array_set_element_union",
+        "gecode_array_set_element_intersect",
+        "gecode_array_set_element_partition",
+        "gecode_array_set_element_intersect_in",
+    )
+}
+
+
 @dataclass(frozen=True)
 class Declaration:
     file: str
@@ -872,7 +890,27 @@ def output_rule(name: str, task: int, *, wrapper: bool = False) -> str:
             return "argument 4 (covered weighted sum)"
         return "argument 2 (aggregate or hull)"
     if task == 28:
-        return f"[unique outputs](#family-{task:03})"
+        aliases = {
+            prefix + root: root
+            for prefix in ("", "gecode_", "fzn_")
+            for root in FAMILIES[28].split()
+        }
+        root = aliases.get(name, name)
+        if root == "gecode_link_set_to_booleans":
+            return "argument 1 (set) or argument 2 (all flags)"
+        if root == "gecode_int_set_channel":
+            return "argument 3 (buckets) or argument 1 (exactly one membership per integer)"
+        if root == "gecode_inverse_set":
+            return "either complete set-array side (transpose)"
+        if root == "gecode_range":
+            return "argument 4 (selected integer image)"
+        if root == "gecode_precede_set":
+            return "none"
+        if root == "gecode_set_channel_sorted":
+            return "argument 2 (member set) or argument 1 (exact-cardinality sorted members)"
+        if root.startswith("gecode_array_set_element_"):
+            return "argument 3 (selected aggregate; raw intersection)"
+        raise ValueError(f"missing set-channel output rule: {name}")
     return "compiler lowering; emitted definitions"
 
 
@@ -1071,6 +1109,13 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
     admitted |= {
         prefix + name
         for name in re.findall(r'"([a-z_0-9]+)"', global_names)
+        for prefix in ("", "gecode_", "fzn_")
+    }
+    set_channels = (ROOT / "crates/zincite-check/src/set_channels.rs").read_text()
+    channel_names = set_channels.split("match base {", 1)[1].split("_ =>", 1)[0]
+    admitted |= {
+        prefix + name
+        for name in re.findall(r'"([a-z_0-9]+)"', channel_names)
         for prefix in ("", "gecode_", "fzn_")
     }
     if admitted != CURRENT:

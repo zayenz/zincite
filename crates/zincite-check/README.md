@@ -1623,3 +1623,114 @@ The [direct FlatZinc control](../../examples/checker-compilation/set-globals.fzn
 provides a complete application-edit path without those compiler gaps, including
 values above 2^53 and original duplicate weight rows. Both native CLI forms and
 source/export/load checks exercise the direct and admitted native controls.
+
+## Selected sets and channels
+
+These ten literal roots each accept exactly three spellings: the root itself,
+`gecode_` plus the root, and `fzn_` plus the root. For example,
+`gecode_range`, `gecode_gecode_range` and `fzn_gecode_range` are admitted;
+`range` is a MiniZinc wrapper. This adds 30 names, for 899 admitted spellings.
+Matching bodyless declarations may use any legal formal names. Set, integer and
+Boolean value arguments have variable roles; offsets and precedence constants
+are fixed integers, and the explicit universe is a fixed set.
+
+| Literal root and positional arguments | Supported marked output |
+| --- | --- |
+| `gecode_link_set_to_booleans(set, flags, offset)` | Set from all flags, or flags from the set |
+| `gecode_int_set_channel(integers, integer_offset, sets, set_offset)` | Buckets from all integers; an integer from fully known buckets with exactly one membership |
+| `gecode_inverse_set(forward, inverse, forward_offset, inverse_offset)` | Either set-array side from the complete opposite side |
+| `gecode_range(integers, offset, selection, result)` | Selected integer image `result` |
+| `gecode_precede_set(sets, first, second)` | None |
+| `gecode_set_channel_sorted(integers, set)` | Member set from integers, or sorted integers from a set of exactly the array's cardinality |
+| `gecode_array_set_element_union(indices, sets, result)` | Selected union `result` |
+| `gecode_array_set_element_intersect(indices, sets, result)` | Selected intersection `result` |
+| `gecode_array_set_element_partition(indices, sets, result)` | Selected union `result`; overlapping selected sets also fail |
+| `gecode_array_set_element_intersect_in(indices, sets, result, universe)` | Raw selected intersection `result`; result must also be a subset of `universe` |
+
+Selected-set indices are `1..length(sets)`; zero is explicitly excluded. Only
+selected sets are needed to calculate an aggregate. An unselected unknown set,
+including an unselected reference to the output, does not block it. Empty union
+and partition are empty. Empty ordinary intersection is the pinned Gecode
+universe `-1073741822..1073741822`; empty `intersect_in` is its explicit universe.
+For nonempty `intersect_in`, the checker calculates the raw intersection and
+checks its subset obligation separately. It never clips that intersection.
+Selected references at different positions also participate in partition checks.
+An overlap or universe fault does not suppress a determined aggregate; invalid
+selection indices supply no invented result.
+
+Offsets are nonnegative mathematical labels. Array intervals must fit native
+index arithmetic. Fixed parameters also satisfy the registry's explicit
+Gecode set/integer domain guards, including precedence constants and the
+Boolean channel's disjoint prefix. Candidate integers and set members use the
+usual checked i64 policy. Padding uses compact intervals, so large offsets and
+wide invalid sets do not allocate or enumerate their members.
+
+For the Boolean channel, flag position `p` (zero-based) represents membership
+of `offset+p`. No other set members are allowed. Empty flags require an empty
+set, even with a nonzero offset. For range, a nonempty integer array has virtual
+zero entries at `0..offset-1`; any selected prefix position contributes the
+single value zero. An empty integer array has no virtual prefix. Only selected
+visible integers are needed for its image.
+
+The integer/set channel follows the full padded equivalence `x[i]=j` iff
+`i in y[j]`. Let `a=integer_offset`, `b=set_offset`, `N=0` for empty integers
+and otherwise `a+length(integers)`, and `M=b+length(sets)`. A nonempty integer
+array has fixed zero entries below `a`. Set-array prefixes always exist: bucket
+zero contains `0..a-1`, and other prefix buckets are empty. Visible integers
+must lie in `b..M-1`, and visible buckets must be subsets of `a..N-1`.
+These obligations can expose a padding fault even with unavailable visible
+inputs. In particular, a visible bucket zero cannot accommodate a nonempty
+integer prefix, and a nonempty dummy bucket cannot fit an empty integer array.
+Inverse-set prefixes are empty on both sides; visible members must fall within
+the opposite visible array, and membership is transposed using the two offsets.
+
+Set precedence uses exclusive membership: a position containing `second`
+without `first` needs an earlier position containing `first` without `second`.
+A set containing both contributes neither condition. Equal constants make the
+relation vacuous. Sorted channels require strict increasing order, equality of
+the member set and exact cardinality. Missing integer positions are calculated
+only after set cardinality equals the actual array length.
+
+Definitions require `defines_var` plus the existing `is_defined_var` markers.
+Scalar targets and complete canonical array target groups are supported; group
+slot multisets and element types must match the whole output array. Repeated
+output aliases derive only when all corresponding calculated values agree.
+Actual self-dependencies stay unresolved. Competing definitions fail preparation.
+Supplied values are immutable, and derived domain failures still feed downstream
+checks. Every check starts from fresh values.
+
+`set_channel` findings carry named argument roles, available typed values or
+unresolved references, one-based visible positions, logical index labels and
+compact outside ranges. Faults distinguish membership, membership counts,
+padding, expected values, partition overlap, precedence, strict order and
+cardinality. Mathematical integers are decimal strings; structural positions
+are JSON numbers. Known faults can accompany incomplete input. Text rendering
+uses these fields directly. Existing artifact and report shapes keep version 1.
+
+### Compile-only channel controls
+
+[set-channel-controls.mzn](../../examples/checker-compilation/set-channel-controls.mzn)
+uses public Boolean/integer/set channels, inverse sets, range, roots, set member,
+value precedence and sequence precedence. Compile it with both pinned profiles
+using the flags in the preceding compile-only set controls section.
+[set-channel-gecode-controls.mzn](../../examples/checker-compilation/set-channel-gecode-controls.mzn)
+uses the Gecode profile and emits all ten literal roots, including the registry
+union declaration absent from the public Gecode entry point. Its six marked
+scalar outputs keep both definition annotations, domains and source labels.
+The native control prepares unchanged; directly calculated candidates pass
+through both CLIs and source/export/load paths.
+
+The public standard profile decomposes these wrappers into admitted Boolean,
+integer and set primitives. The Gecode profile emits the native channels,
+selected union, set precedence, extrema and existing primitives. Both currently
+fail checker preparation because the compiler places `is_defined_var` on a
+constraint: the standard control's roots decomposition emits it on a clause;
+the Gecode control's member-set decomposition emits it on a guarded set relation.
+These are compiler-profile closure work for checker-030/031. The earlier
+annotated-literal and missing-variable-marker gaps also belong to those tasks.
+No runtime annotation rule is relaxed to accept these controls.
+
+The [direct FlatZinc specimen](../../examples/checker-compilation/set-channels.fzn)
+provides complete marked array outputs, repeated edits, supplied conflicts and
+incomplete selection feedback, including a range image above 2^53. Native and
+parser-free Wasm checks use it without invoking MiniZinc or a solver.

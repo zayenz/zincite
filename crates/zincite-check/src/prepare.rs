@@ -299,6 +299,8 @@ impl Source<'_> {
             counting.signature()
         } else if let Some(selection) = SelectionName::from_name(name) {
             selection.signature()
+        } else if let Some(channel) = SetChannelName::from_name(name) {
+            channel.signature()
         } else if let Some(global) = SetGlobalName::from_name(name) {
             global.signature()
         } else if let Some(set) = SetName::from_name(name) {
@@ -1202,6 +1204,7 @@ impl<'a> Lowerer<'a> {
         let selection = SelectionName::from_name(&name);
         let set = SetName::from_name(&name);
         let set_global = SetGlobalName::from_name(&name);
+        let set_channel = SetChannelName::from_name(&name);
         let arity = if packing {
             4
         } else if let Some(rectangles) = rectangles {
@@ -1220,6 +1223,8 @@ impl<'a> Lowerer<'a> {
             counting.signature().len()
         } else if let Some(selection) = selection {
             selection.arity()
+        } else if let Some(channel) = set_channel {
+            channel.signature().len()
         } else if let Some(global) = set_global {
             global.signature().len()
         } else if let Some(set) = set {
@@ -1268,6 +1273,8 @@ impl<'a> Lowerer<'a> {
             self.counting_predicate(call, counting, &args)?
         } else if let Some(selection) = selection {
             self.selection_predicate(call, selection, &args)?
+        } else if let Some(channel) = set_channel {
+            self.set_channel_predicate(call, channel, &args)?
         } else if let Some(global) = set_global {
             self.set_global_predicate(call, global, &args)?
         } else if let Some(set) = set {
@@ -1681,6 +1688,74 @@ impl<'a> Lowerer<'a> {
             .validate_shape()
             .map_err(|message| self.source.error(call, message))?;
         Ok(Predicate::Counting(counting))
+    }
+
+    fn set_channel_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: SetChannelName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        use ValueType::*;
+        let channel = match name {
+            SetChannelName::Link => SetChannel::Link {
+                set: self.scalar(args[0], IntegerSet)?,
+                flags: self.array(args[1], Boolean)?,
+                offset: self.constant_integer(args[2])?,
+            },
+            SetChannelName::IntSet => SetChannel::IntSet {
+                integers: self.array(args[0], Integer)?,
+                integer_offset: self.constant_integer(args[1])?,
+                sets: self.array(args[2], IntegerSet)?,
+                set_offset: self.constant_integer(args[3])?,
+            },
+            SetChannelName::Inverse => SetChannel::Inverse {
+                forward: self.array(args[0], IntegerSet)?,
+                inverse: self.array(args[1], IntegerSet)?,
+                forward_offset: self.constant_integer(args[2])?,
+                inverse_offset: self.constant_integer(args[3])?,
+            },
+            SetChannelName::Range => SetChannel::Range {
+                integers: self.array(args[0], Integer)?,
+                offset: self.constant_integer(args[1])?,
+                selection: self.scalar(args[2], IntegerSet)?,
+                result: self.scalar(args[3], IntegerSet)?,
+            },
+            SetChannelName::Precede => SetChannel::Precede {
+                sets: self.array(args[0], IntegerSet)?,
+                first: self.constant_integer(args[1])?,
+                second: self.constant_integer(args[2])?,
+            },
+            SetChannelName::Sorted => SetChannel::Sorted {
+                integers: self.array(args[0], Integer)?,
+                set: self.scalar(args[1], IntegerSet)?,
+            },
+            SetChannelName::Selected {
+                operation,
+                explicit_universe,
+            } => SetChannel::Selected {
+                operation,
+                indices: self.scalar(args[0], IntegerSet)?,
+                sets: self.array(args[1], IntegerSet)?,
+                result: self.scalar(args[2], IntegerSet)?,
+                universe: if explicit_universe {
+                    Some(match self.scalar(args[3], IntegerSet)? {
+                        Operand::Literal(Value::IntegerSet(set)) => set,
+                        _ => {
+                            return Err(self
+                                .source
+                                .error(args[3], "expected a fixed intersection universe"));
+                        }
+                    })
+                } else {
+                    None
+                },
+            },
+        };
+        channel
+            .validate_shape()
+            .map_err(|message| self.source.error(call, message))?;
+        Ok(Predicate::SetChannel(channel))
     }
 
     fn set_global_predicate(

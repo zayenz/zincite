@@ -3,9 +3,9 @@
 # Tasks: checker
 
 - Total: 33
-- Ready: 3
+- Ready: 2
 - Blocked: 3
-- Done: 27
+- Done: 28
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -36,7 +36,7 @@
 | [checker-025](tasks/025-check-the-latest-gecode-explicit-end-scheduling-interfaces.md) | Check the latest Gecode explicit-end scheduling interfaces | done | checker-024 |
 | [checker-026](tasks/026-check-packing-and-rectangle-non-overlap-interfaces.md) | Check packing and rectangle non-overlap interfaces | done | checker-012, checker-014 |
 | [checker-027](tasks/027-check-aggregate-ordered-and-weighted-set-globals.md) | Check aggregate, ordered and weighted set globals | done | checker-017, checker-012 |
-| [checker-028](tasks/028-check-set-selection-channels-and-set-valued-globals.md) | Check set selection, channels and set-valued globals | ready | checker-027, checker-020 |
+| [checker-028](tasks/028-check-set-selection-channels-and-set-valued-globals.md) | Check set selection, channels and set-valued globals | done | checker-027, checker-020 |
 | [checker-029](tasks/029-check-gecode-number-theory-products-and-distance-extensions.md) | Check Gecode number theory, products and distance extensions | ready | checker-012, checker-013 |
 | [checker-030](tasks/030-compile-the-complete-standard-library-to-supported-checker-o.md) | Compile the complete standard library to supported checker operations | ready | checker-012, checker-013, checker-014, checker-015, checker-018, checker-016, checker-017 |
 | [checker-031](tasks/031-compile-against-the-complete-pinned-gecode-minizinc-library.md) | Compile against the complete pinned Gecode MiniZinc library | blocked | checker-030, checker-019, checker-020, checker-021, checker-022, checker-023, checker-025, checker-026, checker-028, checker-029, checker-018 |

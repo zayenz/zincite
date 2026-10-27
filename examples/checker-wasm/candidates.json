@@ -2069,5 +2069,352 @@
         },
         "status": "incomplete",
         "complete": false
+    },
+    {
+        "name": "set-channels-valid",
+        "model": "setChannels",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "left",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "right",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "3",
+                                        "upper": "3"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "selected",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "2"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "value",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "valid",
+        "complete": true
+    },
+    {
+        "name": "set-channels-partition",
+        "model": "setChannels",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "left",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "right",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "selected",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "2"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "value",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                },
+                {
+                    "name": "ordered",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "integer",
+                                "value": "1"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "1"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "set-channels-selection",
+        "model": "setChannels",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "left",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "right",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "3",
+                                        "upper": "3"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "selected",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "0",
+                                        "upper": "0"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "value",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": false
+    },
+    {
+        "name": "set-channels-supplied",
+        "model": "setChannels",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "left",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "right",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "3",
+                                        "upper": "3"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "selected",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "2"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "value",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                },
+                {
+                    "name": "combined",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "2",
+                                        "upper": "3"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "image",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "0",
+                                        "upper": "0"
+                                    },
+                                    {
+                                        "lower": "9007199254740992",
+                                        "upper": "9007199254740992"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "set-channels-omitted",
+        "model": "setChannels",
+        "assignment": {
+            "entries": []
+        },
+        "status": "incomplete",
+        "complete": false
     }
 ]

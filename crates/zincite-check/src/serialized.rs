@@ -277,6 +277,10 @@ impl PreparedModel {
                     }
                     &constraint.reference.predicate
                 }
+                Predicate::SetChannel(channel) => {
+                    self.validate_set_channel(constraint, channel)?;
+                    &constraint.reference.predicate
+                }
                 Predicate::SetGlobal(global) => {
                     self.validate_set_global(constraint, global)?;
                     &constraint.reference.predicate
@@ -715,6 +719,23 @@ impl PreparedModel {
                 }
             }
             _ => return Err(mismatch()),
+        }
+        Ok(())
+    }
+
+    fn validate_set_channel(
+        &self,
+        constraint: &Constraint,
+        channel: &SetChannel,
+    ) -> Result<(), Diagnostic> {
+        if SetChannelName::from_name(&constraint.reference.predicate) != Some(channel.name()) {
+            return Err(invalid(
+                "set-channel predicate name does not match its executable operation",
+            ));
+        }
+        channel.validate_shape().map_err(invalid)?;
+        for (operand, kind) in channel.typed_operands() {
+            self.validate_operand(operand, kind)?;
         }
         Ok(())
     }

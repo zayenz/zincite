@@ -162,7 +162,8 @@ target/debug/zincite-check --export "$checker_run/legacy.json" examples/checker-
 target/debug/zincite-check --export "$checker_run/flex.json" examples/checker-compilation/explicit-end-scheduling.fzn
 target/debug/zincite-check --export "$checker_run/packing.json" examples/checker-compilation/packing.fzn
 target/debug/zincite-check --export "$checker_run/set-globals.json" examples/checker-compilation/set-globals.fzn
-node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" "$checker_run/automata.json" "$checker_run/circuits.json" "$checker_run/legacy.json" "$checker_run/flex.json" "$checker_run/packing.json" "$checker_run/set-globals.json" examples/checker-wasm/candidates.json target/debug/zincite-check
+target/debug/zincite-check --export "$checker_run/set-channels.json" examples/checker-compilation/set-channels.fzn
+node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" "$checker_run/automata.json" "$checker_run/circuits.json" "$checker_run/legacy.json" "$checker_run/flex.json" "$checker_run/packing.json" "$checker_run/set-globals.json" "$checker_run/set-channels.json" examples/checker-wasm/candidates.json target/debug/zincite-check
 ```
 
 `smoke.cjs` reads only built bindings, prepared artifacts and typed assignment
@@ -171,7 +172,7 @@ compares every observable report with the native CLI's `--load` path. The CLI
 receives literal `.dzn` assignments made from the same typed values in a temporary
 directory. The consumer removes those temporary assignments when finished.
 
-The sixty-nine named cases cover valid, invalid, incomplete and invalid-with-incomplete
+The seventy-four named cases cover valid, invalid, incomplete and invalid-with-incomplete
 reports, application metadata, Boolean and array input, set definitions and domain
 failures, strict resource conflicts, and the distinct integers 9007199254740992
 and 9007199254740993 as both integers and set endpoints. The exact-value model
@@ -211,10 +212,10 @@ compiler metadata limits. Four circuit cases compare wide offsets, selected edge
 actual supplied-cost sums, reordered combined outputs, typed subcycles and known
 violations with incomplete inputs. The first 54 candidate records keep their
 108 comparisons. Five explicit-end scheduling cases and five packing cases brought the total to 128.
-Five aggregate-set edits bring the total to 138.
+Five aggregate-set edits brought the total to 138. Five selected-set/channel edits bring it to 148.
 A second pass exercises reuse after changing and removing inputs. Small boundary
 checks reject a malformed artifact, a JSON number supplied as an integer and an
-unknown assignment name. Expected output ends with `Native/Wasm reports and errors agree across 138 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, legacy and explicit-end scheduling, bin packing and rectangles, aggregate/ordered/weighted sets, global findings and input errors verified.` The native suite owns
+unknown assignment name. Expected output ends with `Native/Wasm reports and errors agree across 148 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, legacy and explicit-end scheduling, bin packing and rectangles, aggregate/ordered/weighted sets, selected sets and channels, global findings and input errors verified.` The native suite owns
 the wider evaluator coverage.
 
 
@@ -255,3 +256,13 @@ integers, supplied-output conflicts, sequence order across an empty middle set,
 convexity and known pair faults with missing inputs. All 64 earlier candidate
 records keep their exact bytes and their 128 native/Wasm comparisons. The smoke
 loads the same fifteen earlier artifacts plus the direct set-global artifact.
+
+
+Five selected-set/channel candidates compare marked aggregates, range images,
+Boolean flags, integer/set buckets, inverse sets and sorted integers. They check
+partition overlap, an excluded selection index with unresolved outputs, supplied
+conflicts, exact range images above 2^53 and removed inputs. Typed findings carry
+positions, offset labels, compact ranges, references and application metadata.
+All sixteen earlier artifacts load unchanged, and all 69 earlier candidate
+records keep their exact bytes and 138 comparisons. The five added records bring
+the repeated native/Wasm smoke to 148 comparisons.

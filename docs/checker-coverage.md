@@ -136,6 +136,8 @@ All other mathematical calls and aliases are planned work.
 | `inverse_offsets`, `gecode_bool_int_channel` | Equal inverse lengths and nonnegative offsets; exactly one true channel position with signed offset | Either side when unique |
 | `member_int/bool`, registered member reifiers, `gecode_precede` | Existential equality or earlier fixed value; empty member is false | Member reifier only |
 | `gecode_table_int/bool` and their `_reif`/`_imp` forms | Fixed typed row-major data; complete rows of candidate width; empty table is false | Full reifier only after every tuple entry is known |
+| Selected union/intersection/partition and explicit-universe intersection | Ten set-channel roots use exactly the root, `gecode_`+root and `fzn_`+root; one-based selected indices, raw intersections and independent subset/partition obligations | Marked aggregate result |
+| Boolean/set and integer/set channels, inverse sets, range, sorted channels and set precedence | Nonnegative offsets, compact virtual prefixes, exact membership/order/cardinality; [signatures and output rules](../crates/zincite-check/README.md#selected-sets-and-channels) | Unique marked channel direction or range image; precedence has none |
 | `gecode_regular`, `gecode_regular_set`, `gecode_regular_nfa_int_fzn` | Concrete DFA/NFA acceptance; fixed row-major transitions; validated alphabets, states and target sets | None |
 | `gecode_circuit`, `gecode_circuit_cost`, `gecode_circuit_cost_array` | Nonempty single-cycle permutation; plain offset or zero-based cost rows; independent edge equalities and actual cost sum | Marked edge costs and totals from their known inputs |
 
@@ -608,15 +610,33 @@ belong to checker-030/031 profile closure. The
 records signatures, output directions and the inspected compile-only controls.
 
 <a id="family-028"></a>
-**checker-028 — set selection and channels.** Check selected union/intersection/
-partition, range/roots, integer/set/Boolean channels, inverse sets, sorted channels
-and set precedence. Known selected indexes determine an aggregate from only the
-selected inputs; an empty intersection uses the explicit `intersect_in` universe
-or the Gecode universe. Complete known channel sides can determine the opposite
-side under the declared offset/cardinality conventions. Selection never chooses
-members or indexes. Inspect the padding and universe restrictions in the
-[channel handlers](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2505),
-including the excluded zero index in selected-set operations.
+**checker-028 — set selection and channels.** Thirty exact registry spellings
+from ten roots are admitted, bringing the total to 899. Selected union,
+intersection and partition use visible one-based indices and require only the
+selected operands. Empty intersection uses the explicit `intersect_in` universe
+or the pinned Gecode universe. Nonempty `intersect_in` equals the raw selected
+intersection and also requires a subset of its universe; clipping is incorrect.
+Partition checks selected pairs even when they alias the same set.
+
+Boolean/set and integer/set channels, inverse sets and range use the registry's
+full padding conventions. Offsets use compact labels; an empty integer or Boolean
+array suppresses its prefix, while set prefixes always exist. Sorted channels
+require strict increasing order, member equality and exact cardinality. Set
+precedence counts only exclusive first/second membership. Deterministic outputs
+are marked aggregates/images, either Boolean-channel side, bucket arrays,
+uniquely determined integers, either inverse-set side and sorted members of an
+exact-cardinality set. Complete-array targets match canonical slots and types.
+Known membership, padding, partition, order and universe faults can accompany
+incomplete input. The [checker guide](../crates/zincite-check/README.md#selected-sets-and-channels)
+records exact signatures, guards, report fields and output directions.
+
+Public roots, member-set and sequence wrappers belong to compiler-profile
+closure in checker-030/031; their underlying existing primitives keep their
+previous owners. Compile-only controls show both public profiles placing
+`is_defined_var` on constraints, which preparation diagnoses. The native Gecode
+control emits all ten operations with usable scalar markers. Inspect the
+[channel handlers](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2505)
+for padding and the excluded zero selection index.
 
 <a id="family-029"></a>
 **checker-029 — arithmetic and distance extensions.** Check nonnegative gcd
@@ -1072,26 +1092,26 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r245"></a>[R245](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2751) | ` set_in_reif `, ` gecode_set_in_reif `, ` fzn_set_in_reif ` | ` p_set_in_reif ` / ` GECODE_HAS_SET_VARS ` | [D0499](#d0499), [D0500](#d0500) | ` set_in_reif `, ` gecode_set_in_reif `, ` fzn_set_in_reif ` | [checker-017](#family-017) | last Boolean (truth) |
 | <a id="r246"></a>[R246](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2752) | ` set_in_imp `, ` gecode_set_in_imp `, ` fzn_set_in_imp ` | ` p_set_in_imp ` / ` GECODE_HAS_SET_VARS ` | [D3153](#d3153) | ` set_in_imp `, ` gecode_set_in_imp `, ` fzn_set_in_imp ` | [checker-017](#family-017) | none (guard) |
 | <a id="r247"></a>[R247](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2753) | ` disjoint `, ` gecode_disjoint `, ` fzn_disjoint ` | ` p_set_disjoint ` / ` GECODE_HAS_SET_VARS ` | [D0352](#d0352), [D2852](#d2852) | ` disjoint `, ` gecode_disjoint `, ` fzn_disjoint ` | [checker-027](#family-027) | none |
-| <a id="r248"></a>[R248](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2754) | ` gecode_link_set_to_booleans `, ` gecode_gecode_link_set_to_booleans `, ` fzn_gecode_link_set_to_booleans ` | ` p_link_set_to_booleans ` / ` GECODE_HAS_SET_VARS ` | [D2894](#d2894) | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
+| <a id="r248"></a>[R248](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2754) | ` gecode_link_set_to_booleans `, ` gecode_gecode_link_set_to_booleans `, ` fzn_gecode_link_set_to_booleans ` | ` p_link_set_to_booleans ` / ` GECODE_HAS_SET_VARS ` | [D2894](#d2894) | ` gecode_link_set_to_booleans `, ` gecode_gecode_link_set_to_booleans `, ` fzn_gecode_link_set_to_booleans ` | [checker-028](#family-028) | argument 1 (set) or argument 2 (all flags) |
 | <a id="r249"></a>[R249](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2757) | ` array_set_union `, ` gecode_array_set_union `, ` fzn_array_set_union ` | ` p_array_set_union ` / ` GECODE_HAS_SET_VARS ` | ` array_set_union(array[int] of var set of int: x, var set of int: result) ` (handler) | ` array_set_union `, ` gecode_array_set_union `, ` fzn_array_set_union ` | [checker-027](#family-027) | argument 2 (aggregate or hull) |
 | <a id="r250"></a>[R250](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2758) | ` array_set_partition `, ` gecode_array_set_partition `, ` fzn_array_set_partition ` | ` p_array_set_partition ` / ` GECODE_HAS_SET_VARS ` | [D2903](#d2903) | ` array_set_partition `, ` gecode_array_set_partition `, ` fzn_array_set_partition ` | [checker-027](#family-027) | argument 2 (aggregate or hull) |
 | <a id="r251"></a>[R251](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2759) | ` set_convex `, ` gecode_set_convex `, ` fzn_set_convex ` | ` p_set_convex ` / ` GECODE_HAS_SET_VARS ` | [D3041](#d3041) | ` set_convex `, ` gecode_set_convex `, ` fzn_set_convex ` | [checker-027](#family-027) | none |
 | <a id="r252"></a>[R252](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2760) | ` array_set_seq `, ` gecode_array_set_seq `, ` fzn_array_set_seq ` | ` p_array_set_seq ` / ` GECODE_HAS_SET_VARS ` | [D3060](#d3060) | ` array_set_seq `, ` gecode_array_set_seq `, ` fzn_array_set_seq ` | [checker-027](#family-027) | none |
 | <a id="r253"></a>[R253](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2761) | ` array_set_seq_union `, ` gecode_array_set_seq_union `, ` fzn_array_set_seq_union ` | ` p_array_set_seq_union ` / ` GECODE_HAS_SET_VARS ` | [D3061](#d3061) | ` array_set_seq_union `, ` gecode_array_set_seq_union `, ` fzn_array_set_seq_union ` | [checker-027](#family-027) | argument 2 (aggregate or hull) |
-| <a id="r254"></a>[R254](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2762) | ` gecode_array_set_element_union `, ` gecode_gecode_array_set_element_union `, ` fzn_gecode_array_set_element_union ` | ` p_array_set_element_union ` / ` GECODE_HAS_SET_VARS ` | [D2913](#d2913) | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
-| <a id="r255"></a>[R255](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2764) | ` gecode_array_set_element_intersect `, ` gecode_gecode_array_set_element_intersect `, ` fzn_gecode_array_set_element_intersect ` | ` p_array_set_element_intersect ` / ` GECODE_HAS_SET_VARS ` | [D2960](#d2960) | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
-| <a id="r256"></a>[R256](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2766) | ` gecode_array_set_element_intersect_in `, ` gecode_gecode_array_set_element_intersect_in `, ` fzn_gecode_array_set_element_intersect_in ` | ` p_array_set_element_intersect_in ` / ` GECODE_HAS_SET_VARS ` | [D2962](#d2962) | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
-| <a id="r257"></a>[R257](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2768) | ` gecode_array_set_element_partition `, ` gecode_gecode_array_set_element_partition `, ` fzn_gecode_array_set_element_partition ` | ` p_array_set_element_partition ` / ` GECODE_HAS_SET_VARS ` | [D2961](#d2961) | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
-| <a id="r258"></a>[R258](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2770) | ` gecode_int_set_channel `, ` gecode_gecode_int_set_channel `, ` fzn_gecode_int_set_channel ` | ` p_int_set_channel ` / ` GECODE_HAS_SET_VARS ` | [D2880](#d2880) | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
-| <a id="r259"></a>[R259](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2772) | ` gecode_range `, ` gecode_gecode_range `, ` fzn_gecode_range ` | ` p_range ` / ` GECODE_HAS_SET_VARS ` | [D2905](#d2905) | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
+| <a id="r254"></a>[R254](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2762) | ` gecode_array_set_element_union `, ` gecode_gecode_array_set_element_union `, ` fzn_gecode_array_set_element_union ` | ` p_array_set_element_union ` / ` GECODE_HAS_SET_VARS ` | [D2913](#d2913) | ` gecode_array_set_element_union `, ` gecode_gecode_array_set_element_union `, ` fzn_gecode_array_set_element_union ` | [checker-028](#family-028) | argument 3 (selected aggregate; raw intersection) |
+| <a id="r255"></a>[R255](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2764) | ` gecode_array_set_element_intersect `, ` gecode_gecode_array_set_element_intersect `, ` fzn_gecode_array_set_element_intersect ` | ` p_array_set_element_intersect ` / ` GECODE_HAS_SET_VARS ` | [D2960](#d2960) | ` gecode_array_set_element_intersect `, ` gecode_gecode_array_set_element_intersect `, ` fzn_gecode_array_set_element_intersect ` | [checker-028](#family-028) | argument 3 (selected aggregate; raw intersection) |
+| <a id="r256"></a>[R256](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2766) | ` gecode_array_set_element_intersect_in `, ` gecode_gecode_array_set_element_intersect_in `, ` fzn_gecode_array_set_element_intersect_in ` | ` p_array_set_element_intersect_in ` / ` GECODE_HAS_SET_VARS ` | [D2962](#d2962) | ` gecode_array_set_element_intersect_in `, ` gecode_gecode_array_set_element_intersect_in `, ` fzn_gecode_array_set_element_intersect_in ` | [checker-028](#family-028) | argument 3 (selected aggregate; raw intersection) |
+| <a id="r257"></a>[R257](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2768) | ` gecode_array_set_element_partition `, ` gecode_gecode_array_set_element_partition `, ` fzn_gecode_array_set_element_partition ` | ` p_array_set_element_partition ` / ` GECODE_HAS_SET_VARS ` | [D2961](#d2961) | ` gecode_array_set_element_partition `, ` gecode_gecode_array_set_element_partition `, ` fzn_gecode_array_set_element_partition ` | [checker-028](#family-028) | argument 3 (selected aggregate; raw intersection) |
+| <a id="r258"></a>[R258](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2770) | ` gecode_int_set_channel `, ` gecode_gecode_int_set_channel `, ` fzn_gecode_int_set_channel ` | ` p_int_set_channel ` / ` GECODE_HAS_SET_VARS ` | [D2880](#d2880) | ` gecode_int_set_channel `, ` gecode_gecode_int_set_channel `, ` fzn_gecode_int_set_channel ` | [checker-028](#family-028) | argument 3 (buckets) or argument 1 (exactly one membership per integer) |
+| <a id="r259"></a>[R259](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2772) | ` gecode_range `, ` gecode_gecode_range `, ` fzn_gecode_range ` | ` p_range ` / ` GECODE_HAS_SET_VARS ` | [D2905](#d2905) | ` gecode_range `, ` gecode_gecode_range `, ` fzn_gecode_range ` | [checker-028](#family-028) | argument 4 (selected integer image) |
 | <a id="r260"></a>[R260](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2774) | ` gecode_set_weights `, ` gecode_gecode_set_weights `, ` fzn_gecode_set_weights ` | ` p_weights ` / ` GECODE_HAS_SET_VARS ` | [D2920](#d2920), [D2922](#d2922) | ` gecode_set_weights `, ` gecode_gecode_set_weights `, ` fzn_gecode_set_weights ` | [checker-027](#family-027) | argument 4 (covered weighted sum) |
-| <a id="r261"></a>[R261](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2776) | ` gecode_inverse_set `, ` gecode_gecode_inverse_set `, ` fzn_gecode_inverse_set ` | ` p_inverse_set ` / ` GECODE_HAS_SET_VARS ` | [D2884](#d2884) | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
-| <a id="r262"></a>[R262](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2777) | ` gecode_precede_set `, ` gecode_gecode_precede_set `, ` fzn_gecode_precede_set ` | ` p_precede_set ` / ` GECODE_HAS_SET_VARS ` | [D2938](#d2938) | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
+| <a id="r261"></a>[R261](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2776) | ` gecode_inverse_set `, ` gecode_gecode_inverse_set `, ` fzn_gecode_inverse_set ` | ` p_inverse_set ` / ` GECODE_HAS_SET_VARS ` | [D2884](#d2884) | ` gecode_inverse_set `, ` gecode_gecode_inverse_set `, ` fzn_gecode_inverse_set ` | [checker-028](#family-028) | either complete set-array side (transpose) |
+| <a id="r262"></a>[R262](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2777) | ` gecode_precede_set `, ` gecode_gecode_precede_set `, ` fzn_gecode_precede_set ` | ` p_precede_set ` / ` GECODE_HAS_SET_VARS ` | [D2938](#d2938) | ` gecode_precede_set `, ` gecode_gecode_precede_set `, ` fzn_gecode_precede_set ` | [checker-028](#family-028) | none |
 | <a id="r263"></a>[R263](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2778) | ` gecode_set_rel_imp_fzn `, ` gecode_gecode_set_rel_imp_fzn `, ` fzn_gecode_set_rel_imp_fzn ` | ` p_set_rel_imp ` / ` GECODE_HAS_SET_VARS ` | [D3063](#d3063), [D3164](#d3164) | ` gecode_set_rel_imp_fzn `, ` gecode_gecode_set_rel_imp_fzn `, ` fzn_gecode_set_rel_imp_fzn ` | [checker-017](#family-017) | none (guard) |
 | <a id="r264"></a>[R264](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2779) | ` gecode_set_ite `, ` gecode_gecode_set_ite `, ` fzn_gecode_set_ite ` | ` p_set_ite ` / ` GECODE_HAS_SET_VARS ` | [D2876](#d2876), [D3012](#d3012) | ` gecode_set_ite `, ` gecode_gecode_set_ite `, ` fzn_gecode_set_ite ` | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="r265"></a>[R265](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2780) | ` gecode_set_convex_hull `, ` gecode_gecode_set_convex_hull `, ` fzn_gecode_set_convex_hull ` | ` p_set_convex_hull ` / ` GECODE_HAS_SET_VARS ` | [D3040](#d3040) | ` gecode_set_convex_hull `, ` gecode_gecode_set_convex_hull `, ` fzn_gecode_set_convex_hull ` | [checker-027](#family-027) | argument 2 (aggregate or hull) |
 | <a id="r266"></a>[R266](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2781) | ` gecode_set_atmost_one `, ` gecode_gecode_set_atmost_one `, ` fzn_gecode_set_atmost_one ` | ` p_set_atmost_one ` / ` GECODE_HAS_SET_VARS ` | [D3042](#d3042) | ` gecode_set_atmost_one `, ` gecode_gecode_set_atmost_one `, ` fzn_gecode_set_atmost_one ` | [checker-027](#family-027) | none |
-| <a id="r267"></a>[R267](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2782) | ` gecode_set_channel_sorted `, ` gecode_gecode_set_channel_sorted `, ` fzn_gecode_set_channel_sorted ` | ` p_set_channel_sorted ` / ` GECODE_HAS_SET_VARS ` | [D3043](#d3043) | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
+| <a id="r267"></a>[R267](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2782) | ` gecode_set_channel_sorted `, ` gecode_gecode_set_channel_sorted `, ` fzn_gecode_set_channel_sorted ` | ` p_set_channel_sorted ` / ` GECODE_HAS_SET_VARS ` | [D3043](#d3043) | ` gecode_set_channel_sorted `, ` gecode_gecode_set_channel_sorted `, ` fzn_gecode_set_channel_sorted ` | [checker-028](#family-028) | argument 2 (member set) or argument 1 (exact-cardinality sorted members) |
 | <a id="r268"></a>[R268](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2783) | ` gecode_array_set_intersect `, ` gecode_gecode_array_set_intersect `, ` fzn_gecode_array_set_intersect ` | ` p_array_set_intersect ` / ` GECODE_HAS_SET_VARS ` | [D2811](#d2811), [D3044](#d3044) | ` gecode_array_set_intersect `, ` gecode_gecode_array_set_intersect `, ` fzn_gecode_array_set_intersect ` | [checker-027](#family-027) | argument 2 (aggregate or hull) |
 | <a id="r269"></a>[R269](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2784) | ` gecode_set_element2d `, ` gecode_gecode_set_element2d `, ` fzn_gecode_set_element2d ` | ` p_set_element2d ` / ` GECODE_HAS_SET_VARS ` | [D3045](#d3045), [D3101](#d3101) | ` gecode_set_element2d `, ` gecode_gecode_set_element2d `, ` fzn_gecode_set_element2d ` | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="r270"></a>[R270](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2785) | ` gecode_set_min `, ` gecode_gecode_set_min `, ` fzn_gecode_set_min ` | ` p_set_min ` / ` GECODE_HAS_SET_VARS ` | [D3054](#d3054), [D3082](#d3082) | ` gecode_set_min `, ` gecode_gecode_set_min `, ` fzn_gecode_set_min ` | [checker-027](#family-027) | argument 2 (nonempty extremum) |
@@ -9702,7 +9722,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2880"></a>D2880 / 33 | ` predicate gecode_int_set_channel(array[int] of var int: x, int: xoff, array[int] of var set of int: y, int: yoff) ` | S outside profile; G direct | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
+| <a id="d2880"></a>D2880 / 33 | ` predicate gecode_int_set_channel(array[int] of var int: x, int: xoff, array[int] of var set of int: y, int: yoff) ` | S outside profile; G direct | C (qualified) | [checker-028](#family-028) | argument 3 (buckets) or argument 1 (exactly one membership per integer) |
 | <a id="d2881"></a>D2881 / 36 | ` predicate fzn_int_set_channel(array[int] of var int: x, array[int] of var set of int: y) ` | wrapper → ` forall `, ` gecode_int_set_channel `, ` if `, ` index_set `, ` length `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-809"></a>
@@ -9718,7 +9738,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2884"></a>D2884 / 32 | ` predicate gecode_inverse_set(array[int] of var set of int: f, array[int] of var set of int: invf, int: xoff, int: yoff) ` | S outside profile; G direct | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
+| <a id="d2884"></a>D2884 / 32 | ` predicate gecode_inverse_set(array[int] of var set of int: f, array[int] of var set of int: invf, int: xoff, int: yoff) ` | S outside profile; G direct | C (qualified) | [checker-028](#family-028) | either complete set-array side (transpose) |
 | <a id="d2885"></a>D2885 / 35 | ` predicate fzn_inverse_set(array[int] of var set of int: f, array[int] of var set of int: invf) ` | wrapper → ` forall `, ` gecode_inverse_set `, ` if `, ` index_set `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-811"></a>
@@ -9758,7 +9778,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2894"></a>D2894 / 33 | ` predicate gecode_link_set_to_booleans(var set of int: s, array[int] of var bool: b, int: idx) ` | S outside profile; G direct | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
+| <a id="d2894"></a>D2894 / 33 | ` predicate gecode_link_set_to_booleans(var set of int: s, array[int] of var bool: b, int: idx) ` | S outside profile; G direct | C (qualified) | [checker-028](#family-028) | argument 1 (set) or argument 2 (all flags) |
 | <a id="d2895"></a>D2895 / 35 | ` predicate fzn_link_set_to_booleans(var set of int: s, array[int] of var bool: b) ` | wrapper → ` forall `, ` gecode_link_set_to_booleans `, ` index_set `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-816"></a>
@@ -9811,7 +9831,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2905"></a>D2905 / 32 | ` predicate gecode_range(array[int] of var int: x, int: xoff, var set of int: s, var set of int: t) ` | S outside profile; G direct | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
+| <a id="d2905"></a>D2905 / 32 | ` predicate gecode_range(array[int] of var int: x, int: xoff, var set of int: s, var set of int: t) ` | S outside profile; G direct | C (qualified) | [checker-028](#family-028) | argument 4 (selected integer image) |
 | <a id="d2906"></a>D2906 / 35 | ` predicate fzn_range(array[int] of var int: x, var set of int: s, var set of int: t) ` | wrapper → ` exists `, ` forall `, ` gecode_range `, ` if `, ` index_set `, ` min `, ` ub ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-823"></a>
@@ -9843,7 +9863,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2913"></a>D2913 / 36 | ` predicate gecode_array_set_element_union(var set of int: x, array[int] of var set of int: y, var set of int: z) ` | S outside profile; G direct | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
+| <a id="d2913"></a>D2913 / 36 | ` predicate gecode_array_set_element_union(var set of int: x, array[int] of var set of int: y, var set of int: z) ` | S outside profile; G direct | C (qualified) | [checker-028](#family-028) | argument 3 (selected aggregate; raw intersection) |
 | <a id="d2914"></a>D2914 / 39 | ` predicate fzn_roots(array[int] of var int: x, var set of int: s, var set of int: t) ` | wrapper → ` forall `, ` gecode_array_set_element_union `, ` if `, ` index_set `, ` int_set_channel `, ` length `, ` max `, ` min `, ` ub ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-827"></a>
@@ -9934,7 +9954,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2938"></a>D2938 / 33 | ` predicate gecode_precede_set(array[int] of var set of int: x, int: s, int: t) ` | S outside profile; G direct | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
+| <a id="d2938"></a>D2938 / 33 | ` predicate gecode_precede_set(array[int] of var set of int: x, int: s, int: t) ` | S outside profile; G direct | C (qualified) | [checker-028](#family-028) | none |
 | <a id="d2939"></a>D2939 / 35 | ` predicate fzn_value_precede_set(int: s, int: t, array[int] of var set of int: x) ` | wrapper → ` gecode_precede_set ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-838"></a>
@@ -9962,9 +9982,9 @@ Include/resource entry only; see the selection index.
 | <a id="d2957"></a>D2957 / 92 | ` annotation float_default_search(ann: varsel, ann: valsel) ` | annotation metadata; see classes | planned | [checker-011](#family-011) | metadata |
 | <a id="d2958"></a>D2958 / 98 | ` annotation relax_and_reconstruct(array[int] of var int: x, int: percentage) ` | annotation metadata; see classes | planned | [checker-011](#family-011) | metadata |
 | <a id="d2959"></a>D2959 / 105 | ` annotation relax_and_reconstruct(array[int] of var int: x, int: percentage, array[int] of int: y) ` | annotation metadata; see classes | planned | [checker-011](#family-011) | metadata |
-| <a id="d2960"></a>D2960 / 115 | ` predicate gecode_array_set_element_intersect(var set of int: x, array[int] of var set of int: y, var set of int: z) ` | S outside profile; G direct | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
-| <a id="d2961"></a>D2961 / 123 | ` predicate gecode_array_set_element_partition(var set of int: x, array[int] of var set of int: y, var set of int: z) ` | S outside profile; G direct | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
-| <a id="d2962"></a>D2962 / 130 | ` predicate gecode_array_set_element_intersect_in(var set of int: x, array[int] of var set of int: y, var set of int: z, set of int: u) ` | S outside profile; G direct | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
+| <a id="d2960"></a>D2960 / 115 | ` predicate gecode_array_set_element_intersect(var set of int: x, array[int] of var set of int: y, var set of int: z) ` | S outside profile; G direct | C (qualified) | [checker-028](#family-028) | argument 3 (selected aggregate; raw intersection) |
+| <a id="d2961"></a>D2961 / 123 | ` predicate gecode_array_set_element_partition(var set of int: x, array[int] of var set of int: y, var set of int: z) ` | S outside profile; G direct | C (qualified) | [checker-028](#family-028) | argument 3 (selected aggregate; raw intersection) |
+| <a id="d2962"></a>D2962 / 130 | ` predicate gecode_array_set_element_intersect_in(var set of int: x, array[int] of var set of int: y, var set of int: z, set of int: u) ` | S outside profile; G direct | C (qualified) | [checker-028](#family-028) | argument 3 (selected aggregate; raw intersection) |
 | <a id="d2963"></a>D2963 / 140 | ` predicate among_seq(array[int] of var int: x, set of int: S, int: l, int: m, int: n) ` | wrapper → ` sliding_among ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d2964"></a>D2964 / 147 | ` predicate among_seq(array[int] of var bool: x, bool: b, int: l, int: m, int: n) ` | wrapper → ` sliding_among ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d2965"></a>D2965 / 151 | ` predicate gecode_circuit_cost_array(array[int] of int: c, array[int] of var int: x, array[int] of var int: y, var int: z) ` | S outside profile; G direct | C (qualified) | [checker-023](#family-023) | argument 3 (selected edge costs); argument 4 (actual cost sum) |
@@ -10051,7 +10071,7 @@ Include/resource entry only; see the selection index.
 | <a id="d3040"></a>D3040 / 270 | ` predicate gecode_set_convex_hull(var set of int: x, var set of int: hull) ` | S outside profile; G direct | C (qualified) | [checker-027](#family-027) | argument 2 (aggregate or hull) |
 | <a id="d3041"></a>D3041 / 273 | ` predicate gecode_set_convex(var set of int: x) ` | S outside profile; G direct | C (qualified) | [checker-027](#family-027) | none |
 | <a id="d3042"></a>D3042 / 277 | ` predicate gecode_set_atmost_one(array[int] of var set of int: x, int: cardinality) ` | S outside profile; G direct | C (qualified) | [checker-027](#family-027) | none |
-| <a id="d3043"></a>D3043 / 280 | ` predicate gecode_set_channel_sorted(array[int] of var int: x, var set of int: y) ` | S outside profile; G direct | planned | [checker-028](#family-028) | [unique outputs](#family-028) |
+| <a id="d3043"></a>D3043 / 280 | ` predicate gecode_set_channel_sorted(array[int] of var int: x, var set of int: y) ` | S outside profile; G direct | C (qualified) | [checker-028](#family-028) | argument 2 (member set) or argument 1 (exact-cardinality sorted members) |
 | <a id="d3044"></a>D3044 / 284 | ` predicate gecode_array_set_intersect( array[int] of var set of int: x, var set of int: y, ) ` | S outside profile; G direct | C (qualified) | [checker-027](#family-027) | argument 2 (aggregate or hull) |
 | <a id="d3045"></a>D3045 / 292 | ` predicate gecode_set_element2d( array[int] of var set of int: x, var int: column, int: width, var int: row, int: height, var set of int: value, ) ` | S outside profile; G direct | C (qualified) | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="d3046"></a>D3046 / 302 | ` predicate gecode_float_pow(var float: x, int: n, var float: y) ` | S outside profile; G direct | C (qualified) | [checker-018](#family-018) | last result; family domain rule |

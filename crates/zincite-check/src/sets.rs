@@ -245,6 +245,13 @@ impl IntegerSet {
         }
     }
 
+    /// Callers must establish a small cardinality before enumerating members.
+    pub(crate) fn members(&self) -> impl Iterator<Item = i64> + '_ {
+        self.ranges
+            .iter()
+            .flat_map(|range| range.lower..=range.upper)
+    }
+
     /// None means the mathematical cardinality exceeds i64::MAX.
     pub fn cardinality(&self) -> Option<i64> {
         let size: i128 = self
