@@ -55,7 +55,7 @@ decimal strings, including domain bounds, coefficients, defaults and entity
 payloads. Integer sets use `{ "kind": "integer_set", "value": { "ranges":
 [{ "lower": "1", "upper": "3" }] } }`; an empty set has `ranges: []`. Loading
 rejects reversed, unordered, overlapping or adjacent ranges. The format stays
-at version 1 with additive float values/settings/operations, set value/domain, set operation, strict global and legacy scheduling
+at version 1 with additive float values/settings/operations, set value/domain, set operation, strict global and scheduling
 records and integer relation variants. The original `Linear` executable with its
 `equality` Boolean and `ReifiedLessEqual` executable keep their existing shapes. Loading rejects
 incompatible versions, bad references, wrong types and invalid definition
@@ -641,7 +641,7 @@ profile or general preservation of editable domains and variables.
 
 All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
 `fzn_` spellings, for 108 integer relation names. The 55 Boolean base names also
-accept those exact prefixes, for 165 Boolean names and 791 admitted names overall.
+accept those exact prefixes, for 165 Boolean names and 806 admitted names overall.
 Prefixed scalar XOR uses three arguments; only bare `bool_xor` also admits the
 two-argument assertion. Matching declarations select one admitted arity and calls
 must use that arity; duplicate declarations diagnose.
@@ -952,7 +952,7 @@ establish include/decomposition closure; checker-030/031 own profile repairs.
 
 The checker admits the six `gecode_table_int/bool` literals with plain, `_reif`
 and `_imp` forms, each with the literal empty, `gecode_` and `fzn_` prefixes.
-The family has 18 exact names; the checker admits 791 names overall. The prefix applies to the
+The family has 18 exact names; the checker admits 806 names overall. The prefix applies to the
 whole literal: `gecode_gecode_table_int` and `fzn_gecode_table_int` are direct
 names; `table_int` and `fzn_table_int` are not.
 
@@ -1018,7 +1018,7 @@ to checker-030/031. The runtime keeps its existing marker rules.
 
 The checker admits `gecode_regular`, `gecode_regular_set` and
 `gecode_regular_nfa_int_fzn`, each with the literal empty, `gecode_` and `fzn_`
-prefixes. The family has nine exact names; overall admission is 791. The prefix applies to
+prefixes. The family has nine exact names; overall admission is 806. The prefix applies to
 the whole literal, including `gecode_gecode_regular`; standard wrapper names and
 reified forms are not direct checker operations.
 
@@ -1098,7 +1098,7 @@ auxiliary-definition limits; this control needs no annotation or include repair.
 
 The checker admits `gecode_circuit`, `gecode_circuit_cost` and
 `gecode_circuit_cost_array`, each with the literal `gecode_` and `fzn_` registry
-prefixes, for nine exact names and 791 admitted names overall. The prefix applies
+prefixes, for nine exact names and 806 admitted names overall. The prefix applies
 to the complete name: `gecode_gecode_circuit` and `fzn_gecode_circuit` are valid;
 `fzn_circuit`, `circuit_cost` and reified variants use other compiler routes.
 Declarations check argument roles independently of formal parameter names.
@@ -1206,8 +1206,8 @@ beginning `gecode_schedule_` and `cumulatives` also accept their literal
 | `cumulatives(s,d,u,m,b,upper)` | Variable starts/durations/usages/machines; fixed integer capacity array and Boolean upper/lower flag |
 
 Task arrays must have equal lengths. Declarations validate fixed/variable roles,
-shapes and literal domain restrictions regardless of formal names. The four-
-and six-argument overloads can both be declared in one model. Scheduling selects
+shapes and literal domain restrictions regardless of formal names. The four-, six-
+and native seven-argument overloads can be declared in one model. Scheduling selects
 no output: starts, durations, presence and machines come from assignments,
 fixed declarations or other supported definitions. Missing inputs produce
 ordinary incomplete reports. Absent optional tasks do not block their constraint
@@ -1281,8 +1281,8 @@ combines a duration derived by integer addition with strict, optional and signed
 resource checks over integers above JavaScript's exact-number range. The
 [native/Wasm smoke](../../examples/checker-wasm/README.md) exercises feasible,
 conflicting, omitted and incomplete-invalid edits through the same artifact.
-Explicit-end arity seven, `*_flex` operations and the standard seven-argument
-`fzn_cumulatives` wrapper have separate contracts in checker-025/030/031.
+The explicit-end contracts follow below. The standard seven-argument
+`fzn_cumulatives` wrapper belongs to compiler-profile work in checker-030/031.
 
 ### Compile-only legacy scheduling controls
 
@@ -1314,3 +1314,113 @@ guards as defined, but implication gives no unique guard value. Primary-only
 assignments therefore leave an incomplete report. Supplying those explicit
 witnesses permits a complete check; the runtime does not invent them. This
 compiler-profile completion gap belongs to checker-031.
+
+
+## Explicit-end scheduling
+
+The five native flex operations accept these exact argument roles. Each also
+accepts its literal `gecode_` and `fzn_` registry prefixes: for example,
+`gecode_gecode_unary_flex` and `fzn_gecode_cumulative_flex_optional`.
+This adds 15 names, for 806 admitted names overall. Bare `unary_flex` and
+reified/implication spellings are unsupported.
+
+| Operation | Argument roles |
+| --- | --- |
+| `gecode_unary_flex(s,d,e)` | Variable integer starts, durations and ends |
+| `gecode_unary_flex_optional(s,d,e,p)` | Same integer arrays; variable Boolean presence |
+| `gecode_cumulative_flex(s,d,e,u,b)` | Same integer arrays; fixed nonnegative usage array; variable integer capacity |
+| `gecode_cumulative_flex_optional(s,d,e,u,b,p)` | Same roles; final variable Boolean presence array |
+| `gecode_cumulatives_flex(s,d,e,u,m,b,upper)` | Variable integer starts/durations/ends/usages/machines; fixed integer capacities and Boolean upper/lower flag |
+| `cumulatives(s,d,e,u,m,b,upper)` | Same native seven-argument contract, also under `gecode_` and `fzn_` prefixes |
+
+All task arrays have equal lengths. Matching declarations validate types and
+fixed/variable roles independently of formal names. The standard-library
+seven-argument `fzn_cumulatives(s,d,u,m,b,upper,min_machine)` has different roles
+and is not a direct native call. Its wrapper and the wider include/decomposition
+closures belong to checker-030/031; name admission does not establish those profiles.
+
+The checker uses the supplied starts and ends for every flex resource check,
+independently of duration values and Gecode's posting-time rewrites. It does not
+add `s[i]+d[i]=e[i]`. The caller supplies separate constraints for that equation,
+conditional on presence when appropriate. A marked supported arithmetic equation
+can derive an end through the existing worklist. Scheduling itself derives no
+start, duration, end, presence, usage or machine value.
+
+Unary and cumulative require nonnegative durations for every task, including
+absent tasks. Cumulative also requires fixed nonnegative usages for every task
+and nonnegative capacity, including empty or entirely absent arrays. Those
+requirements can report with unrelated values missing. Absent tasks consume no
+resource and need no start/end value for their resource check, but their duration
+must be known and nonnegative. Missing values produce ordinary incomplete reports.
+
+For each present unary pair, require `e[i] <= s[j] || e[j] <= s[i]`.
+Thus an empty interval strictly inside another task conflicts; ties at either
+endpoint and simultaneous zero-length points pass. Cumulative checks the total
+usage on half-open intervals `[s[i],e[i])`. It also checks each present task's own
+usage plus usages of tasks strictly spanning its start: `s[j] < s[i] < e[j]`.
+Tasks starting or ending at that point add nothing to this individual check.
+Coincident zero-length tasks are checked individually. For starts `[0,1]`, ends
+`[3,1]`, usages `[2,1]` and capacity 2, the point task fails with usage 3;
+starts/ends `[0,0]/[3,0]` or `[0,3]/[3,3]` pass.
+
+Multi-machine flex uses zero-based capacity indexes, signed usages/capacities,
+and upper (`sum <= bound`) or lower (`sum >= bound`) limits only while at least
+one task is active on that machine. Zero-length tasks contribute nothing. It
+imposes no duration-sign or machine-domain guard: out-of-range machines create
+no resource events. A missing duration does not block the resource check,
+and a known empty interval needs no usage value.
+Separate caller constraints/domains check those obligations. Legacy six-argument
+calls keep their documented caller-obligation faults.
+
+These formulas also define inconsistent tuples. For example, unary starts
+`[0,2]`, durations `[1,1]` and ends `[4,4]` conflict; changing the durations to
+`[4,4]` and ends to `[1,3]` passes the resource check. Separate end equations fail
+in each example. Reversed ends make half-open resource intervals empty;
+cumulative still checks each task's own usage at its start. Unary uses its
+pairwise formula even for reversed ends: a reversed task can conflict with a
+second interval that spans both endpoints. This is a deliberate concrete
+convention. Pinned Gecode can discard supplied ends when it rewrites assigned
+durations to a fixed-duration operation, and its propagators can treat
+inconsistent tuples differently. The checker does not reproduce those
+posting-dependent effects or claim propagation equivalence outside coherent
+caller-supplied tuples.
+
+Checks visit task event boundaries and use checked i64 resource sums. Flex
+resource checks perform no endpoint addition; arithmetic occurs only in a
+separate end equation when one exists. Typed `scheduling` findings include an
+`end` argument with its variable reference when available, alongside starts,
+durations, presence, usages, machines, capacities and faults. Legacy task reports
+omit `end`, and legacy executable records omit `ends`, so their shapes stay
+compatible. All mathematical integers use exact decimal strings.
+
+The [direct control](../../examples/checker-compilation/explicit-end-scheduling.fzn)
+combines a marked end equation with all five operations over values above
+`2^53`. The native/Wasm smoke compares boundary, interior, contradictory supplied
+end, incomplete-invalid and omitted candidates through the same prepared model.
+
+### Compile-only explicit-end control
+
+Compile the [small native control](../../examples/checker-compilation/explicit-end-scheduling-gecode-controls.mzn)
+through the pinned Gecode library without solving:
+
+```sh
+checker_run=$(mktemp -d "$PWD/target/checker-flex.XXXXXX")
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file "$checker_run/gecode.paths" --output-fzn-to-file "$checker_run/gecode.fzn" examples/checker-compilation/explicit-end-scheduling-gecode-controls.mzn
+```
+
+The output contains all five flex calls, their application IDs and labels,
+and a separate `int_lin_eq([1,-1,-1],[ends[1],starts[1],task_duration],0)` with
+`defines_var(ends[1])` and `is_defined_var` on its slot. The compiler aliases
+`ends[2]` to `starts[2]`; it does not emit a second equality. Starts keep domains
+`0..8`, task duration `0..3`, and the first end `0..11`. No resource operation owns an
+end equation.
+
+For `starts=[0,3];task_duration=3;second_present=true;`, completion gives `ends=[3,3]`.
+Both unary pairs separate at time 3. Each cumulative demand fits capacity 2,
+and the multi-machine load is 2 on `[0,3)`, so the candidate is valid and complete.
+For `starts=[0,1];task_duration=3;second_present=true;`, completion gives `ends=[3,1]`.
+Both unary checks conflict, and both cumulative checks see the point task's
+usage 1 plus the spanning task's usage 2 at time 1. Those four findings coexist;
+the end equation and signed machine relation pass. Both CLI forms agree through
+source checking and export/load. Supplying `ends=[0,1]` for those same starts
+instead fails only the end equation: resource checks use the supplied intervals.

@@ -1,0 +1,11 @@
+var int: s ::checker_value("second_start",[9007199254740994]);
+var int: length;
+var bool: present;
+var 9007199254740993..9007199254740997: finish ::is_defined_var;
+constraint int_plus(9007199254740993,length,finish)::defines_var(finish)::checker_constraint("end_equation",[1]);
+constraint gecode_unary_flex([9007199254740993,s],[length,0],[finish,s])::checker_constraint("unary_flex",[9007199254740993,9007199254740994])::mzn_constraint_name("Explicit unary schedule");
+constraint fzn_gecode_unary_flex_optional([9007199254740993,s],[length,0],[finish,s],[true,present])::checker_constraint("optional_unary_flex",[1,2]);
+constraint gecode_cumulative_flex([9007199254740993,s],[length,0],[finish,s],[2,1],2)::checker_constraint("cumulative_flex",[1,2]);
+constraint gecode_gecode_cumulative_flex_optional([9007199254740993,s],[length,0],[finish,s],[2,1],2,[true,present])::checker_constraint("optional_cumulative_flex",[1,2]);
+constraint fzn_cumulatives([9007199254740993,s],[length,0],[finish,s],[2,-1],[0,0],[2],true)::checker_constraint("machine_flex",[1,2]);
+solve satisfy;

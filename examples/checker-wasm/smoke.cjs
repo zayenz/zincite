@@ -5,11 +5,11 @@ const { tmpdir } = require("node:os");
 const { resolve, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-assert.equal(process.argv.length, 18,
-    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json LEGACY.json CANDIDATES.json NATIVE_CHECKER");
-const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, candidates, native] = process.argv.slice(2).map(path => resolve(path));
+assert.equal(process.argv.length, 19,
+    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json LEGACY.json FLEX.json CANDIDATES.json NATIVE_CHECKER");
+const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, candidates, native] = process.argv.slice(2).map(path => resolve(path));
 const { PreparedModel } = require(glue);
-const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy };
+const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex };
 const defaults = {};
 const models = Object.fromEntries(Object.entries(paths).map(([name, path]) =>
     [name, new PreparedModel(readFileSync(path, "utf8"))]));
@@ -57,7 +57,7 @@ try {
     }
     assert.throws(() => models.floats.check('{"entries":[{"name":"x","value":{"kind":"scalar","value":{"kind":"float","value":1e999}}}]}'));
     for (const value of [NaN, Infinity, -1]) assert.throws(() => models.floats.setFloatTolerance(value, 0));
-    console.log(`Native/Wasm reports and errors agree across ${cases.length * 2} checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, legacy scheduling, global findings and input errors verified.`);
+    console.log(`Native/Wasm reports and errors agree across ${cases.length * 2} checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, legacy and explicit-end scheduling, global findings and input errors verified.`);
 } finally {
     for (const model of Object.values(models)) model.free();
     rmSync(directory, { recursive: true, force: true });
@@ -117,6 +117,24 @@ function decimal(value) {
 }
 
 function checkDetails(name, report) {
+    if (name === "flex-interior") {
+        assert.equal(report.violations.length, 4);
+        const unary = report.violations[0];
+        assert.equal(unary.details.finding.tasks[0].end.value.value, "9007199254740995");
+        assert.deepEqual(unary.details.finding.faults[0], { kind: "conflict", first: 1, second: 2 });
+        assert.equal(unary.check.constraint.metadata.application.id, "unary_flex");
+        assert.equal(unary.check.constraint.metadata.label, "Explicit unary schedule");
+        assert.equal(report.violations[2].details.finding.faults[0].usage, "3");
+    }
+    if (name === "flex-end-conflict") {
+        assert.equal(report.violations.length, 1);
+        assert.equal(report.violations[0].check.constraint.metadata.application.id, "end_equation");
+    }
+    if (name === "flex-incomplete-invalid") {
+        assert.equal(report.violations.length, 5);
+        assert(report.completeness.blocked_checks.length > 0);
+    }
+
     if (name === "legacy-conflict") {
         assert.equal(report.violations.length, 3);
         const strict = report.violations[0];

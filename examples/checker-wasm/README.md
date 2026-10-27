@@ -105,12 +105,13 @@ edits and job feedback using these bindings and the saved compiled model.
 
 ## Execute the native/Wasm comparison
 
-Build the bindings above, then export thirteen artifacts with the native CLI. This
+Build the bindings above, then export fourteen artifacts with the native CLI. This
 setup uses both saved compiled workshop models and a tiny handwritten FlatZinc
 integer/set model, the saved float-core control, a direct selection control,
 a direct set control, a float-function control, a direct counting control,
-a direct ordering/channel control, a direct table control, a direct automaton control
-a direct circuit/cost control and a legacy scheduling control.
+a direct ordering/channel control, a direct table control, a direct automaton control,
+a direct circuit/cost control, a legacy scheduling control and an explicit-end
+scheduling control.
 This setup does not run MiniZinc:
 
 ```sh
@@ -158,7 +159,8 @@ target/debug/zincite-check --export "$checker_run/tables.json" examples/checker-
 target/debug/zincite-check --export "$checker_run/automata.json" examples/checker-compilation/automata.fzn
 target/debug/zincite-check --export "$checker_run/circuits.json" examples/checker-compilation/circuits.fzn
 target/debug/zincite-check --export "$checker_run/legacy.json" examples/checker-compilation/legacy-scheduling.fzn
-node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" "$checker_run/automata.json" "$checker_run/circuits.json" "$checker_run/legacy.json" examples/checker-wasm/candidates.json target/debug/zincite-check
+target/debug/zincite-check --export "$checker_run/flex.json" examples/checker-compilation/explicit-end-scheduling.fzn
+node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" "$checker_run/automata.json" "$checker_run/circuits.json" "$checker_run/legacy.json" "$checker_run/flex.json" examples/checker-wasm/candidates.json target/debug/zincite-check
 ```
 
 `smoke.cjs` reads only built bindings, prepared artifacts and typed assignment
@@ -167,7 +169,7 @@ compares every observable report with the native CLI's `--load` path. The CLI
 receives literal `.dzn` assignments made from the same typed values in a temporary
 directory. The consumer removes those temporary assignments when finished.
 
-The fifty-four named cases cover valid, invalid, incomplete and invalid-with-incomplete
+The fifty-nine named cases cover valid, invalid, incomplete and invalid-with-incomplete
 reports, application metadata, Boolean and array input, set definitions and domain
 failures, strict resource conflicts, and the distinct integers 9007199254740992
 and 9007199254740993 as both integers and set endpoints. The exact-value model
@@ -205,11 +207,11 @@ aliases and integers above 2^53 cross the same exact-string boundary. The table
 control uses direct FlatZinc; the checker guide records the standard wrapper and
 compiler metadata limits. Four circuit cases compare wide offsets, selected edge costs,
 actual supplied-cost sums, reordered combined outputs, typed subcycles and known
-violations with incomplete inputs. The original 46 candidate records keep their
-92 comparisons; these four cases bring the total to 100. A second pass exercises reuse
-after changing and removing inputs. Small boundary checks also reject a
-malformed artifact, a JSON number supplied as an integer and an unknown assignment
-name. Expected output ends with `Native/Wasm reports and errors agree across 100 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, global findings and input errors verified.` The native suite owns
+violations with incomplete inputs. The first 54 candidate records keep their
+108 comparisons. Five explicit-end scheduling cases bring the total to 118.
+A second pass exercises reuse after changing and removing inputs. Small boundary
+checks reject a malformed artifact, a JSON number supplied as an integer and an
+unknown assignment name. Expected output ends with `Native/Wasm reports and errors agree across 118 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, legacy and explicit-end scheduling, global findings and input errors verified.` The native suite owns
 the wider evaluator coverage.
 
 
@@ -230,3 +232,9 @@ zero-duration tasks, signed resource usage and both cumulatives overloads.
 Four edits compare exact times above `2^53`, typed conflicting pairs/resource
 faults, application metadata and independent completeness. The duration comes
 from a marked integer addition; scheduling itself derives no values.
+
+The explicit-end artifact uses the five flex operations, including native
+seven-argument `fzn_cumulatives`. Its separate marked end equation supplies
+completion. Boundary, interior, conflicting supplied end, incomplete-invalid and
+omitted edits compare typed ends and faults above `2^53`. A contradictory end
+fails the equation while the resource checks use the supplied interval.

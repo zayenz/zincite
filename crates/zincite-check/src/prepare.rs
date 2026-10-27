@@ -799,7 +799,11 @@ impl<'a> Lowerer<'a> {
                 let signature = source.predicate_declaration(node, &name)?;
                 let allows_overloads = matches!(
                     SchedulingName::from_name(&name, signature.len()),
-                    Some(SchedulingName::Cumulative | SchedulingName::Cumulatives)
+                    Some(
+                        SchedulingName::Cumulative
+                            | SchedulingName::Cumulatives
+                            | SchedulingName::CumulativesFlex
+                    )
                 );
                 if (!allows_overloads && predicates.keys().any(|(declared, _)| declared == &name))
                     || predicates
@@ -2347,6 +2351,7 @@ impl<'a> Lowerer<'a> {
             Ok(Predicate::Scheduling(Scheduling::Strict(ScheduleTasks {
                 starts,
                 durations,
+                ends: None,
             })))
         }
     }
@@ -2363,41 +2368,57 @@ impl<'a> Lowerer<'a> {
         let tasks = ScheduleTasks {
             starts: self.array(args[0], ValueType::Integer)?,
             durations: self.array(args[1], ValueType::Integer)?,
+            ends: if name.uses_explicit_ends() {
+                Some(self.array(args[2], ValueType::Integer)?)
+            } else {
+                None
+            },
         };
+        let offset = usize::from(name.uses_explicit_ends());
         let schedule = match name {
-            SchedulingName::Unary => Scheduling::Unary {
+            SchedulingName::Unary | SchedulingName::UnaryFlex => Scheduling::Unary {
                 tasks,
                 present: None,
             },
-            SchedulingName::OptionalUnary => Scheduling::Unary {
-                tasks,
-                present: Some(self.array(args[2], ValueType::Boolean)?),
-            },
+            SchedulingName::OptionalUnary | SchedulingName::OptionalUnaryFlex => {
+                Scheduling::Unary {
+                    tasks,
+                    present: Some(self.array(args[2 + offset], ValueType::Boolean)?),
+                }
+            }
             SchedulingName::OptionalCumulative => Scheduling::OptionalCumulative {
                 tasks,
                 usages: self.array(args[2], ValueType::Integer)?,
                 present: self.array(args[3], ValueType::Boolean)?,
                 capacity: self.scalar(args[4], ValueType::Integer)?,
             },
-            SchedulingName::Cumulative => Scheduling::Cumulative {
+            SchedulingName::OptionalCumulativeFlex => Scheduling::OptionalCumulative {
                 tasks,
-                usages: self.array(args[2], ValueType::Integer)?,
-                capacity: self.scalar(args[3], ValueType::Integer)?,
+                usages: self.array(args[3], ValueType::Integer)?,
+                capacity: self.scalar(args[4], ValueType::Integer)?,
+                present: self.array(args[5], ValueType::Boolean)?,
             },
-            SchedulingName::Cumulatives => Scheduling::Cumulatives {
+            SchedulingName::Cumulative | SchedulingName::CumulativeFlex => Scheduling::Cumulative {
                 tasks,
-                usages: self.array(args[2], ValueType::Integer)?,
-                machines: self.array(args[3], ValueType::Integer)?,
-                capacities: self.array(args[4], ValueType::Integer)?,
-                upper: match self.scalar(args[5], ValueType::Boolean)? {
-                    Operand::Literal(Value::Boolean(value)) => value,
-                    _ => {
-                        return Err(self
-                            .source
-                            .error(args[5], "cumulatives upper flag must be fixed"));
-                    }
-                },
+                usages: self.array(args[2 + offset], ValueType::Integer)?,
+                capacity: self.scalar(args[3 + offset], ValueType::Integer)?,
             },
+            SchedulingName::Cumulatives | SchedulingName::CumulativesFlex => {
+                Scheduling::Cumulatives {
+                    tasks,
+                    usages: self.array(args[2 + offset], ValueType::Integer)?,
+                    machines: self.array(args[3 + offset], ValueType::Integer)?,
+                    capacities: self.array(args[4 + offset], ValueType::Integer)?,
+                    upper: match self.scalar(args[5 + offset], ValueType::Boolean)? {
+                        Operand::Literal(Value::Boolean(value)) => value,
+                        _ => {
+                            return Err(self
+                                .source
+                                .error(call, "cumulatives upper flag must be fixed"));
+                        }
+                    },
+                }
+            }
             SchedulingName::Strict => unreachable!(),
         };
         schedule

@@ -1,4 +1,4 @@
-//! Legacy scheduling relations over concrete candidate values.
+//! Scheduling relations over concrete candidate values.
 use super::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9,6 +9,11 @@ pub(crate) enum SchedulingName {
     OptionalCumulative,
     Cumulative,
     Cumulatives,
+    UnaryFlex,
+    OptionalUnaryFlex,
+    CumulativeFlex,
+    OptionalCumulativeFlex,
+    CumulativesFlex,
 }
 impl SchedulingName {
     pub fn from_name(name: &str, arity: usize) -> Option<Self> {
@@ -24,9 +29,15 @@ impl SchedulingName {
                 "gecode_schedule_unary" => Self::Unary,
                 "gecode_schedule_unary_optional" => Self::OptionalUnary,
                 "gecode_schedule_cumulative_optional" => Self::OptionalCumulative,
+                "gecode_unary_flex" => Self::UnaryFlex,
+                "gecode_unary_flex_optional" => Self::OptionalUnaryFlex,
+                "gecode_cumulative_flex" => Self::CumulativeFlex,
+                "gecode_cumulative_flex_optional" => Self::OptionalCumulativeFlex,
+                "gecode_cumulatives_flex" => Self::CumulativesFlex,
                 "cumulatives" => match arity {
                     4 => Self::Cumulative,
                     6 => Self::Cumulatives,
+                    7 => Self::CumulativesFlex,
                     _ => return None,
                 },
                 _ => continue,
@@ -42,7 +53,23 @@ impl SchedulingName {
             Self::OptionalCumulative => 5,
             Self::Cumulative => 4,
             Self::Cumulatives => 6,
+            Self::UnaryFlex => 3,
+            Self::OptionalUnaryFlex => 4,
+            Self::CumulativeFlex => 5,
+            Self::OptionalCumulativeFlex => 6,
+            Self::CumulativesFlex => 7,
         }
+    }
+    #[cfg(feature = "prepare")]
+    pub fn uses_explicit_ends(self) -> bool {
+        matches!(
+            self,
+            Self::UnaryFlex
+                | Self::OptionalUnaryFlex
+                | Self::CumulativeFlex
+                | Self::OptionalCumulativeFlex
+                | Self::CumulativesFlex
+        )
     }
     #[cfg(feature = "prepare")]
     pub fn signature(self) -> Vec<prepare::ArgumentType> {
@@ -52,6 +79,30 @@ impl SchedulingName {
             is_var,
         };
         let integer_array = |is_var| argument(ValueType::Integer, true, is_var);
+        if self.uses_explicit_ends() {
+            let mut signature = vec![integer_array(true); 3];
+            match self {
+                Self::UnaryFlex => {}
+                Self::OptionalUnaryFlex => signature.push(argument(ValueType::Boolean, true, true)),
+                Self::CumulativeFlex | Self::OptionalCumulativeFlex => {
+                    signature.extend([
+                        integer_array(false),
+                        argument(ValueType::Integer, false, true),
+                    ]);
+                    if self == Self::OptionalCumulativeFlex {
+                        signature.push(argument(ValueType::Boolean, true, true));
+                    }
+                }
+                Self::CumulativesFlex => signature.extend([
+                    integer_array(true),
+                    integer_array(true),
+                    integer_array(false),
+                    argument(ValueType::Boolean, false, false),
+                ]),
+                _ => unreachable!(),
+            }
+            return signature;
+        }
         let mut signature = vec![
             integer_array(true),
             integer_array(matches!(
@@ -77,6 +128,7 @@ impl SchedulingName {
                 integer_array(false),
                 argument(ValueType::Boolean, false, false),
             ]),
+            _ => unreachable!(),
         }
         signature
     }
@@ -86,6 +138,8 @@ impl SchedulingName {
 pub(crate) struct ScheduleTasks {
     pub starts: Vec<Operand>,
     pub durations: Vec<Operand>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ends: Option<Vec<Operand>>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum Scheduling {
@@ -119,6 +173,8 @@ pub struct SchedulingTask {
     pub position: usize,
     pub start: Option<ArgumentValue>,
     pub duration: Option<ArgumentValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<ArgumentValue>,
     pub usage: Option<ArgumentValue>,
     pub present: Option<ArgumentValue>,
     pub machine: Option<ArgumentValue>,
@@ -173,6 +229,18 @@ pub struct SchedulingFinding {
 
 impl Scheduling {
     pub fn name(&self) -> SchedulingName {
+        if self.tasks().ends.is_some() {
+            return match self {
+                Self::Unary { present: None, .. } => SchedulingName::UnaryFlex,
+                Self::Unary {
+                    present: Some(_), ..
+                } => SchedulingName::OptionalUnaryFlex,
+                Self::Cumulative { .. } => SchedulingName::CumulativeFlex,
+                Self::OptionalCumulative { .. } => SchedulingName::OptionalCumulativeFlex,
+                Self::Cumulatives { .. } => SchedulingName::CumulativesFlex,
+                Self::Strict(_) => SchedulingName::Strict,
+            };
+        }
         match self {
             Self::Strict(_) => SchedulingName::Strict,
             Self::Unary { present: None, .. } => SchedulingName::Unary,
@@ -232,6 +300,7 @@ impl Scheduling {
             .starts
             .iter()
             .chain(&tasks.durations)
+            .chain(tasks.ends.iter().flatten())
             .chain(self.usages().into_iter().flatten())
             .chain(self.machines().into_iter().flatten())
             .chain(self.capacities())
@@ -246,11 +315,15 @@ impl Scheduling {
         let tasks = self.tasks();
         let n = tasks.starts.len();
         if tasks.durations.len() != n
+            || tasks.ends.as_ref().is_some_and(|ends| ends.len() != n)
             || self.usages().is_some_and(|entries| entries.len() != n)
             || self.presence().is_some_and(|entries| entries.len() != n)
             || self.machines().is_some_and(|entries| entries.len() != n)
         {
             return Err("scheduling task arrays must have equal lengths");
+        }
+        if matches!(self, Self::Strict(_)) && tasks.ends.is_some() {
+            return Err("strict disjunctive does not accept explicit ends");
         }
         let fixed_nonnegative = |entries: &[Operand]| {
             entries.iter().all(
@@ -258,16 +331,19 @@ impl Scheduling {
             )
         };
         if matches!(self, Self::Unary { .. } | Self::OptionalCumulative { .. })
+            && tasks.ends.is_none()
             && !fixed_nonnegative(&tasks.durations)
         {
             return Err(
                 "native unary and optional cumulative durations must be fixed nonnegative integers",
             );
         }
-        if let Self::OptionalCumulative { usages, .. } = self
+        if (matches!(self, Self::OptionalCumulative { .. })
+            || self.name() == SchedulingName::CumulativeFlex)
+            && let Some(usages) = self.usages()
             && !fixed_nonnegative(usages)
         {
-            return Err("optional cumulative usages must be fixed nonnegative integers");
+            return Err("native cumulative usages must be fixed nonnegative integers");
         }
         if let Self::Cumulatives { capacities, .. } = self
             && !capacities
@@ -287,13 +363,16 @@ impl Scheduling {
     }
     fn precondition_faults(&self, values: &[Option<Value>]) -> Vec<SchedulingFault> {
         let mut faults = Vec::new();
-        if let Self::OptionalCumulative { capacity, .. } = self
-            && let Some(Value::Integer(value)) = capacity.value(values)
+        if (matches!(self, Self::OptionalCumulative { .. })
+            || self.name() == SchedulingName::CumulativeFlex)
+            && let Some(Value::Integer(value)) = self.capacities()[0].value(values)
             && *value < 0
         {
             faults.push(SchedulingFault::Capacity { value: *value });
         }
-        if !matches!(self, Self::Cumulative { .. }) {
+        if self.name() != SchedulingName::Cumulative
+            && self.name() != SchedulingName::CumulativesFlex
+        {
             for (i, duration) in self.tasks().durations.iter().enumerate() {
                 if let Some(Value::Integer(value)) = duration.value(values)
                     && *value < 0
@@ -305,7 +384,9 @@ impl Scheduling {
                 }
             }
         }
-        if let Some(machines) = self.machines() {
+        if self.tasks().ends.is_none()
+            && let Some(machines) = self.machines()
+        {
             for (i, machine) in machines.iter().enumerate() {
                 if let Some(Value::Integer(value)) = machine.value(values)
                     && usize::try_from(*value)
@@ -323,6 +404,9 @@ impl Scheduling {
     }
     fn relation_operands(&self, values: &[Option<Value>]) -> Vec<&Operand> {
         let tasks = self.tasks();
+        if let Some(ends) = &tasks.ends {
+            return self.explicit_operands(ends, values);
+        }
         if matches!(self, Self::Cumulative { .. }) {
             return match tasks.starts.len() {
                 0 => Vec::new(),
@@ -359,13 +443,60 @@ impl Scheduling {
         }
         required
     }
+    fn explicit_operands<'a>(
+        &'a self,
+        ends: &'a [Operand],
+        values: &[Option<Value>],
+    ) -> Vec<&'a Operand> {
+        let tasks = self.tasks();
+        let mut required = Vec::new();
+        required.extend(self.capacities());
+        required.extend(self.presence().into_iter().flatten());
+        if self.machines().is_none() {
+            // Native unary/cumulative require nonnegative durations even for absent tasks.
+            required.extend(&tasks.durations);
+        }
+        for (i, end) in ends.iter().enumerate() {
+            if self
+                .presence()
+                .is_some_and(|present| !present[i].value(values).is_some_and(Value::boolean))
+            {
+                continue;
+            }
+            if let Some(machines) = self.machines() {
+                required.push(&machines[i]);
+                if machines[i]
+                    .value(values)
+                    .is_some_and(|value| !self.valid_machine(value.integer()))
+                {
+                    continue;
+                }
+            }
+            required.extend([&tasks.starts[i], end]);
+            if self.machines().is_some()
+                && tasks.starts[i]
+                    .value(values)
+                    .zip(end.value(values))
+                    .is_some_and(|(start, end)| start.integer() >= end.integer())
+            {
+                continue;
+            }
+            if let Some(usages) = self.usages() {
+                required.push(&usages[i]);
+            }
+        }
+        required
+    }
+    fn valid_machine(&self, machine: i64) -> bool {
+        usize::try_from(machine).is_ok_and(|index| index < self.capacities().len())
+    }
 }
 
 struct ConcreteTask {
     position: usize,
     start: i64,
     end: i64,
-    duration: i64,
+    zero_duration: bool,
     usage: i64,
     machine: Option<i64>,
 }
@@ -392,27 +523,39 @@ impl Scheduling {
             }) {
                 continue;
             }
-            let duration = integer(&tasks.durations[i]);
-            if duration < 0 && !matches!(self, Self::Cumulative { .. }) {
-                continue;
-            }
             let machine = self.machines().map(|machines| integer(&machines[i]));
             if let Some(machine) = machine
-                && usize::try_from(machine)
-                    .ok()
-                    .is_none_or(|index| index >= self.capacities().len())
+                && !self.valid_machine(machine)
+            {
+                continue;
+            }
+            let duration = tasks.durations[i].value(values).map(Value::integer);
+            if duration.is_some_and(|duration| duration < 0)
+                && !matches!(
+                    self.name(),
+                    SchedulingName::Cumulative | SchedulingName::CumulativesFlex
+                )
             {
                 continue;
             }
             let start = integer(&tasks.starts[i]);
-            let end = start.checked_add(duration).ok_or_else(|| {
-                constraint.execution_error("checked i64 overflow in scheduling endpoint")
-            })?;
+            let end = if let Some(ends) = &tasks.ends {
+                integer(&ends[i])
+            } else {
+                start
+                    .checked_add(duration.expect("available legacy duration"))
+                    .ok_or_else(|| {
+                        constraint.execution_error("checked i64 overflow in scheduling endpoint")
+                    })?
+            };
+            if machine.is_some() && tasks.ends.is_some() && start >= end {
+                continue;
+            }
             concrete.push(ConcreteTask {
                 position: i + 1,
                 start,
                 end,
-                duration,
+                zero_duration: duration == Some(0),
                 usage: self.usages().map_or(1, |usages| integer(&usages[i])),
                 machine,
             });
@@ -432,7 +575,7 @@ impl Scheduling {
                 .expect("available schedule operand")
                 .integer()
         };
-        if matches!(self, Self::Cumulative { .. }) && tasks.starts.len() <= 1 {
+        if self.name() == SchedulingName::Cumulative && tasks.starts.len() <= 1 {
             if tasks.starts.len() == 1 && integer(&tasks.durations[0]) > 0 {
                 let usage = integer(&self.usages().expect("cumulative usages")[0]);
                 let bound = integer(&self.capacities()[0]);
@@ -469,23 +612,36 @@ impl Scheduling {
                                 bound,
                                 upper: true,
                             },
-                            ResourceChecks::Optional,
+                            if tasks.ends.is_some() {
+                                ResourceChecks::TaskStarts
+                            } else {
+                                ResourceChecks::ZeroDurationStarts
+                            },
                             constraint,
                             faults,
                         )?;
                     }
                 }
-                Self::Cumulative { capacity, .. } => check_resources(
-                    &concrete,
-                    ResourceLimit {
-                        machine: None,
-                        bound: integer(capacity),
-                        upper: true,
-                    },
-                    ResourceChecks::ConcreteHorizon,
-                    constraint,
-                    faults,
-                )?,
+                Self::Cumulative { capacity, .. } => {
+                    let bound = integer(capacity);
+                    if tasks.ends.is_none() || bound >= 0 {
+                        check_resources(
+                            &concrete,
+                            ResourceLimit {
+                                machine: None,
+                                bound,
+                                upper: true,
+                            },
+                            if tasks.ends.is_some() {
+                                ResourceChecks::TaskStarts
+                            } else {
+                                ResourceChecks::ConcreteHorizon
+                            },
+                            constraint,
+                            faults,
+                        )?;
+                    }
+                }
                 Self::Cumulatives {
                     capacities, upper, ..
                 } => {
@@ -535,6 +691,7 @@ impl PreparedModel {
                 position: i + 1,
                 start: argument(&tasks.starts[i]),
                 duration: argument(&tasks.durations[i]),
+                end: tasks.ends.as_ref().and_then(|ends| argument(&ends[i])),
                 usage: schedule.usages().and_then(|usages| argument(&usages[i])),
                 present: schedule
                     .presence()
@@ -564,7 +721,8 @@ struct ResourceLimit {
 enum ResourceChecks {
     ActiveIntervals,
     ConcreteHorizon,
-    Optional,
+    ZeroDurationStarts,
+    TaskStarts,
 }
 
 // Values are constant between boundaries, so even huge horizons need only task events.
@@ -600,18 +758,19 @@ fn check_resources(
         {
             check_resource(&active, None, limit, time, constraint, faults)?;
         }
-        if checks == ResourceChecks::Optional {
+        if matches!(
+            checks,
+            ResourceChecks::ZeroDurationStarts | ResourceChecks::TaskStarts
+        ) {
             let spanning: Vec<_> = tasks
                 .iter()
                 .copied()
                 .filter(|task| task.start < time && time < task.end)
                 .collect();
-            for zero in tasks
-                .iter()
-                .copied()
-                .filter(|task| task.duration == 0 && task.start == time)
-            {
-                check_resource(&spanning, Some(zero), limit, time, constraint, faults)?;
+            for starting in tasks.iter().copied().filter(|task| {
+                task.start == time && (checks == ResourceChecks::TaskStarts || task.zero_duration)
+            }) {
+                check_resource(&spanning, Some(starting), limit, time, constraint, faults)?;
             }
         }
     }
@@ -619,7 +778,7 @@ fn check_resources(
 }
 fn check_resource(
     active: &[&ConcreteTask],
-    zero: Option<&ConcreteTask>,
+    starting: Option<&ConcreteTask>,
     limit: ResourceLimit,
     time: i64,
     constraint: &Constraint,
@@ -629,7 +788,7 @@ fn check_resource(
         active
             .iter()
             .copied()
-            .chain(zero)
+            .chain(starting)
             .map(|task| (1, task.usage)),
     )
     .ok_or_else(|| constraint.execution_error("checked i64 overflow in scheduling resource sum"))?;
@@ -648,7 +807,7 @@ fn check_resource(
             tasks: active
                 .iter()
                 .copied()
-                .chain(zero)
+                .chain(starting)
                 .map(|task| task.position)
                 .collect(),
         });

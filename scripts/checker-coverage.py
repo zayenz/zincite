@@ -29,6 +29,11 @@ CURRENT |= {
         "gecode_schedule_unary",
         "gecode_schedule_unary_optional",
         "gecode_schedule_cumulative_optional",
+        "gecode_unary_flex",
+        "gecode_unary_flex_optional",
+        "gecode_cumulative_flex",
+        "gecode_cumulative_flex_optional",
+        "gecode_cumulatives_flex",
     )
 }
 CURRENT |= {
@@ -893,12 +898,19 @@ def render_registry(
         task = direct_owner(reg.name)
         now = ", ".join(code(a) for a in aliases if a in CURRENT) or "planned"
         if reg.name == "cumulatives":
-            now += " (legacy arities 4/6; explicit-end arity 7 planned)"
+            now += " (legacy arities 4/6; native explicit-end arity 7; standard min_machine wrapper excluded)"
+
         source = f"https://github.com/Gecode/gecode/blob/{GECODE_REV}/gecode/flatzinc/registry.cpp#L{reg.line}"
         rows.append(
             f'| <a id="r{number:03}"></a>[R{number:03}]({source}) | '
             + ", ".join(code(a) for a in aliases)
-            + f" | {code(reg.handler)} / {code(reg.condition)} | {signature} | {now} | {task_link(task)} | {output_rule(reg.name, task)} |"
+            + f" | {code(reg.handler)} / {code(reg.condition)} | {signature} | {now} | "
+            + (
+                f"{task_link(24)} / {task_link(25)}"
+                if reg.name == "cumulatives"
+                else task_link(task)
+            )
+            + f" | {output_rule(reg.name, task)} |"
         )
     return rows
 
@@ -1074,13 +1086,31 @@ def signature_types(declaration: Declaration) -> list[str]:
 def current_signature(declaration: Declaration) -> bool:
     if declaration.name not in CURRENT:
         return False
-    if declaration.name not in {"cumulatives", "gecode_cumulatives", "fzn_cumulatives"}:
-        return True
     types = signature_types(declaration)
     variable_array = "array[int]ofvarint"
+    fixed_array = "array[int]ofint"
+    native_multi = [variable_array] * 5 + [fixed_array, "bool"]
+    flex = {
+        "gecode_unary_flex": [variable_array] * 3,
+        "gecode_unary_flex_optional": [variable_array] * 3 + ["array[int]ofvarbool"],
+        "gecode_cumulative_flex": [variable_array] * 3 + [fixed_array, "varint"],
+        "gecode_cumulative_flex_optional": [variable_array] * 3
+        + [fixed_array, "varint", "array[int]ofvarbool"],
+        "gecode_cumulatives_flex": native_multi,
+    }
+    for base in (
+        declaration.name,
+        declaration.name.removeprefix("gecode_"),
+        declaration.name.removeprefix("fzn_"),
+    ):
+        if base in flex:
+            return types == flex[base]
+    if declaration.name not in {"cumulatives", "gecode_cumulatives", "fzn_cumulatives"}:
+        return True
     return types in (
         [variable_array] * 3 + ["varint"],
-        [variable_array] * 4 + ["array[int]ofint", "bool"],
+        [variable_array] * 4 + [fixed_array, "bool"],
+        native_multi,
     )
 
 
@@ -1136,7 +1166,7 @@ def render_declarations(
                 "cumulatives",
                 "gecode_cumulatives",
                 "fzn_cumulatives",
-            } and not current_signature(d):
+            }:
                 types = signature_types(d)
                 if types == ["array[int]ofvarint"] * 5 + ["array[int]ofint", "bool"]:
                     task = 25

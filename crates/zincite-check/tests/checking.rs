@@ -4790,8 +4790,6 @@ fn legacy_scheduling_admits_exact_names_roles_and_checked_arithmetic() {
         "constraint gecode_schedule_unary_optional([0],[1],[]);solve satisfy;",
         "var bool:b;constraint cumulatives([],[],[],[],[],b);solve satisfy;",
         "var 1..1:b;constraint cumulatives([0],[1],[1],[0],[b],true);solve satisfy;",
-        "constraint cumulatives([],[],[],[],[],[],true);solve satisfy;",
-        "constraint gecode_unary_flex([],[],[]);solve satisfy;",
         "predicate gecode_schedule_unary(array[int] of var int:a,array[int] of var int:b);solve satisfy;",
     ] {
         assert!(prepare("bad-schedule.fzn", source).is_err(), "{source}");
@@ -4899,6 +4897,291 @@ fn scheduling_known_preconditions_report_without_unrelated_values() {
     let model = prepare("no-guesses.fzn", "var int:s::is_defined_var;constraint gecode_schedule_unary([s],[1])::defines_var(s);solve satisfy;").unwrap();
     assert_eq!(
         model.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
+}
+
+#[test]
+fn explicit_scheduling_checks_endpoints_signs_and_active_machine_loads() {
+    for (call, valid) in [
+        ("gecode_unary_flex([],[],[])", true),
+        ("gecode_unary_flex([0,1],[3,0],[3,1])", false),
+        ("gecode_unary_flex([0,3],[3,0],[3,3])", true),
+        ("gecode_unary_flex([0,0],[0,0],[0,0])", true),
+        // Supplied endpoints, independently of duration and posting-time specialization.
+        ("gecode_unary_flex([0,2],[1,1],[4,4])", false),
+        ("gecode_unary_flex([0,2],[4,4],[1,3])", true),
+        ("gecode_unary_flex([3,2],[1,1],[1,4])", true),
+        ("gecode_unary_flex([3,0],[1,1],[1,4])", false),
+        (
+            "gecode_unary_flex_optional([0,1],[3,0],[3,1],[true,false])",
+            true,
+        ),
+        ("gecode_unary_flex_optional([0],[-1],[9],[false])", false),
+        ("gecode_cumulative_flex([],[],[],[],-1)", false),
+        ("gecode_cumulative_flex([0,1],[3,0],[3,1],[2,1],2)", false),
+        (
+            "gecode_cumulative_flex([0,0,3],[3,0,0],[3,0,3],[2,2,2],2)",
+            true,
+        ),
+        ("gecode_cumulative_flex([1,1],[0,0],[1,1],[2,2],2)", true),
+        ("gecode_cumulative_flex([0,2],[1,1],[4,4],[1,1],1)", false),
+        ("gecode_cumulative_flex([0,2],[4,4],[1,3],[1,1],1)", true),
+        ("gecode_cumulative_flex([3],[1],[1],[2],1)", false),
+        (
+            "gecode_cumulative_flex_optional([0,1],[3,0],[3,1],[2,9],2,[true,false])",
+            true,
+        ),
+        (
+            "gecode_cumulative_flex_optional([0],[-1],[0],[1],1,[false])",
+            false,
+        ),
+        (
+            "gecode_cumulative_flex_optional([0],[1],[1],[1],-1,[false])",
+            false,
+        ),
+        (
+            "gecode_cumulatives_flex([0,0],[1,1],[2,2],[5,-3],[0,0],[2],true)",
+            true,
+        ),
+        (
+            "gecode_cumulatives_flex([0,0],[1,1],[2,2],[5,-2],[0,0],[2],true)",
+            false,
+        ),
+        (
+            "gecode_cumulatives_flex([0,0],[1,1],[2,2],[5,-3],[0,0],[2],false)",
+            true,
+        ),
+        (
+            "gecode_cumulatives_flex([0,0],[1,1],[2,2],[5,-4],[0,0],[2],false)",
+            false,
+        ),
+        (
+            "gecode_cumulatives_flex([0,2],[1,1],[1,3],[-1,-1],[0,0],[-1],true)",
+            true,
+        ),
+        (
+            "gecode_cumulatives_flex([1],[0],[1],[99],[0],[-1],true)",
+            true,
+        ),
+        (
+            "gecode_cumulatives_flex([3],[-2],[1],[99],[0],[-1],true)",
+            true,
+        ),
+        (
+            "gecode_cumulatives_flex([0],[-1],[1],[1],[0],[1],true)",
+            true,
+        ),
+        (
+            "gecode_cumulatives_flex([0],[1],[1],[99],[-1],[1],true)",
+            true,
+        ),
+        (
+            "gecode_cumulatives_flex([0],[1],[1],[99],[1],[1],true)",
+            true,
+        ),
+        // No start+duration addition belongs to any explicit-end resource relation.
+        (
+            "gecode_unary_flex([9223372036854775807],[1],[9223372036854775807])",
+            true,
+        ),
+        (
+            "gecode_cumulative_flex([9223372036854775807],[1],[9223372036854775807],[1],1)",
+            true,
+        ),
+    ] {
+        let model = prepare("flex.fzn", &format!("constraint {call};solve satisfy;")).unwrap();
+        let report = model.check(&Assignment::default()).unwrap();
+        assert_eq!(report.status == Status::Valid, valid, "{call}");
+        assert!(report.completeness.complete, "{call}");
+    }
+}
+
+#[test]
+fn explicit_scheduling_admits_exact_names_and_signature_roles() {
+    for prefix in ["", "gecode_", "fzn_"] {
+        for (base, parameters, arguments) in [
+            (
+                "gecode_unary_flex",
+                "array[int] of var int:a,array[int] of var int:b,array[int] of var int:c",
+                "[0],[1],[1]",
+            ),
+            (
+                "gecode_unary_flex_optional",
+                "array[int] of var int:a,array[int] of var int:b,array[int] of var int:c,array[int] of var bool:d",
+                "[0],[1],[1],[true]",
+            ),
+            (
+                "gecode_cumulative_flex",
+                "array[int] of var int:a,array[int] of var int:b,array[int] of var int:c,array[int] of int:d,var int:e",
+                "[0],[1],[1],[1],1",
+            ),
+            (
+                "gecode_cumulative_flex_optional",
+                "array[int] of var int:a,array[int] of var int:b,array[int] of var int:c,array[int] of int:d,var int:e,array[int] of var bool:f",
+                "[0],[1],[1],[1],1,[true]",
+            ),
+            (
+                "gecode_cumulatives_flex",
+                "array[int] of var int:a,array[int] of var int:b,array[int] of var int:c,array[int] of var int:d,array[int] of var int:e,array[int] of int:f,bool:g",
+                "[0],[1],[1],[1],[0],[1],true",
+            ),
+            (
+                "cumulatives",
+                "array[int] of var int:a,array[int] of var int:b,array[int] of var int:c,array[int] of var int:d,array[int] of var int:e,array[int] of int:f,bool:g",
+                "[0],[1],[1],[1],[0],[1],true",
+            ),
+        ] {
+            let name = format!("{prefix}{base}");
+            let model = prepare(
+                "names.fzn",
+                &format!(
+                    "predicate {name}({parameters});constraint {name}({arguments});solve satisfy;"
+                ),
+            )
+            .unwrap();
+            assert_eq!(
+                model.check(&Assignment::default()).unwrap().status,
+                Status::Valid,
+                "{name}"
+            );
+        }
+    }
+    for source in [
+        "constraint unary_flex([],[],[]);solve satisfy;",
+        "constraint gecode_unary_flex([0],[1],[]);solve satisfy;",
+        "constraint gecode_unary_flex([0],[true],[1]);solve satisfy;",
+        "constraint gecode_unary_flex_optional([0],[1],[1],[1]);solve satisfy;",
+        "constraint gecode_cumulative_flex([0],[1],[1],[-1],1);solve satisfy;",
+        "var int:u;constraint gecode_cumulative_flex([0],[1],[1],[u],1);solve satisfy;",
+        "constraint gecode_cumulative_flex_optional([0],[1],[1],[1],[true],1);solve satisfy;",
+        "var int:b;constraint gecode_cumulatives_flex([0],[1],[1],[1],[0],[b],true);solve satisfy;",
+        "var bool:b;constraint gecode_cumulatives_flex([],[],[],[],[],[],b);solve satisfy;",
+        "predicate fzn_cumulatives(array[int] of var int:s,array[int] of var int:d,array[int] of var int:r,array[int] of var int:m,array[int] of var int:b,bool:upper,int:min_machine);solve satisfy;",
+    ] {
+        assert!(prepare("bad-flex.fzn", source).is_err(), "{source}");
+    }
+    let declarations = "predicate cumulatives(array[int] of var int:a,array[int] of var int:b,array[int] of var int:c,var int:d);predicate cumulatives(array[int] of var int:a,array[int] of var int:b,array[int] of var int:c,array[int] of var int:d,array[int] of int:e,bool:f);predicate cumulatives(array[int] of var int:a,array[int] of var int:b,array[int] of var int:c,array[int] of var int:d,array[int] of var int:e,array[int] of int:f,bool:g);";
+    prepare("overloads.fzn", &format!("{declarations}constraint cumulatives([],[],[],0);constraint cumulatives([],[],[],[],[],true);constraint cumulatives([],[],[],[],[],[],true);solve satisfy;")).unwrap();
+    let overflow = prepare("overflow.fzn", "constraint gecode_cumulatives_flex([0,0],[0,0],[1,1],[9223372036854775807,1],[0,0],[0],true);solve satisfy;").unwrap();
+    assert_eq!(
+        overflow.check(&Assignment::default()).unwrap_err().kind,
+        ErrorKind::Execution
+    );
+}
+
+#[test]
+fn explicit_scheduling_round_trips_completion_and_partial_findings() {
+    let model = prepare(
+        "explicit-end-scheduling.fzn",
+        include_str!("../../../examples/checker-compilation/explicit-end-scheduling.fzn"),
+    )
+    .unwrap();
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for (candidate, status, complete) in [
+        (
+            "s=9007199254740995;length=2;present=true;",
+            Status::Valid,
+            true,
+        ),
+        (
+            "s=9007199254740994;length=2;present=true;",
+            Status::Invalid,
+            true,
+        ),
+        (
+            "s=9007199254740995;length=2;present=false;",
+            Status::Valid,
+            true,
+        ),
+        (
+            "s=9007199254740994;length=2;present=true;finish=9007199254740993;",
+            Status::Invalid,
+            true,
+        ),
+        ("length=-1;", Status::Invalid, false),
+        ("", Status::Incomplete, false),
+    ] {
+        let input = assignment(candidate);
+        let report = model.check(&input).unwrap();
+        assert_eq!(report.status, status, "{candidate}");
+        assert_eq!(report.completeness.complete, complete, "{candidate}");
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(
+            json,
+            serde_json::to_value(loaded.check(&input).unwrap()).unwrap()
+        );
+        if candidate == "s=9007199254740994;length=2;present=true;" {
+            assert_eq!(report.violations.len(), 4);
+            let unary = &json["violations"][0];
+            assert_eq!(
+                unary["details"]["finding"]["tasks"][0]["end"]["value"]["value"],
+                "9007199254740995"
+            );
+            assert_eq!(
+                unary["check"]["constraint"]["metadata"]["application"]["id"],
+                "unary_flex"
+            );
+            assert_eq!(
+                json["violations"][2]["details"]["finding"]["faults"][0]["usage"],
+                "3"
+            );
+        }
+        if candidate.ends_with("finish=9007199254740993;") {
+            // The end equation fails; scheduling still uses the supplied empty interval.
+            assert_eq!(report.violations.len(), 1);
+        }
+        if candidate == "length=-1;" {
+            assert_eq!(report.violations.len(), 5);
+        }
+    }
+    let absent = prepare("absent-flex.fzn", "var int:s;var int:e;var int:d;constraint gecode_unary_flex_optional([s],[d],[e],[false]);constraint gecode_cumulative_flex_optional([s],[d],[e],[1],1,[false]);solve satisfy;").unwrap();
+    let report = absent.check(&assignment("d=1;")).unwrap();
+    assert_eq!(report.status, Status::Incomplete);
+    assert!(
+        report
+            .completeness
+            .blocked_checks
+            .iter()
+            .all(|check| !matches!(check.check, CheckRef::Constraint { .. }))
+    );
+    let report = absent.check(&assignment("d=-1;")).unwrap();
+    assert_eq!(report.violations.len(), 2);
+    let report = absent.check(&Assignment::default()).unwrap();
+    assert!(
+        report
+            .completeness
+            .blocked_checks
+            .iter()
+            .any(|check| matches!(check.check, CheckRef::Constraint { .. }))
+    );
+    let caller_duration = prepare(
+        "machine-duration.fzn",
+        "var int:d;constraint gecode_cumulatives_flex([0],[d],[1],[1],[0],[1],true);solve satisfy;",
+    )
+    .unwrap();
+    let report = caller_duration.check(&Assignment::default()).unwrap();
+    assert_eq!(report.status, Status::Incomplete);
+    assert!(
+        report
+            .completeness
+            .blocked_checks
+            .iter()
+            .all(|check| !matches!(check.check, CheckRef::Constraint { .. }))
+    );
+    let empty_machine_task = prepare("empty-machine-task.fzn", "var int:d;var int:u;constraint gecode_cumulatives_flex([0],[d],[0],[u],[0],[0],true);solve satisfy;").unwrap();
+    let report = empty_machine_task.check(&Assignment::default()).unwrap();
+    assert_eq!(report.status, Status::Incomplete);
+    assert!(
+        report
+            .completeness
+            .blocked_checks
+            .iter()
+            .all(|check| !matches!(check.check, CheckRef::Constraint { .. }))
+    );
+    let no_guesses = prepare("no-flex-guesses.fzn", "var int:e::is_defined_var;constraint gecode_unary_flex([0],[1],[e])::defines_var(e);solve satisfy;").unwrap();
+    assert_eq!(
+        no_guesses.check(&Assignment::default()).unwrap().status,
         Status::Incomplete
     );
 }

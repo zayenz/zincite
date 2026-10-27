@@ -2161,3 +2161,82 @@ fn parser_free_scheduling_checks_shapes_roles_and_exact_payloads() {
         );
     }
 }
+
+#[test]
+fn parser_free_explicit_scheduling_validates_endpoints_and_native_roles() {
+    let integer = |value: &str| json!({"Literal":{"kind":"integer","value":value}});
+    let mut artifact = executable();
+    artifact["model"]["constraints"][0]["reference"]["predicate"] =
+        json!("gecode_cumulative_flex_optional");
+    artifact["model"]["constraints"][0]["predicate"] = json!({"Scheduling":{"OptionalCumulative":{
+        "tasks":{"starts":[integer("9007199254740993"),{"Variable":0}],"durations":[integer("2"),integer("0")],"ends":[integer("9007199254740995"),{"Variable":0}]},
+        "usages":[integer("2"),integer("1")],
+        "present":[{"Literal":{"kind":"boolean","value":true}},{"Literal":{"kind":"boolean","value":true}}],
+        "capacity":integer("2")
+    }}});
+    let model = PreparedModel::from_json(&artifact.to_string()).unwrap();
+    let input = Assignment {
+        entries: vec![AssignmentEntry {
+            name: "x".into(),
+            value: AssignmentValue::Scalar(Value::Integer(9_007_199_254_740_994)),
+            location: None,
+        }],
+    };
+    let report = model.check(&input).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    let json = serde_json::to_value(&report).unwrap();
+    assert_eq!(
+        json["violations"][0]["details"]["finding"]["tasks"][0]["end"]["value"]["value"],
+        "9007199254740995"
+    );
+    assert_eq!(
+        json,
+        serde_json::to_value(
+            PreparedModel::from_json(&model.to_json().unwrap())
+                .unwrap()
+                .check(&input)
+                .unwrap()
+        )
+        .unwrap()
+    );
+    for (path, value) in [
+        ("/tasks/ends", json!([])),
+        ("/tasks/ends", json!(null)),
+        ("/tasks/ends/0", json!({"Variable":99})),
+        (
+            "/tasks/ends/0",
+            json!({"Literal":{"kind":"boolean","value":true}}),
+        ),
+        ("/usages/0", json!({"Variable":0})),
+        ("/usages/0", integer("-1")),
+        ("/present/0", integer("1")),
+    ] {
+        let mut bad = artifact.clone();
+        *bad["model"]["constraints"][0]["predicate"]["Scheduling"]["OptionalCumulative"]
+            .pointer_mut(path)
+            .unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&bad.to_string()).is_err(),
+            "{path}"
+        );
+    }
+    artifact["model"]["constraints"][0]["reference"]["predicate"] =
+        json!("gecode_schedule_cumulative_optional");
+    assert!(PreparedModel::from_json(&artifact.to_string()).is_err());
+    artifact["model"]["constraints"][0]["reference"]["predicate"] = json!("fzn_cumulatives");
+    artifact["model"]["constraints"][0]["predicate"] = json!({"Scheduling":{"Cumulatives":{
+        "tasks":{"starts":[integer("0")],"durations":[integer("-1")],"ends":[integer("1")]},
+        "usages":[integer("1")],"machines":[integer("0")],"capacities":[integer("1")],"upper":true
+    }}});
+    assert_eq!(
+        PreparedModel::from_json(&artifact.to_string())
+            .unwrap()
+            .check(&input)
+            .unwrap()
+            .status,
+        Status::Valid
+    );
+    artifact["model"]["constraints"][0]["predicate"]["Scheduling"]["Cumulatives"]["capacities"]
+        [0] = json!({"Variable":0});
+    assert!(PreparedModel::from_json(&artifact.to_string()).is_err());
+}

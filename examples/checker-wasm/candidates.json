@@ -1368,5 +1368,164 @@
         },
         "status": "incomplete",
         "complete": false
+    },
+    {
+        "name": "flex-boundary",
+        "model": "flex",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "s",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740995"
+                        }
+                    }
+                },
+                {
+                    "name": "length",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "2"
+                        }
+                    }
+                },
+                {
+                    "name": "present",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "valid",
+        "complete": true
+    },
+    {
+        "name": "flex-interior",
+        "model": "flex",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "s",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740994"
+                        }
+                    }
+                },
+                {
+                    "name": "length",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "2"
+                        }
+                    }
+                },
+                {
+                    "name": "present",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "flex-end-conflict",
+        "model": "flex",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "s",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740994"
+                        }
+                    }
+                },
+                {
+                    "name": "length",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "2"
+                        }
+                    }
+                },
+                {
+                    "name": "present",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                },
+                {
+                    "name": "finish",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "flex-incomplete-invalid",
+        "model": "flex",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "length",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "-1"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": false
+    },
+    {
+        "name": "flex-incomplete",
+        "model": "flex",
+        "assignment": {
+            "entries": []
+        },
+        "status": "incomplete",
+        "complete": false
     }
 ]

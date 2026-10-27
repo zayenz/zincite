@@ -325,6 +325,18 @@ upstream's domain-dependent behavior in the checker guide. This explicit
 choice also applies to its registered aliases; it does not add propagation or
 search to the checker.
 
+Explicit-end scheduling checks supplied starts and ends independently of
+Gecode's posting-time rewrites. Unary checks endpoint separation for present
+tasks. Cumulative checks half-open interval loads and each present task's own
+usage plus tasks strictly spanning its start; coincident zero-length tasks are
+checked individually. Multi-machine checks signed half-open interval loads
+only during active time. Preserve unary/cumulative sign requirements, including
+duration requirements for absent tasks. Do not add end equalities or
+multi-machine duration/machine guards: separate model constraints check those
+caller obligations. Document this concrete convention on inconsistent tuples
+and its difference from native propagation behavior. Scheduling itself selects
+no output; separately marked end equations can provide completion.
+
 Floats are in scope. Use finite binary64 values with configurable absolute and
 relative comparison tolerances, including a zero-tolerance strict setting.
 Document the comparison formula, defaults, strict inequalities, domain checks,
