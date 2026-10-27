@@ -5,11 +5,11 @@ const { tmpdir } = require("node:os");
 const { resolve, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-assert.equal(process.argv.length, 23,
-    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json LEGACY.json FLEX.json PACKING.json SET_GLOBALS.json SET_CHANNELS.json ARITHMETIC.json CANDIDATES.json NATIVE_CHECKER");
-const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, setChannels, arithmetic, candidates, native] = process.argv.slice(2).map(path => resolve(path));
+assert.equal(process.argv.length, 24,
+    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json LEGACY.json FLEX.json PACKING.json SET_GLOBALS.json SET_CHANNELS.json ARITHMETIC.json STANDARD.json CANDIDATES.json NATIVE_CHECKER");
+const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, setChannels, arithmetic, standard, candidates, native] = process.argv.slice(2).map(path => resolve(path));
 const { PreparedModel } = require(glue);
-const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, setChannels, arithmetic };
+const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, setChannels, arithmetic, standard };
 const defaults = {};
 const models = Object.fromEntries(Object.entries(paths).map(([name, path]) =>
     [name, new PreparedModel(readFileSync(path, "utf8"))]));
@@ -117,6 +117,14 @@ function decimal(value) {
 }
 
 function checkDetails(name, report) {
+    if (name === "standard-conflict") {
+        assert.equal(report.violations.length, 1);
+        const metadata = report.violations[0].check.constraint.metadata;
+        assert.equal(metadata.application.id, "offset");
+        assert.equal(metadata.value_application.id, "y");
+        assert.equal(report.objective.argument.value.value, "0");
+    }
+    if (name === "standard-invalid") assert.equal(report.violations.length, 5);
     if (name === "arithmetic-conflicts") {
         const product = report.violations.find(v => v.details.finding?.operation === "product");
         assert.equal(product.details.finding.expected, "9007199254740993");

@@ -105,13 +105,13 @@ edits and job feedback using these bindings and the saved compiled model.
 
 ## Execute the native/Wasm comparison
 
-Build the bindings above, then export eighteen artifacts with the native CLI. This
+Build the bindings above, then export nineteen artifacts with the native CLI. This
 setup uses both saved compiled workshop models and a tiny handwritten FlatZinc
 integer/set model, the saved float-core control, a direct selection control,
 a direct set control, a float-function control, a direct counting control,
 a direct ordering/channel control, a direct table control, a direct automaton control,
 a direct circuit/cost control, a legacy scheduling control and an explicit-end
-scheduling control, a bin-packing/rectangle control, two set controls and an arithmetic/distance control.
+scheduling control, a bin-packing/rectangle control, two set controls and an arithmetic/distance control and the saved standard-profile metadata control.
 This setup does not run MiniZinc:
 
 ```sh
@@ -164,7 +164,8 @@ target/debug/zincite-check --export "$checker_run/packing.json" examples/checker
 target/debug/zincite-check --export "$checker_run/set-globals.json" examples/checker-compilation/set-globals.fzn
 target/debug/zincite-check --export "$checker_run/set-channels.json" examples/checker-compilation/set-channels.fzn
 target/debug/zincite-check --export "$checker_run/arithmetic.json" examples/checker-compilation/arithmetic-extensions.fzn
-node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" "$checker_run/automata.json" "$checker_run/circuits.json" "$checker_run/legacy.json" "$checker_run/flex.json" "$checker_run/packing.json" "$checker_run/set-globals.json" "$checker_run/set-channels.json" "$checker_run/arithmetic.json" examples/checker-wasm/candidates.json target/debug/zincite-check
+target/debug/zincite-check --export "$checker_run/standard.json" examples/checker-compilation/standard-controls.fzn
+node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" "$checker_run/automata.json" "$checker_run/circuits.json" "$checker_run/legacy.json" "$checker_run/flex.json" "$checker_run/packing.json" "$checker_run/set-globals.json" "$checker_run/set-channels.json" "$checker_run/arithmetic.json" "$checker_run/standard.json" examples/checker-wasm/candidates.json target/debug/zincite-check
 ```
 
 `smoke.cjs` reads only built bindings, prepared artifacts and typed assignment
@@ -173,7 +174,7 @@ compares every observable report with the native CLI's `--load` path. The CLI
 receives literal `.dzn` assignments made from the same typed values in a temporary
 directory. The consumer removes those temporary assignments when finished.
 
-The eighty named cases cover valid, invalid, incomplete and invalid-with-incomplete
+The eighty-four named cases cover valid, invalid, incomplete and invalid-with-incomplete
 reports, application metadata, Boolean and array input, set definitions and domain
 failures, strict resource conflicts, and the distinct integers 9007199254740992
 and 9007199254740993 as both integers and set endpoints. The exact-value model
@@ -267,3 +268,13 @@ positions, offset labels, compact ranges, references and application metadata.
 All sixteen earlier artifacts load unchanged, and all 69 earlier candidate
 records keep their exact bytes and 138 comparisons. The five added records bring
 the repeated native/Wasm smoke to 148 comparisons.
+
+The standard-profile control adds four candidates and eight native/Wasm
+comparisons, for 168 comparisons across nineteen artifacts. The eighty earlier
+candidate records and eighteen earlier artifacts are unchanged. The added
+candidates check complete success, five independent violations after a derived
+domain failure, a supplied-output conflict with separate constraint and value
+application IDs, and an empty incomplete assignment. Its set-cardinality and
+optional integer auxiliaries are supplied explicitly because compilation drops
+the former's definition hint and the latter represents an editable optional
+value. The checker derives the linear output and optional reifiers.

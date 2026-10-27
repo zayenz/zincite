@@ -47,15 +47,21 @@ impl Lowerer<'_> {
             let flag = !call && expression.kind() == NodeKind::Expression && args.is_empty();
             match (name.as_str(), context) {
                 ("checker_value", AnnotationContext::Value { is_var: true, .. })
-                | ("checker_constraint", AnnotationContext::Constraint)
+                | ("checker_constraint" | "checker_value", AnnotationContext::Constraint)
                     if call && args.len() == 2 =>
                 {
                     let application = Application {
                         id: self.source.string(args[0])?,
                         entities: self.source.integer_array(args[1])?,
                     };
-                    if metadata
-                        .application
+                    let role = if name == "checker_value"
+                        && matches!(context, AnnotationContext::Constraint)
+                    {
+                        &mut metadata.value_application
+                    } else {
+                        &mut metadata.application
+                    };
+                    if role
                         .as_ref()
                         .is_some_and(|previous| previous != &application)
                     {
@@ -63,11 +69,14 @@ impl Lowerer<'_> {
                             .source
                             .error(expression, "conflicting application annotations"));
                     }
-                    metadata.application = Some(application);
+                    *role = Some(application);
                 }
-                ("mzn_path", AnnotationContext::Value { .. } | AnnotationContext::Constraint)
-                    if call && args.len() == 1 =>
-                {
+                (
+                    "mzn_path",
+                    AnnotationContext::Value { .. }
+                    | AnnotationContext::Constraint
+                    | AnnotationContext::Operand,
+                ) if call && args.len() == 1 => {
                     let path = if self
                         .source
                         .tokens(args[0])
@@ -91,9 +100,10 @@ impl Lowerer<'_> {
                 ) if call && args.len() == 1 => {
                     self.source.string(args[0])?;
                 }
-                ("is_defined_var", AnnotationContext::Value { is_var: true, .. }) if flag => {
-                    metadata.is_defined = true
-                }
+                (
+                    "is_defined_var",
+                    AnnotationContext::Value { is_var: true, .. } | AnnotationContext::Constraint,
+                ) if flag => metadata.is_defined = true,
                 ("defines_var", AnnotationContext::Constraint) if call && args.len() == 1 => {
                     let target = match args[0].kind() {
                         NodeKind::Expression => DefinitionTarget::Name(self.source.name(args[0])?),
@@ -137,6 +147,7 @@ impl Lowerer<'_> {
                         ..
                     },
                 ) if flag => metadata.output = true,
+                ("output_var", AnnotationContext::Constraint) if flag => metadata.output = true,
                 (
                     "output_array",
                     AnnotationContext::Value {

@@ -1,0 +1,8 @@
+x = 0;
+chosen = {1};
+amount = 1.0;
+p = true;
+q = false;
+X_INTRODUCED_18_ = 1;
+X_INTRODUCED_24_ = 0;
+y = 0;

@@ -397,8 +397,6 @@ fn unsupported_forms_fail_preparation_and_arithmetic_is_checked() {
         "var int:x; constraint int_lin_eq([1],[missing],0); solve satisfy;",
         "array[1..2] of int:x=[1]; solve satisfy;",
         "var int:x::mystery; solve satisfy;",
-        "var int:x; constraint int_lin_eq([1],[x],0)::defines_var(x); solve satisfy;",
-        "var int:x::is_defined_var; solve satisfy;",
         "var int:x::is_defined_var; constraint int_lin_eq([1],[x],0)::defines_var(missing); solve satisfy;",
         "var int:x::is_defined_var; var int:y; constraint int_lin_eq([1],[y],0)::defines_var(x); solve satisfy;",
         "int:p=0; constraint int_lin_eq([1],[p],0)::defines_var(p); solve satisfy;",
@@ -3393,7 +3391,6 @@ fn cardinality_outputs_complete_canonical_slots_and_check_supplied_conflicts() {
         Status::Valid
     );
     for source in [
-        "var int: n; constraint gecode_global_cardinality([],[1],[n])::defines_var([n]);",
         "var int: n ::is_defined_var; var int: m ::is_defined_var; constraint gecode_global_cardinality([],[1],[n])::defines_var([m]);",
         "var int: n ::is_defined_var; constraint count([],1,n)::defines_var([n]);",
         "var int: n ::is_defined_var; constraint count([],1,n)::defines_var(n); constraint count([],2,n)::defines_var(n);",
@@ -3838,7 +3835,6 @@ fn ordering_bidirectional_outputs_aliases_cycles_and_partial_faults() {
         "var int: a ::is_defined_var; var int: b ::is_defined_var; constraint sort([1,2],[a,b])::defines_var([a]);",
         "array[1..0] of var bool: flags=[]; constraint sort([],[])::defines_var(flags);",
         "array[1..0] of var int: indexes=[]; var int: index; constraint gecode_bool_int_channel([],index,0)::defines_var(indexes);",
-        "var int: a; var int: b; array[1..2] of var int: x=[a,b]; constraint sort([1,2],x)::defines_var(x);",
     ] {
         assert!(
             prepare("bad-target", &format!("{source} solve satisfy;")).is_err(),
@@ -5798,12 +5794,8 @@ fn set_global_completion_edits_conflicts_and_round_trips() {
             assert!(report.completeness.complete);
         }
     }
-    for source in [
-        "var set of int:s;constraint array_set_union([],s)::defines_var(s);solve satisfy;",
-        "var set of int:s::is_defined_var;constraint array_set_union([],s)::defines_var(s);constraint gecode_set_convex_hull({},s)::defines_var(s);solve satisfy;",
-    ] {
-        assert!(prepare("markers.fzn", source).is_err());
-    }
+    let source = "var set of int:s::is_defined_var;constraint array_set_union([],s)::defines_var(s);constraint gecode_set_convex_hull({},s)::defines_var(s);solve satisfy;";
+    assert!(prepare("markers.fzn", source).is_err());
 }
 
 #[test]

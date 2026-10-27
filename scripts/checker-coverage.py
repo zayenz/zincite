@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -440,14 +442,22 @@ def main() -> None:
     parser.add_argument(
         "--write", action="store_true", help="update only generated tables"
     )
+    parser.add_argument(
+        "--checker",
+        type=Path,
+        help="validate every direct standard signature with this native checker",
+    )
     args = parser.parse_args()
     verify_root(args.minizinc, MINIZINC_REV)
     verify_root(args.gecode, GECODE_REV)
     files = read_library(args.minizinc / "share/minizinc/std", "S")
     files.update(read_library(args.gecode / "gecode/flatzinc/mznlib", "G"))
+    files.update(read_library(ROOT / "crates/zincite-check/minizinc/standard", "P"))
     registry_text = (args.gecode / "gecode/flatzinc/registry.cpp").read_text()
     registrations = read_registry(registry_text)
     block = render_inventory(files, registrations, registry_text)
+    if args.checker:
+        validate_standard_signatures(files, args.checker.resolve())
     path = ROOT / "docs/checker-coverage.md"
     document = path.read_text()
     before, rest = document.split(BEGIN)
@@ -461,17 +471,22 @@ def main() -> None:
         absent = {
             (key, target)
             for key, file in files.items()
-            if profile == "G" or key.startswith("S/")
+            if (
+                not key.startswith("P/") if profile == "G" else not key.startswith("G/")
+            )
+            and select_file(files, key[2:], profile) == key
             for target in resolved_includes(files, key, profile)
             if target.startswith("missing:")
         }
+        if profile == "S" and absent:
+            raise ValueError(f"standard profile has missing include edges: {absent}")
         print(
             f"{profile} default closure resolves; optional-entry missing edges: {len(absent)} "
             f"(checker-{30 if profile == 'S' else 31:03})"
         )
     counts = Counter(path[0] for path in files)
     print(
-        f"checked {counts['S']} standard files, {counts['G']} Gecode files; "
+        f"checked {counts['S']} standard files, {counts['G']} Gecode files, {counts['P']} packaged files; "
         f"{sum(len(f.declarations) for f in files.values())} declarations; "
         f"{len(registrations)} active registrations / "
         f"{len({r.name for r in registrations})} literal names"
@@ -731,6 +746,8 @@ def source_url(key: str) -> str:
     prefix, path = key.split("/", 1)
     if prefix == "S":
         url = f"https://github.com/MiniZinc/libminizinc/blob/{MINIZINC_REV}/share/minizinc/std/{path}"
+    elif prefix == "P":
+        url = f"../crates/zincite-check/minizinc/standard/{path}"
     else:
         url = f"https://github.com/Gecode/gecode/blob/{GECODE_REV}/gecode/flatzinc/mznlib/{path}"
     return url
@@ -749,7 +766,7 @@ def select_file(
     files: dict[str, SourceFile], name: str, profile: str, parent: str = ""
 ) -> str:
     # MiniZinc ParserState::canonicalFilename checks include paths before the parent.
-    candidates = ([f"G/{name}"] if profile == "G" else []) + [f"S/{name}"]
+    candidates = [f"{'G' if profile == 'G' else 'P'}/{name}", f"S/{name}"]
     if parent:
         candidates.append(str(Path(parent).parent / name))
     for candidate in candidates:
@@ -766,19 +783,27 @@ def resolved_includes(
     targets = [select_file(files, name, profile, key) for name in files[key].includes]
     # The parser also loads every matching deprecated companion, without selecting one.
     companion = Path(key).name + ".deprecated.mzn"
-    for prefix in ["G", "S"] if profile == "G" else ["S"]:
+    for prefix in ["G", "S"] if profile == "G" else ["P", "S"]:
         if (candidate := f"{prefix}/{companion}") in files:
             targets.append(candidate)
     return targets
 
 
-def closure(files: dict[str, SourceFile], profile: str) -> set[str]:
+def closure(
+    files: dict[str, SourceFile], profile: str, entry: str | None = None
+) -> set[str]:
     pending = [
         select_file(files, name, profile)
         for name in ("stdlib.mzn", "solver_redefinitions.mzn", "globals.mzn")
     ]
     if profile == "G":
         pending.append("G/gecode.mzn")
+    if entry is not None:
+        # Deprecated companions are loaded with their owning entry point.
+        name = entry[2:]
+        if name.endswith(".mzn.deprecated.mzn"):
+            name = name.removesuffix(".deprecated.mzn")
+        pending.append(select_file(files, name, profile))
     selected: set[str] = set()
     while pending:
         key = pending.pop()
@@ -1044,6 +1069,155 @@ def render_registry(
     return rows
 
 
+def validate_standard_signatures(files: dict[str, SourceFile], checker: Path) -> None:
+    declarations = [
+        d
+        for file in standard_profile_files(files).values()
+        for d in file.declarations
+        if d.kind == "predicate"
+    ]
+    loaded = {
+        d.file: closure(files, "S", d.file) for d in declarations if d.body is None
+    }
+    direct = [
+        d
+        for d in declarations
+        if d.body is None
+        and current_signature(d)
+        and not any(
+            definition.name == d.name
+            and definition.body is not None
+            and definition.file in loaded[d.file]
+            and signature_types(definition) == signature_types(d)
+            for definition in declarations
+        )
+    ]
+    with tempfile.TemporaryDirectory(
+        prefix="checker-signatures-", dir=ROOT / "target"
+    ) as directory:
+        source = Path(directory) / "signature.fzn"
+        artifact = Path(directory) / "signature.json"
+        for declaration in direct:
+            parameters = declaration.signature.split("(", 1)[1].split(")", 1)[0]
+            # Source-only context promises and declaration annotations are not emitted.
+            types = [
+                parameter.split(":", 1)[0].strip()
+                for parameter in parameters.split(",")
+                if parameter.strip()
+            ]
+            arguments = ", ".join(f"{kind}: a{i}" for i, kind in enumerate(types))
+            source.write_text(
+                f"predicate {declaration.name}({arguments}); solve satisfy;\n"
+            )
+            artifact.unlink(missing_ok=True)
+            result = subprocess.run(
+                [str(checker), "--export", str(artifact), str(source)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode:
+                raise ValueError(
+                    f"unsupported direct standard signature {declaration.signature}: {result.stderr.strip()}"
+                )
+    print(f"native preparation validated {len(direct)} direct standard signatures")
+
+
+def standard_profile_files(files: dict[str, SourceFile]) -> dict[str, SourceFile]:
+    configuration = json.loads(
+        (ROOT / "crates/zincite-check/minizinc/standard.msc").read_text()
+    )
+    if (
+        configuration["mznlib"] != "standard"
+        or configuration["id"] != "org.zincite.check.standard"
+    ):
+        raise ValueError("standard profile configuration changed; review selection")
+    selected = {
+        key: file
+        for key, file in files.items()
+        if not key.startswith("G/") and select_file(files, key[2:], "S") == key
+    }
+    for key in selected:
+        for target in resolved_includes(files, key, "S"):
+            if target not in files:
+                raise ValueError(
+                    f"standard optional entry {key} has missing include {target}"
+                )
+    return selected
+
+
+def render_standard_profile(files: dict[str, SourceFile]) -> list[str]:
+    selected = standard_profile_files(files)
+    declarations = [d for file in selected.values() for d in file.declarations]
+    predicates = [d for d in declarations if d.kind == "predicate"]
+    external = [d for d in predicates if d.body is None]
+    loaded = {key: closure(files, "S", key) for key in {d.file for d in external}}
+    rows = [
+        "## Standard profile accounting",
+        "",
+        f"The packaged `.msc` selects `minizinc/standard`, ahead of the pinned standard tree. All {len(selected)} selected files are checked, including optional entry points and deprecated companions. Every include edge resolves. Gecode selection excludes these packaged overrides.",
+        "",
+        "Each external mathematical signature below has a direct checker operation, an exact-type decomposition loaded by its entry point and the default roots, or a named compiler lowering. This is an accounting of emittable leaves, not acceptance of every source expression. Experimental execution hooks are excluded. Function/test intrinsics belong to MiniZinc elaboration; they do not become FlatZinc predicates.",
+        "",
+        "| Selected external signature | Route |",
+        "| --- | --- |",
+    ]
+    signatures_seen: set[str] = set()
+    for declaration in external:
+        signature = declaration.signature
+        if signature in signatures_seen:
+            continue
+        signatures_seen.add(signature)
+        if "experimental/" in declaration.file:
+            route = "excluded external execution/search hook"
+        elif declaration.name in COMPILER_PREDICATES:
+            route = "compiler elaboration"
+        else:
+            definitions = [
+                d
+                for d in predicates
+                if d.name == declaration.name
+                and d.body is not None
+                and d.file in loaded[declaration.file]
+                and signature_types(d) == signature_types(declaration)
+            ]
+            if definitions:
+                route = "selected decomposition: " + ", ".join(
+                    code(d.file) for d in definitions
+                )
+            elif current_signature(declaration):
+                route = "direct checker operation"
+            elif declaration.name == "fzn_regular" and signature_types(declaration) == [
+                "array[int]ofvarint",
+                "string",
+            ]:
+                route = "compiler regex-to-DFA lowering (regular.mzn)"
+            else:
+                raise ValueError(
+                    f"unsupported standard external signature: {declaration.file}: {signature}"
+                )
+        rows.append(f"| {code(signature)} | {route} |")
+    aborts = [
+        d
+        for d in predicates
+        if d.body is not None
+        and "experimental/" not in d.file
+        and re.match(r"^abort\s*\(", d.body)
+    ]
+    rows += [
+        "",
+        "### Pinned source compiler limits",
+        "",
+        f"The standard tree contains {len(aborts)} unconditional abort bodies across {len({d.name for d in aborts})} predicate names. These forms cannot emit a checker operation and get no runtime-support credit. The integer table reifier separately limits tuple width to 1..5 (`fzn_table_int_reif.mzn`).",
+        "",
+        "| Source | Rejected signature |",
+        "| --- | --- |",
+    ]
+    for declaration in aborts:
+        rows.append(f"| {code(declaration.file)} | {code(declaration.signature)} |")
+    return rows + [""]
+
+
 def render_inventory(
     files: dict[str, SourceFile], registrations: list[Registration], registry_text: str
 ) -> str:
@@ -1051,7 +1225,8 @@ def render_inventory(
     declarations = [d for file in files.values() for d in file.declarations]
     ids = {d: f"D{i:04}" for i, d in enumerate(declarations, 1)}
     file_ids = {key: f"file-{i:03}" for i, key in enumerate(files, 1)}
-    rows = render_name_index(files, declarations, ids)
+    rows = render_standard_profile(files)
+    rows.extend(render_name_index(files, declarations, ids))
     rows.extend(render_registry(registrations, declarations, ids))
     rows.extend(render_include_index(files, file_ids))
     rows.extend(render_declarations(files, registrations, declarations, ids, file_ids))
@@ -1211,8 +1386,14 @@ def render_include_index(
     for key, file in files.items():
         selections: list[str] = []
         for profile in "SG":
-            if key.startswith("G/") and profile == "S":
-                selections.append("outside standard profile")
+            if (key.startswith("G/") and profile == "S") or (
+                key.startswith("P/") and profile == "G"
+            ):
+                selections.append(
+                    "outside "
+                    + ("standard" if profile == "S" else "Gecode")
+                    + " profile"
+                )
                 continue
             selected = select_file(files, key[2:], profile)
             if selected != key:
@@ -1401,13 +1582,19 @@ def declaration_route(
         return "compiler intrinsic"
     routes: list[str] = []
     for profile in "SG":
-        if key.startswith("G/") and profile == "S":
-            routes.append("S outside profile")
+        if (key.startswith("G/") and profile == "S") or (
+            key.startswith("P/") and profile == "G"
+        ):
+            routes.append(profile + " outside profile")
             continue
         selected = [
             d
             for d in definitions
-            if (profile == "G" or d.file.startswith("S/"))
+            if (
+                not d.file.startswith("G/")
+                if profile == "S"
+                else not d.file.startswith("P/")
+            )
             and select_file(files, d.file[2:], profile) == d.file
         ]
         links = ", ".join(f"[{ids[d]}](#{ids[d].lower()})" for d in selected)

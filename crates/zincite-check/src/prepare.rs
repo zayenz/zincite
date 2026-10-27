@@ -714,6 +714,7 @@ enum AnnotationContext {
         length: Option<usize>,
     },
     Constraint,
+    Operand,
     Solve,
 }
 
@@ -925,6 +926,10 @@ impl<'a> Lowerer<'a> {
                 ValueType::IntegerSet => Domain::IntegerSet { upper: None },
             };
         }
+        if let Some(initializer) = self.declarations[index].initializer {
+            let paths = self.operand_paths(initializer)?;
+            self.declarations[index].metadata.paths.extend(paths);
+        }
         let mut elements = self.initial_values(index, &ty)?;
         if ty.is_var {
             self.bind_variables(index, &ty, &mut elements);
@@ -1105,7 +1110,22 @@ impl<'a> Lowerer<'a> {
         })
     }
 
+    fn operand_paths(&mut self, node: &SyntaxNode) -> Result<Vec<String>> {
+        let mut annotations = Vec::new();
+        let subject = unannotated(node, &mut annotations);
+        let mut paths = self
+            .metadata(&annotations, AnnotationContext::Operand)?
+            .paths;
+        for child in subject.child_nodes() {
+            paths.extend(self.operand_paths(child)?);
+        }
+        Ok(paths)
+    }
+
     fn scalar(&mut self, node: &SyntaxNode, kind: ValueType) -> Result<Operand> {
+        let mut annotations = Vec::new();
+        let node = unannotated(node, &mut annotations);
+        self.metadata(&annotations, AnnotationContext::Operand)?;
         let operand = if node.kind() == NodeKind::ArrayAccessExpression {
             let children: Vec<_> = node.child_nodes().collect();
             if children.len() != 2 || children[0].kind() != NodeKind::Expression {
@@ -1139,7 +1159,7 @@ impl<'a> Lowerer<'a> {
             }
             binding.elements[0].clone()
         } else {
-            Operand::Literal(self.source.typed_literal(node, kind)?)
+            Operand::Literal(self.operand_literal(node, kind)?)
         };
         let actual = match &operand {
             Operand::Literal(value) => value.value_type(),
@@ -1151,7 +1171,33 @@ impl<'a> Lowerer<'a> {
         Ok(operand)
     }
 
+    fn operand_literal(&mut self, node: &SyntaxNode, kind: ValueType) -> Result<Value> {
+        if kind == ValueType::IntegerSet {
+            match node.kind() {
+                NodeKind::RangeExpression => {
+                    let bounds: Vec<_> = node.child_nodes().collect();
+                    return Ok(Value::IntegerSet(IntegerSet::interval(
+                        self.constant_integer(bounds[0])?,
+                        self.constant_integer(bounds[1])?,
+                    )));
+                }
+                NodeKind::SetLiteral => {
+                    let values = node
+                        .child_nodes()
+                        .map(|value| self.constant_integer(value))
+                        .collect::<Result<Vec<_>>>()?;
+                    return Ok(Value::IntegerSet(IntegerSet::from_values(values)));
+                }
+                _ => {}
+            }
+        }
+        self.source.typed_literal(node, kind)
+    }
+
     fn array(&mut self, node: &SyntaxNode, kind: ValueType) -> Result<Vec<Operand>> {
+        let mut annotations = Vec::new();
+        let node = unannotated(node, &mut annotations);
+        self.metadata(&annotations, AnnotationContext::Operand)?;
         if node.kind() == NodeKind::ArrayLiteral {
             return node
                 .child_nodes()
@@ -1195,6 +1241,10 @@ impl<'a> Lowerer<'a> {
         }
         let name = self.source.name(call)?;
         let args: Vec<_> = call.child_nodes().collect();
+        let mut paths = Vec::new();
+        for argument in &args {
+            paths.extend(self.operand_paths(argument)?);
+        }
         let boolean = BooleanName::from_name(&name);
         let counting = CountingName::from_name(&name);
         let table = TableName::from_name(&name);
@@ -1312,7 +1362,8 @@ impl<'a> Lowerer<'a> {
             }
         };
         self.validate_declared_call(call, &name, &args)?;
-        let metadata = self.metadata(&annotations, AnnotationContext::Constraint)?;
+        let mut metadata = self.metadata(&annotations, AnnotationContext::Constraint)?;
+        metadata.paths.extend(paths);
         let reference = ConstraintRef {
             ordinal: self.model.constraints.len() + 1,
             predicate: name,

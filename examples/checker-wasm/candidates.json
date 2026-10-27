@@ -2739,5 +2739,285 @@
         },
         "status": "incomplete",
         "complete": false
+    },
+    {
+        "name": "standard-valid",
+        "model": "standard",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                },
+                {
+                    "name": "chosen",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "amount",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "float",
+                            "value": 1.0
+                        }
+                    }
+                },
+                {
+                    "name": "p",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                },
+                {
+                    "name": "q",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": false
+                        }
+                    }
+                },
+                {
+                    "name": "X_INTRODUCED_18_",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "1"
+                        }
+                    }
+                },
+                {
+                    "name": "X_INTRODUCED_24_",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "valid",
+        "complete": true
+    },
+    {
+        "name": "standard-invalid",
+        "model": "standard",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "-3"
+                        }
+                    }
+                },
+                {
+                    "name": "chosen",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "amount",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "float",
+                            "value": 2.0
+                        }
+                    }
+                },
+                {
+                    "name": "p",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": false
+                        }
+                    }
+                },
+                {
+                    "name": "q",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                },
+                {
+                    "name": "X_INTRODUCED_18_",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "1"
+                        }
+                    }
+                },
+                {
+                    "name": "X_INTRODUCED_24_",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "3"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "standard-conflict",
+        "model": "standard",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                },
+                {
+                    "name": "chosen",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "1",
+                                        "upper": "1"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "amount",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "float",
+                            "value": 1.0
+                        }
+                    }
+                },
+                {
+                    "name": "p",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                },
+                {
+                    "name": "q",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": false
+                        }
+                    }
+                },
+                {
+                    "name": "X_INTRODUCED_18_",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "1"
+                        }
+                    }
+                },
+                {
+                    "name": "X_INTRODUCED_24_",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                },
+                {
+                    "name": "y",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "standard-partial",
+        "model": "standard",
+        "assignment": {
+            "entries": []
+        },
+        "status": "incomplete",
+        "complete": false
     }
 ]

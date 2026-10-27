@@ -205,6 +205,8 @@ pub struct Application {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Metadata {
     pub application: Option<Application>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_application: Option<Application>,
     pub label: Option<String>,
     pub paths: Vec<String>,
     pub is_defined: bool,
@@ -2737,15 +2739,6 @@ impl PreparedModel {
                 {
                     return Err(fail("defines_var target has an invalid slot"));
                 }
-                if !self.variables.iter().any(|variable| {
-                    variable.slot == *slot
-                        && (binding.is_array
-                            || matches!(target, DefinitionTarget::Elements(_))
-                            || variable.reference.name == *name)
-                        && variable.reference.metadata.is_defined
-                }) {
-                    return Err(fail("defines_var target must have is_defined_var"));
-                }
                 slots.push(*slot);
             }
         }
@@ -2848,14 +2841,6 @@ impl PreparedModel {
                         direction,
                     });
                 }
-            }
-        }
-        for variable in &self.variables {
-            if variable.reference.metadata.is_defined && !defined.contains(&variable.slot) {
-                return Err(Diagnostic {
-                    location: Some(variable.reference.location.clone()),
-                    message: "is_defined_var has no matching defines_var relation".into(),
-                });
             }
         }
         Ok(())

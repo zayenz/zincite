@@ -1033,6 +1033,13 @@ fn metadata_text(metadata: &Metadata) -> String {
             application.id, application.entities
         );
     }
+    if let Some(application) = &metadata.value_application {
+        let _ = write!(
+            text,
+            " [value id={:?}, entities={:?}]",
+            application.id, application.entities
+        );
+    }
     if let Some(label) = &metadata.label {
         let _ = write!(text, " [label={label:?}]");
     }

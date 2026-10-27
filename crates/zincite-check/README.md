@@ -119,7 +119,7 @@ controls show these limits:
 | --- | --- |
 | Explicit finish equations with `defines_var` | Named arrays survive; the runtime derives both finishes and checks every relation |
 | Finish and unused Boolean initializers | Named finish array and Boolean disappear; precedence uses starts directly, so callers cannot edit the removed values |
-| Explicit `int_pow_fixed(x,3,cube)` with a marked result | The standard decomposition can emit `defines_var(cube)` without `is_defined_var` on `cube`; preparation diagnoses the missing marker |
+| Explicit `int_pow_fixed(x,3,cube)` with a marked result | The standard decomposition can emit `defines_var(cube)` without `is_defined_var` on `cube`; the checker derives the marked result |
 | Labelled `start <= 2` for a `var 0..8` scalar | Domain becomes `0..2`; the source constraint ID and label disappear; `start=8` gives a domain finding with variable metadata |
 | The model's `forall` finish equations | Two `int_lin_eq` constraints share a label and carry distinct `[1]` and `[2]` entity payloads |
 | Optional order symmetry breaker | With the recipe's ignore flag, `[8,1]` passes the control; with the flag false, its emitted `int_lin_le` fails with `job_order/[1,2]` |
@@ -135,9 +135,72 @@ Compile-only Boolean controls with this recipe preserve explicit `bool_or`,
 `bool_not`, `bool_lin_eq` and `bool_le_reif` calls, their definition annotations,
 application IDs and labels. An inspected high-level Boolean equivalence instead
 lowers to clauses and copies variable annotations such as `checker_value` and
-`output_var` onto constraints. Current preparation diagnoses those misplaced
-annotations. Explicit primitive controls establish their own compilation contract;
-compiler-profile work in checker-030/031 must address the broader source form.
+`output_var` onto constraints. Preparation accepts those compiler copies as metadata. Constraint IDs use
+`Metadata.application`; copied value IDs use `Metadata.value_application`. Each
+role validates repeated annotations independently.
+
+## Standard-library compilation
+
+The packaged [standard profile](minizinc/standard.msc) uses MiniZinc's standard
+decompositions with declarations for nine supported primitives: clause
+reification, integer and float array extrema, fixed integer power, and float
+rounding. Eight small compatibility files supply the missing deprecated
+Boolean, float, integer and set decreasing includes through reversed increasing
+relations. The annotation declarations live inside this profile too. The
+existing Gecode include path does not select these overrides.
+
+Use MiniZinc 2.10.1 build 33348285743 and the pinned source checkout from the
+[coverage inventory](../../docs/checker-coverage.md#sources-and-repeat-command):
+
+```sh
+mkdir -p target/checker-standard
+minizinc --compile --solver crates/zincite-check/minizinc/standard.msc --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc -O0 --keep-paths --no-half-reifications --no-output-ozn -D mzn_ignore_symmetry_breaking_constraints=true --output-fzn-to-file target/checker-standard/model.fzn --output-paths-to-file target/checker-standard/model.paths examples/checker-compilation/standard-controls.mzn
+zincite-check --export target/checker-standard/model.json target/checker-standard/model.fzn
+zincite-check --format json target/checker-standard/model.fzn examples/checker-compilation/candidates/standard-valid.dzn
+zincite-check --load --format json target/checker-standard/model.json examples/checker-compilation/candidates/standard-valid.dzn
+```
+
+The `.msc` is an entry point for `--compile`; it supplies no search or solver
+protocol. Its `mznlib` path resolves beside the configuration file, including in
+the crate package. The native checker never invokes MiniZinc. Gecode compilation
+continues to use its own library plus `-I crates/zincite-check/minizinc` for the
+existing annotations and strict-disjunctive override.
+
+The [saved control](../../examples/checker-compilation/standard-controls.fzn)
+has ten scalar slots and eight constraints. The compiler turns `y = x + 2`
+into a defining linear relation carrying both `offset/[2]` and copied `y/[1]`
+application metadata. It substitutes that expression into the capacity check,
+eliminates `rounded`, `clause`, `order` and the source optional value name,
+and emits a set-cardinality output without a definition hint. Callers supply
+`X_INTRODUCED_18_ = card(chosen)` and the optional representation
+`X_INTRODUCED_24_` (zero for absence, 1..3 for presence). The checker derives
+`y` and both optional Boolean reifiers. Those introduced names belong to this
+saved control; inspect each new compilation before supplying them.
+
+| Saved candidate | Direct calculation | Report |
+| --- | --- | --- |
+| `standard-valid.dzn` | `x=0`, `y=2`, set size 1, rounded amount 1, true clause, absent optional value | Valid, complete |
+| `standard-invalid.dzn` | `x=-3` derives `y=-1`; its domain fails, and capacity, rounding, clause and optional checks also fail | Invalid, complete; five findings |
+| `standard-conflict.dzn` | Caller supplies `y=0` while `x+2=2`; supplied `y` also stays the objective value | Invalid, complete; one finding with both application IDs |
+| `standard-partial.dzn` | No supplied values | Incomplete; ten unresolved scalar slots |
+
+Compile-only controls also cover counting, ordering, circuits, sets and channels,
+float functions, elements, packing, scheduling and automata. All four 2D element
+types lower to supported 1D operations; regular expressions lower to DFA checks.
+The [profile accounting](../../docs/checker-coverage.md#standard-profile-accounting)
+checks every selected include, optional entry point, deprecated companion and
+external predicate signature. Its optional `--checker` argument validates all
+128 direct standard declaration signatures through native preparation.
+
+The pinned standard library unconditionally aborts 32 bodies across 27 predicate
+names, including Boolean table reification. Integer table reification accepts
+only tuple widths 1..5. These are source compiler limits and provide no runtime
+support credit. Experimental external-execution and search-history hooks are
+outside pure candidate checking. None of this establishes arbitrary MiniZinc
+source equivalence. `-O0` still tightens domains and eliminates names and labels;
+array metadata can disappear during flattening. Use the symmetry ignore flag
+when an application permits every representative, and inspect the compiled
+model when it needs symmetry-breaking constraints instead.
 
 ## Shared-bench workshop example
 
@@ -263,11 +326,20 @@ or a MiniZinc installation.
   including octal and hexadecimal bytes, and decode to UTF-8. `mzn_path(string)`
   and `mzn_path(int)` supply paths; `mzn_constraint_name(string)`,
   `constraint_name(string)` and direct string annotations supply constraint labels.
+  Operand `mzn_path` annotations, including set literals and range bounds, are
+  validated and collected into their owning constraint or variable paths.
+  Copied `checker_value` on a constraint uses the optional `value_application`
+  field, independently of its `checker_constraint` application. The field is
+  omitted when absent, so older prepared artifacts load with the same shape.
   Expression names and documentation strings are accepted as metadata.
-- `is_defined_var` and `defines_var` must match a scalar variable in a unique
-  defining relation. Supported completion directions appear below; other
-  well-formed directions can be checked with supplied values.
+- `defines_var` identifies an assignable scalar or supported complete output
+  array in one unique defining relation. It does not require a declaration
+  `is_defined_var` marker. A standalone declaration marker and a bare marker
+  copied onto a constraint are informational; neither creates a definition.
+  Supported completion directions appear below; other well-formed directions
+  can be checked with supplied values.
 - Variable output markers `output_var` and `output_array` are metadata.
+  A bare `output_var` copied onto a constraint is also accepted as metadata.
   `output_array` accepts integer-set dimensions, including enumerations,
   non-1-based dimensions, multiple dimensions and empty dimensions. Their
   cardinality product must equal the flat array length. Assignment positions
@@ -520,7 +592,7 @@ exercises roots, standard power syntax, logarithms, hyperbolic cosine and an arr
 maximum against both pinned profiles:
 
 ```sh
-minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-float-controls/functions-standard.paths --output-fzn-to-file target/checker-float-controls/functions-standard.fzn examples/checker-compilation/float-function-controls.mzn
+minizinc --compile --solver crates/zincite-check/minizinc/standard.msc -O0 --keep-paths --no-half-reifications --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --no-output-ozn --output-paths-to-file target/checker-float-controls/functions-standard.paths --output-fzn-to-file target/checker-float-controls/functions-standard.fzn examples/checker-compilation/float-function-controls.mzn
 minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-float-controls/functions-gecode.paths --output-fzn-to-file target/checker-float-controls/functions-gecode.fzn examples/checker-compilation/float-function-controls.mzn
 ```
 
@@ -542,7 +614,7 @@ Gecode's array rewrite drops the array application ID while keeping its label.
 A separate inspected variant using an explicit named
 `array_float_maximum(maximum_value,[root,cube,exponential])` call emitted a
 standard `defines_var(maximum_value)` without its `is_defined_var` marker;
-preparation diagnoses that mismatch. To reproduce, replace the maximum-expression
+preparation accepts that definition hint. To reproduce, replace the maximum-expression
 constraint with that call and declare `var float: maximum_value;`, using the same
 standard command. These controls establish their observed behavior; full profile
 closure and preservation of editing metadata belong to checker-030/031.
@@ -626,7 +698,7 @@ is shared by serialization and the native/Wasm comparison. The separate
 small domains to inspect actual compilation against both pinned libraries:
 
 ```sh
-minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker017-standard.paths --output-fzn-to-file target/checker017-standard.fzn examples/checker-compilation/set-primitives.mzn
+minizinc --compile --solver crates/zincite-check/minizinc/standard.msc -O0 --keep-paths --no-half-reifications --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --no-output-ozn --output-paths-to-file target/checker017-standard.paths --output-fzn-to-file target/checker017-standard.fzn examples/checker-compilation/set-primitives.mzn
 minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker017-gecode.paths --output-fzn-to-file target/checker017-gecode.fzn examples/checker-compilation/set-primitives.mzn
 ```
 
@@ -805,8 +877,8 @@ and use a fixed set or Boolean membership value.
 
 Exact GCC arrays support `defines_var(counts)` and `defines_var([first, second])`.
 Target order does not assign count positions. Each target must identify the
-count array's canonical slots with `is_defined_var` on their
-canonical declarations or their assignable array declaration. The artifact keeps
+count array's canonical slots. Declaration `is_defined_var` markers are optional.
+The artifact keeps
 scalar/named targets as JSON strings and writes explicit targets as JSON arrays
 of scalar names. Repeated output aliases calculate a value only when all their
 cover positions agree. Input/output cycles need supplied values. Partial supplied
@@ -823,14 +895,14 @@ The small controls compile without solving against both pinned profiles:
 
 ```sh
 mkdir -p target/checker-counting-controls
-minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-counting-controls/standard.paths --output-fzn-to-file target/checker-counting-controls/standard.fzn examples/checker-compilation/counting-controls.mzn
+minizinc --compile --solver crates/zincite-check/minizinc/standard.msc -O0 --keep-paths --no-half-reifications --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --no-output-ozn --output-paths-to-file target/checker-counting-controls/standard.paths --output-fzn-to-file target/checker-counting-controls/standard.fzn examples/checker-compilation/counting-controls.mzn
 minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-counting-controls/gecode.paths --output-fzn-to-file target/checker-counting-controls/gecode.fzn examples/checker-compilation/counting-gecode-controls.mzn
 ```
 
 Both source controls were formatted and default-linted with the pinned standard
 library and the checker annotation include. Both also compiled under the other
-profile. The standard decomposition emits `is_defined_var` on a `bool_clause`
-constraint; preparation rejects that context. The Gecode profile emits
+profile. The standard decomposition can copy `is_defined_var` onto a `bool_clause`
+constraint; the checker accepts it as an informational hint. The Gecode profile emits
 `fzn_count_eq`, `fzn_nvalue`, `fzn_among` and native GCC, but drops definition
 metadata for the distinct-value and GCC results. It also replaces the source
 `counts` array name with an introduced name. Supplying those outputs gives a
@@ -839,7 +911,7 @@ both membership window types with labels, paths and application payloads, but
 MiniZinc drops its GCC `defines_var` and scalar `is_defined_var` markers in both
 profiles. Supplying only entries and flags therefore gives an incomplete report;
 supplying the count outputs checks completely. These are checker-030/031 profile
-gaps; runtime marker validation stays strict.
+limits; the checker still validates definition targets and duplicate relations.
 
 The direct [counting control](../../examples/checker-compilation/counting.fzn)
 keeps valid scalar markers and a named array target. Both CLI forms and validated
@@ -914,7 +986,7 @@ Use the same pinned sources as the coverage helper:
 
 ```sh
 mkdir -p target/checker-ordering-controls
-minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-ordering-controls/standard.paths --output-fzn-to-file target/checker-ordering-controls/standard.fzn examples/checker-compilation/ordering-controls.mzn
+minizinc --compile --solver crates/zincite-check/minizinc/standard.msc -O0 --keep-paths --no-half-reifications --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --no-output-ozn --output-paths-to-file target/checker-ordering-controls/standard.paths --output-fzn-to-file target/checker-ordering-controls/standard.fzn examples/checker-compilation/ordering-controls.mzn
 minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-ordering-controls/gecode.paths --output-fzn-to-file target/checker-ordering-controls/gecode.fzn examples/checker-compilation/ordering-gecode-controls.mzn
 ```
 
@@ -926,8 +998,8 @@ clauses plus three integer equality reifiers. Input/sorted domains stay `1..3`.
 Labels and all four constraint IDs (`sort`, `minimum`, `member`, `distinct`) survive
 on the corresponding decompositions, with `[1,2,3]` payloads. This raw artifact
 also emits `is_defined_var` in constraint context and scalar `defines_var` targets
-without matching variable markers. Preparation diagnoses the malformed metadata;
-it does not silently discard it. This is a compiler-profile limitation.
+without matching variable markers. Preparation accepts these optional hints and
+validates each actual definition target and direction.
 
 The Gecode control emits `gecode_sort_permutation`, `gecode_bool_int_channel` and
 `gecode_arg_min_int`. Input/sorted domains stay `1..3`, permutation domains `-2..0`,
@@ -989,7 +1061,7 @@ Use MiniZinc 2.10.1 without starting a solver:
 
 ```sh
 mkdir -p target/checker-table-controls
-minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-table-controls/standard.paths --output-fzn-to-file target/checker-table-controls/standard.fzn examples/checker-compilation/table-gecode-controls.mzn
+minizinc --compile --solver crates/zincite-check/minizinc/standard.msc -O0 --keep-paths --no-half-reifications --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --no-output-ozn --output-paths-to-file target/checker-table-controls/standard.paths --output-fzn-to-file target/checker-table-controls/standard.fzn examples/checker-compilation/table-gecode-controls.mzn
 minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file target/checker-table-controls/gecode.paths --output-fzn-to-file target/checker-table-controls/gecode.fzn examples/checker-compilation/table-gecode-controls.mzn
 ```
 
@@ -1009,9 +1081,9 @@ also exercises actual standard wrappers. The standard profile aborts in
 The Gecode profile compiles it, folds the integer reifier to true because plain
 membership already requires the same rows, and emits `bool_clause`, native
 Boolean reification and native integer implication. That output drops membership
-application IDs and emits `is_defined_var` on a constraint; preparation diagnoses
-that misplaced annotation. These compiler-profile limits belong
-to checker-030/031. The runtime keeps its existing marker rules.
+application IDs and emits `is_defined_var` on a constraint. The checker accepts
+that copied hint as metadata. Boolean table reification is a standard source
+compiler limit; complete Gecode profile accounting belongs to checker-031.
 
 
 ## Deterministic and nondeterministic automata
@@ -1182,10 +1254,10 @@ value metadata and paths survive. Generated names belong to that compilation.
 The standard public decomposition emits integer linear relations, element calls,
 Boolean clauses and reifiers, with tighter successor domains excluding self-loops.
 It also emits `defines_var` on an element result without `is_defined_var` on
-that declaration; preparation diagnoses the missing marker. No output was
-rewritten to bypass this check. These observations document compiler-profile
-and definition-marker limits owned by checker-030/031; they do not establish
-full wrapper or include/decomposition closure.
+that declaration; preparation accepts the definition hint. The standard-profile
+controls prepare these operations directly. Tighter domains and rewritten array
+names still affect application editing; Gecode profile closure has its own
+accounting in checker-031.
 
 
 ## Legacy scheduling
@@ -1495,9 +1567,9 @@ under pinned Gecode, without solving:
 
 ```sh
 checker_run=$(mktemp -d "$PWD/target/checker-packing.XXXXXX")
-minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc --no-output-ozn --output-fzn-to-file "$checker_run/standard.fzn" examples/checker-compilation/packing-controls.mzn
-minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-fzn-to-file "$checker_run/gecode.fzn" examples/checker-compilation/packing-controls.mzn
-minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-fzn-to-file "$checker_run/native.fzn" examples/checker-compilation/packing-gecode-controls.mzn
+minizinc --compile --solver crates/zincite-check/minizinc/standard.msc -O0 --keep-paths --no-half-reifications --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --no-output-ozn --output-paths-to-file "$checker_run/standard.paths" --output-fzn-to-file "$checker_run/standard.fzn" examples/checker-compilation/packing-controls.mzn
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file "$checker_run/gecode.paths" --output-fzn-to-file "$checker_run/gecode.fzn" examples/checker-compilation/packing-controls.mzn
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file "$checker_run/native.paths" --output-fzn-to-file "$checker_run/native.fzn" examples/checker-compilation/packing-gecode-controls.mzn
 ```
 
 The public Gecode control emits native load calls with minimum label `-2` and
@@ -1573,8 +1645,8 @@ Original row positions and weights are available in typed findings. This direct
 Gecode mapping differs from the standard `fzn_sum_set` decomposition, which sums
 every matching row, including duplicates, and ignores unlisted members.
 
-Completion uses matching `defines_var` and `is_defined_var`, canonical targets
-and the usual competing-definition and default rules. A scalar set result that
+Completion uses `defines_var`, canonical targets and the usual competing-definition
+and default rules. Declaration `is_defined_var` markers are optional. A scalar set result that
 also occurs among the inputs has no supported direction. Partition or sequence
 failure does not prevent deriving a known aggregate. Supplied outputs stay
 supplied and are checked; derived domain violations do not suppress downstream
@@ -1607,11 +1679,11 @@ coverage inventory.
 Inspection exposes profile limits for checker-030/031. The public standard
 partition folds its union to `1..4` and intersection to empty, merges the
 standalone disjoint check, and adds an argument-level `mzn_path` to a set literal;
-current preparation diagnoses that annotated literal. Its weighted total domain
-tightens from `-10..10` to `-1..7`. Both public profiles emit `defines_var` for the
-minimum while dropping its `is_defined_var`; public Gecode preparation diagnoses
-that missing marker. Its weighted total keeps `-10..10`. These controls therefore
-do not establish profile closure or a complete public source/load path.
+the checker validates that path and records it with the constraint. Its weighted
+total domain tightens from `-10..10` to `-1..7`. Both public profiles emit
+`defines_var` for the minimum while dropping its `is_defined_var`; the checker
+accepts that hint. Gecode's weighted total keeps `-10..10`. The standard control
+prepares with the packaged profile; full Gecode profile accounting is separate.
 
 The native Gecode control prepares unchanged and keeps the new operations,
 constraint labels, application annotations and explicit scalar definition
@@ -1691,7 +1763,7 @@ relation vacuous. Sorted channels require strict increasing order, equality of
 the member set and exact cardinality. Missing integer positions are calculated
 only after set cardinality equals the actual array length.
 
-Definitions require `defines_var` plus the existing `is_defined_var` markers.
+Definitions require `defines_var`; declaration `is_defined_var` markers are optional.
 Scalar targets and complete canonical array target groups are supported; group
 slot multisets and element types must match the whole output array. Repeated
 output aliases derive only when all corresponding calculated values agree.
@@ -1722,13 +1794,12 @@ through both CLIs and source/export/load paths.
 
 The public standard profile decomposes these wrappers into admitted Boolean,
 integer and set primitives. The Gecode profile emits the native channels,
-selected union, set precedence, extrema and existing primitives. Both currently
-fail checker preparation because the compiler places `is_defined_var` on a
-constraint: the standard control's roots decomposition emits it on a clause;
-the Gecode control's member-set decomposition emits it on a guarded set relation.
-These are compiler-profile closure work for checker-030/031. The earlier
-annotated-literal and missing-variable-marker gaps also belong to those tasks.
-No runtime annotation rule is relaxed to accept these controls.
+selected union, set precedence, extrema and existing primitives. The standard
+control's roots decomposition copies `is_defined_var` onto a clause; the Gecode
+control's member-set decomposition copies it onto a guarded set relation. Both
+copies are accepted metadata. The standard control prepares with the packaged
+profile, including operand paths and optional variable markers. Gecode's full
+include/decomposition closure belongs to checker-031.
 
 The [direct FlatZinc specimen](../../examples/checker-compilation/set-channels.fzn)
 provides complete marked array outputs, repeated edits, supplied conflicts and
@@ -1751,8 +1822,8 @@ affect admission. The existing integer power forms keep their documented rules.
 | `gecode_inter_distance` / `gecode_inter_distance_fzn` | Separation is nonnegative and every positional pair is at least that far apart | None |
 | `gecode_minimum_distance_fzn` / `gecode_minimum_distance_required_fzn` | Exact matrix minimum over all selected position pairs, plus inclusive pair requirements when supplied | Argument 4 |
 
-Completion requires the existing `is_defined_var` / `defines_var` markers and
-alias checks. Full reification derives only its last Boolean; implications supply
+Completion requires `defines_var` and alias checks; declaration
+`is_defined_var` markers are optional. Full reification derives only its last Boolean; implications supply
 no output. The checker never chooses factors, radicands, divisors or sites.
 Supplied outputs are checked without replacement. Every check starts with fresh
 values, and derived values outside their domains still feed downstream checks.

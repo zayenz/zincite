@@ -1,0 +1,12 @@
+{
+  "id": "org.zincite.check.standard",
+  "name": "Zincite standard compile profile",
+  "version": "0.1",
+  "mznlib": "standard",
+  "executable": "zincite-check",
+  "supportsMzn": false,
+  "supportsFzn": true,
+  "supportsNL": false,
+  "needsSolns2Out": false,
+  "isGUIApplication": false
+}

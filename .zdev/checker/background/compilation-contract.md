@@ -461,3 +461,91 @@ installation. `minizinc --help` documents the compile-only flags. The saved
 source, packaged annotation library and unedited emitted `model.fzn` are the
 evidence for this recipe; compiler acceptance alone does not establish a
 general checker dialect.
+
+## Standard decomposition profile
+
+The packaged `crates/zincite-check/minizinc/standard.msc` selects a separate
+`standard/` directory. It declares nine already supported primitives: Boolean
+clause reification, four integer/float array extrema, fixed integer power and
+float ceil/floor/round. The other globals use the pinned standard decompositions.
+Eight small compatibility files implement missing deprecated decreasing entry
+points with reversed increasing relations. The application annotations also
+live in `standard/`; the existing Gecode `-I minizinc` path cannot select these
+standard overrides. These files contain declarations and authored compatibility
+relations, with no copied upstream implementation bodies.
+
+Reproduce the compact control with MiniZinc 2.10.1 build 33348285743 and the clean
+`c3448c48e7f05f13805616cfd1b9e94972eef58c` source checkout:
+
+```sh
+mkdir -p target/checker-standard
+minizinc --compile --solver crates/zincite-check/minizinc/standard.msc --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc -O0 --keep-paths --no-half-reifications --no-output-ozn -D mzn_ignore_symmetry_breaking_constraints=true --output-fzn-to-file target/checker-standard/model.fzn --output-paths-to-file target/checker-standard/model.paths examples/checker-compilation/standard-controls.mzn
+zincite-check --export target/checker-standard/model.json target/checker-standard/model.fzn
+zincite-check --format json target/checker-standard/model.fzn examples/checker-compilation/candidates/standard-valid.dzn
+zincite-check --load --format json target/checker-standard/model.json examples/checker-compilation/candidates/standard-valid.dzn
+```
+
+The configuration is a compile-only entry point, with a library path relative to
+its own file. It supplies no solver implementation. Compilation never becomes a
+native or Wasm checker dependency. `--no-half-reifications` requests full Boolean
+relations. The symmetry flag permits every symmetry representative; set it false
+when an application intends to check the emitted symmetry breaker too.
+
+The saved `standard-controls.fzn` has ten scalar slots and eight constraints.
+The defining linear equality for `y=x+2` carries
+`checker_constraint("offset",[2])` and copied `checker_value("y",[1])`.
+Constraint metadata stores those independently in `application` and optional
+`value_application`; distinct IDs are valid, conflicting repeats in either role
+are errors. Absent value metadata is omitted from serialized artifacts, and old
+artifacts load with an absent field. Bare `output_var` and `is_defined_var` copied
+onto constraints are validated metadata. Operand `mzn_path` annotations,
+including set literals and range bounds, supply paths to the owning report.
+Unknown or malformed annotations are diagnostic.
+
+A `defines_var` target does not require a declaration `is_defined_var` marker.
+The marker alone is informational and supplies neither a relation nor a value.
+The checker still validates assignability, aliases, target occurrence, complete
+supported array outputs and duplicate defining relations. Only implemented
+deterministic directions enter completion. Other directions and implication
+witnesses produce ordinary incomplete reports when their values are absent.
+Supplied results are immutable, and downstream checking continues after a
+derived domain failure.
+
+The compact control illustrates compiler limits directly. `rounded`, `clause`,
+`order` and the source optional name disappear. The compiler substitutes `x+2`
+into the capacity relation and emits set cardinality without a defining hint.
+Callers supply `X_INTRODUCED_18_=card(chosen)` and the optional integer
+`X_INTRODUCED_24_`, where zero is absence and 1..3 are present values. The checker
+derives `y` and the two optional Boolean reifiers. Those introduced names are
+specific to the saved artifact. Array markers can also disappear in the reused
+counting/float controls; the checker does not reconstruct eliminated names.
+
+Direct calculations for the saved candidates agree through source preparation,
+loaded JSON and native/Wasm execution:
+
+| Candidate | Calculated result |
+| --- | --- |
+| `standard-valid.dzn` | `x=0`, `y=2`, size 1, amount 1, true clause and absent optional value: valid and complete |
+| `standard-invalid.dzn` | `x=-3` derives `y=-1`; domain, capacity, rounding, clause and optional checks fail: five findings, complete |
+| `standard-conflict.dzn` | Supplied `y=0` conflicts with calculated 2 and stays the objective value: one finding with both application IDs, complete |
+| `standard-partial.dzn` | No supplied values: ten unresolved slots and no established violation |
+
+Fifteen existing/new standard controls compile and prepare across integer,
+Boolean, set, float, optional, reified, counting, ordering, circuit, element,
+packing, scheduling and automaton operations. Separate compile-only controls
+exercise all four 2D element decompositions, regex-to-DFA lowering, and all eight
+deprecated decreasing includes. The combined table source control stops at
+MiniZinc's Boolean table reification abort. The coverage helper checks every
+selected optional include and deprecated companion, and every external
+predicate signature against a direct operation, a loaded exact-type
+decomposition or a named compiler lowering. `--checker target/debug/zincite-check`
+also validates 128 direct standard declaration signatures through preparation.
+
+The pinned tree has 32 unconditional abort bodies across 27 predicate names,
+and integer table reification restricts tuple width to 1..5. The generated
+coverage table lists these as compiler limits with no runtime-support credit.
+Experimental external execution and restart-history hooks are excluded from
+pure candidate checking. Compilation still tightens domains, removes constraints
+and loses some metadata even at `-O0`. These observations establish the inspected
+artifacts and emittable primitive accounting, not arbitrary source equivalence
+or acceptance of source forms that MiniZinc rejects.

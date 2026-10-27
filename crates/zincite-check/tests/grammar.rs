@@ -338,3 +338,85 @@ fn float_metadata_checks_types_without_executing_search() {
         );
     }
 }
+
+#[test]
+fn compiler_definition_hints_and_copied_metadata_keep_their_roles() {
+    let source = r#"
+        var int: x ::is_defined_var;
+        var 0..1: y;
+        var int: alias = y;
+        var bool: standalone ::is_defined_var;
+        var int: low;
+        var int: high;
+        constraint sort([1,2],[low,high])::defines_var([low,high]);
+        constraint int_plus(x,2,y)::defines_var(alias)::is_defined_var::output_var
+            ::checker_constraint("offset",[2])::checker_value("y",[1]);
+        constraint int_le(y,1)::checker_constraint("limit",[2]);
+        constraint set_in(y,1..4::mzn_path("range"));
+        constraint set_subset({2,4}::mzn_path(7),1..5);
+        solve minimize y;
+    "#;
+    let model = prepare("copied.fzn", source).unwrap();
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for candidate in [
+        "x=-1;standalone=true;",
+        "x=0;standalone=true;",
+        "x=0;y=0;standalone=true;",
+        "",
+    ] {
+        let report = check(&model, candidate);
+        assert_eq!(
+            serde_json::to_value(&report).unwrap(),
+            serde_json::to_value(check(&loaded, candidate)).unwrap()
+        );
+    }
+    let valid = check(&model, "x=-1;standalone=true;");
+    assert_eq!(valid.status, Status::Valid);
+    assert_eq!(valid.objective.unwrap().argument.value, Value::Integer(1));
+    let invalid = check(&model, "x=0;standalone=true;");
+    assert!(invalid.completeness.complete);
+    assert_eq!(invalid.violations.len(), 2);
+    let conflict = check(&model, "x=0;y=0;standalone=true;");
+    assert_eq!(
+        conflict.objective.as_ref().unwrap().argument.value,
+        Value::Integer(0)
+    );
+    let json = serde_json::to_value(&conflict).unwrap();
+    let metadata = &json["violations"][0]["check"]["constraint"]["metadata"];
+    assert_eq!(metadata["application"]["id"], "offset");
+    assert_eq!(metadata["value_application"]["id"], "y");
+    let missing = check(&model, "");
+    assert_eq!(missing.status, Status::Incomplete);
+    let json = serde_json::to_value(&missing).unwrap().to_string();
+    assert!(json.contains("range"));
+    for annotation in [
+        "mzn_path(true)",
+        r#"mzn_path("x",1)"#,
+        "mystery",
+        "output_var",
+    ] {
+        assert!(
+            prepare(
+                "bad.fzn",
+                &format!("constraint set_in(1,{{1}}::{annotation});solve satisfy;")
+            )
+            .is_err()
+        );
+    }
+    for annotation in [
+        "is_defined_var(1)",
+        "mzn_path(1::mystery)",
+        "output_var(1)",
+        "checker_value(1,[])",
+        r#"checker_value("a",[])::checker_value("b",[])"#,
+        r#"checker_constraint("a",[])::checker_constraint("b",[])"#,
+    ] {
+        assert!(
+            prepare(
+                "bad.fzn",
+                &format!("constraint int_eq(1,1)::{annotation};solve satisfy;")
+            )
+            .is_err()
+        );
+    }
+}
