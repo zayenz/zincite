@@ -5,6 +5,50 @@ mod annotations;
 
 type Result<T> = std::result::Result<T, Diagnostic>;
 
+fn external_hook_reason(name: &str) -> Option<&'static str> {
+    let base = name
+        .strip_prefix("gecode_")
+        .or_else(|| name.strip_prefix("fzn_"))
+        .unwrap_or(name);
+    if matches!(
+        base,
+        "blackbox"
+            | "blackbox_bounds"
+            | "gecode_blackbox"
+            | "gecode_blackbox_bounds"
+            | "blackbox_exec"
+            | "blackbox_dll"
+            | "propagator"
+            | "propagator_bounds"
+    ) {
+        Some("external executable or DLL execution is unsupported in pure candidate checking")
+    } else if matches!(
+        base,
+        "on_restart"
+            | "status"
+            | "complete_reif"
+            | "uniform_on_restart"
+            | "last_val"
+            | "sol"
+            | "on_restart_status"
+            | "on_restart_complete"
+            | "on_restart_last_val_bool"
+            | "on_restart_last_val_int"
+            | "on_restart_last_val_float"
+            | "on_restart_last_val_set"
+            | "on_restart_sol_bool"
+            | "on_restart_sol_int"
+            | "on_restart_sol_float"
+            | "on_restart_sol_set"
+            | "on_restart_uniform_int"
+            | "on_restart_uniform_float"
+    ) {
+        Some("restart status/history is unavailable in pure candidate checking")
+    } else {
+        None
+    }
+}
+
 /// Parse and validate the admitted FlatZinc dialect once for repeated checks.
 pub fn prepare(name: &str, source: &str) -> std::result::Result<PreparedModel, Vec<Diagnostic>> {
     let parsed = zincite_syntax::parse_flatzinc(source, FileMode::Model);
@@ -260,6 +304,9 @@ impl Source<'_> {
     }
 
     fn predicate_declaration(&self, node: &SyntaxNode, name: &str) -> Result<Vec<TypeSpec>> {
+        if let Some(reason) = external_hook_reason(name) {
+            return Err(self.error(node, format!("'{name}': {reason}")));
+        }
         let scalar = |kind, is_var| ArgumentType {
             kind,
             is_var,
@@ -376,7 +423,10 @@ impl Source<'_> {
             let allow_fixed = (SetName::from_name(name)
                 .is_some_and(|set| matches!(set.kind, SetKind::Membership { .. }))
                 && index == 1)
-                || (name == "bool_lin_le" && index == 2)
+                || (matches!(
+                    name,
+                    "bool_lin_le" | "gecode_bool_lin_le" | "fzn_bool_lin_le"
+                ) && index == 2)
                 || (SetGlobalName::from_name(name)
                     == Some(SetGlobalName::Aggregate(SetAggregate::Partition))
                     && index == 1);
@@ -1240,6 +1290,9 @@ impl<'a> Lowerer<'a> {
                 .error(call, "expected a direct builtin predicate call"));
         }
         let name = self.source.name(call)?;
+        if let Some(reason) = external_hook_reason(&name) {
+            return Err(self.source.error(call, format!("'{name}': {reason}")));
+        }
         let args: Vec<_> = call.child_nodes().collect();
         let mut paths = Vec::new();
         for argument in &args {

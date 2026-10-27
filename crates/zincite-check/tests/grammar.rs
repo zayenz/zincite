@@ -114,6 +114,67 @@ fn arithmetic_admission_validates_types_shapes_domains_and_exponent_roles() {
 }
 
 #[test]
+fn fixed_boolean_linear_bounds_work_for_each_literal_alias() {
+    for name in ["bool_lin_le", "gecode_bool_lin_le", "fzn_bool_lin_le"] {
+        for bound_type in ["int", "var int"] {
+            let source = format!(
+                "predicate {name}(array[int] of int:a,array[int] of var bool:x,{bound_type}:c);\
+                 var bool:x;constraint {name}([2],[x],1);solve satisfy;"
+            );
+            let model = prepare("bounds.fzn", &source).unwrap();
+            assert_eq!(check(&model, "x=false;").status, Status::Valid);
+            assert_eq!(check(&model, "x=true;").status, Status::Invalid);
+        }
+    }
+    assert!(prepare("fixed-elements.fzn", "predicate array_int_element(var int:i,array[int] of var int:a,var int:r);solve satisfy;").is_err());
+}
+
+#[test]
+fn external_execution_and_restart_history_have_located_reasons() {
+    for (source, reason) in [
+        (
+            "predicate gecode_blackbox(array[int] of var int:a,array[int] of var float:b,array[int] of var int:c,array[int] of var float:d);solve satisfy;",
+            "external executable or DLL execution",
+        ),
+        (
+            "constraint fzn_gecode_blackbox_bounds([],[],[]);solve satisfy;",
+            "external executable or DLL execution",
+        ),
+        (
+            "constraint int_eq(1,1)::blackbox_dll(\"library\");solve satisfy;",
+            "external executable or DLL execution",
+        ),
+        (
+            "constraint fzn_on_restart_sol_int(1,1);solve satisfy;",
+            "restart status/history",
+        ),
+        (
+            "solve::seq_search([on_restart(true)]) satisfy;",
+            "restart status/history",
+        ),
+    ] {
+        let errors = prepare("hook.fzn", source).unwrap_err();
+        assert!(errors[0].location.is_some());
+        assert!(errors[0].message.contains(reason), "{errors:?}");
+    }
+    // These seven upstream EOF prototypes omit semicolons; valid declarations still reject history.
+    for signature in [
+        "gecode_on_restart_last_val_bool(var bool:input,var bool:out)",
+        "gecode_on_restart_last_val_float(var float:input,var float:out)",
+        "gecode_on_restart_last_val_int(var int:input,var int:out)",
+        "gecode_on_restart_last_val_set(var set of int:input,var set of int:out)",
+        "gecode_on_restart_sol_float(var float:input,var float:out)",
+        "gecode_on_restart_status(var int:s)",
+        "gecode_on_restart_uniform_float(float:low,float:high,var float:out)",
+    ] {
+        let source = format!("predicate {signature};solve satisfy;");
+        let errors = prepare("history.fzn", &source).unwrap_err();
+        assert!(errors[0].location.is_some());
+        assert!(errors[0].message.contains("restart status/history"));
+    }
+}
+
+#[test]
 fn standard_and_gecode_metadata_validate_nested_roles_without_changing_checks() {
     // Search and propagation names/signatures come from stdlib_ann.mzn and gecode.mzn.
     let source = r#"

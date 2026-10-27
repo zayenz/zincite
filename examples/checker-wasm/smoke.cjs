@@ -5,16 +5,17 @@ const { tmpdir } = require("node:os");
 const { resolve, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-assert.equal(process.argv.length, 24,
-    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json LEGACY.json FLEX.json PACKING.json SET_GLOBALS.json SET_CHANNELS.json ARITHMETIC.json STANDARD.json CANDIDATES.json NATIVE_CHECKER");
-const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, setChannels, arithmetic, standard, candidates, native] = process.argv.slice(2).map(path => resolve(path));
+assert([24, 25].includes(process.argv.length),
+    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json LEGACY.json FLEX.json PACKING.json SET_GLOBALS.json SET_CHANNELS.json ARITHMETIC.json STANDARD.json CANDIDATES.json NATIVE_CHECKER [GECODE.json]");
+const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, setChannels, arithmetic, standard, candidates, native] = process.argv.slice(2, 24).map(path => resolve(path));
 const { PreparedModel } = require(glue);
 const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, setChannels, arithmetic, standard };
+if (process.argv[24]) paths.gecode = resolve(process.argv[24]);
 const defaults = {};
 const models = Object.fromEntries(Object.entries(paths).map(([name, path]) =>
     [name, new PreparedModel(readFileSync(path, "utf8"))]));
 for (const [name, model] of Object.entries(models)) defaults[name] = JSON.parse(model.floatTolerance());
-const cases = JSON.parse(readFileSync(candidates, "utf8"));
+const cases = JSON.parse(readFileSync(candidates, "utf8")).filter(candidate => candidate.model !== "gecode" || paths.gecode);
 const directory = mkdtempSync(join(tmpdir(), "zincite-wasm-"));
 
 try {
@@ -117,6 +118,16 @@ function decimal(value) {
 }
 
 function checkDetails(name, report) {
+    if (name === "gecode-conflict") {
+        assert.equal(report.violations.length, 1);
+        const metadata = report.violations[0].check.constraint.metadata;
+        assert.equal(metadata.application.id, "offset");
+        assert.deepEqual(metadata.application.entities, ["9007199254740993"]);
+        assert.equal(metadata.value_application.id, "tool_capacity");
+        assert.equal(report.objective.argument.value.value, "0");
+    }
+    if (name === "gecode-invalid") assert.equal(report.violations.length, 4);
+    if (name === "gecode-incomplete-invalid") assert.equal(report.violations.length, 2);
     if (name === "standard-conflict") {
         assert.equal(report.violations.length, 1);
         const metadata = report.violations[0].check.constraint.metadata;

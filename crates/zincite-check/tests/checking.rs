@@ -6630,3 +6630,77 @@ fn arithmetic_extension_source_rejects_malformed_contracts() {
         );
     }
 }
+
+#[test]
+fn pinned_gecode_artifact_completes_edits_and_preserves_feedback() {
+    let source = include_str!("../../../examples/checker-compilation/gecode-controls.fzn");
+    let model = prepare("gecode.fzn", source).unwrap();
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for (candidate, status, complete, findings) in [
+        (
+            include_str!("../../../examples/checker-compilation/candidates/gecode-valid.dzn"),
+            Status::Valid,
+            true,
+            0,
+        ),
+        (
+            include_str!("../../../examples/checker-compilation/candidates/gecode-invalid.dzn"),
+            Status::Invalid,
+            true,
+            4,
+        ),
+        (
+            include_str!("../../../examples/checker-compilation/candidates/gecode-conflict.dzn"),
+            Status::Invalid,
+            true,
+            1,
+        ),
+        (
+            include_str!("../../../examples/checker-compilation/candidates/gecode-partial.dzn"),
+            Status::Incomplete,
+            false,
+            0,
+        ),
+        ("budget_offset=-3;", Status::Invalid, false, 2),
+    ] {
+        let candidate = assignment(candidate);
+        let report = model.check(&candidate).unwrap();
+        assert_eq!(report.status, status);
+        assert_eq!(report.completeness.complete, complete);
+        assert_eq!(report.violations.len(), findings);
+        assert_eq!(
+            serde_json::to_value(&report).unwrap(),
+            serde_json::to_value(loaded.check(&candidate).unwrap()).unwrap()
+        );
+    }
+    let conflict = model
+        .check(&assignment(include_str!(
+            "../../../examples/checker-compilation/candidates/gecode-conflict.dzn"
+        )))
+        .unwrap();
+    assert_eq!(
+        conflict.objective.unwrap().argument.value,
+        Value::Integer(0)
+    );
+    let CheckRef::Constraint { constraint } = &conflict.violations[0].check else {
+        panic!("definition constraint expected")
+    };
+    assert_eq!(
+        constraint.metadata.application.as_ref().unwrap().id,
+        "offset"
+    );
+    assert_eq!(
+        constraint.metadata.value_application.as_ref().unwrap().id,
+        "tool_capacity"
+    );
+    assert_eq!(
+        constraint.metadata.application.as_ref().unwrap().entities,
+        [9_007_199_254_740_993]
+    );
+    let recovered = model
+        .check(&assignment(include_str!(
+            "../../../examples/checker-compilation/candidates/gecode-valid.dzn"
+        )))
+        .unwrap();
+    assert_eq!(recovered.status, Status::Valid);
+}

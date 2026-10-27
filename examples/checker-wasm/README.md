@@ -217,7 +217,7 @@ violations with incomplete inputs. The first 54 candidate records keep their
 Five aggregate-set edits brought the total to 138. Five selected-set/channel edits brought it to 148. Six number-theory/distance edits bring it to 160, comparing exact products above 2^53, floor roots, reifiers, pair requirements, invalid site labels and nonpositive variable moduli.
 A second pass exercises reuse after changing and removing inputs. Small boundary
 checks reject a malformed artifact, a JSON number supplied as an integer and an
-unknown assignment name. Expected output ends with `Native/Wasm reports and errors agree across 160 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, legacy and explicit-end scheduling, bin packing and rectangles, aggregate/ordered/weighted sets, selected sets and channels, number theory and distances, global findings and input errors verified.` The native suite owns
+unknown assignment name. Expected output ends with `Native/Wasm reports and errors agree across 168 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, legacy and explicit-end scheduling, bin packing and rectangles, aggregate/ordered/weighted sets, selected sets and channels, number theory and distances, global findings and input errors verified.` The native suite owns
 the wider evaluator coverage.
 
 
@@ -278,3 +278,20 @@ application IDs, and an empty incomplete assignment. Its set-cardinality and
 optional integer auxiliaries are supplied explicitly because compilation drops
 the former's definition hint and the latter represents an editable optional
 value. The checker derives the linear output and optional reifiers.
+
+
+The pinned Gecode application control adds an optional twentieth artifact. After
+building the same bindings and exporting the nineteen artifacts above, run:
+
+```sh
+target/debug/zincite-check --export "$checker_run/gecode.json" examples/checker-compilation/gecode-controls.fzn
+node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" "$checker_run/automata.json" "$checker_run/circuits.json" "$checker_run/legacy.json" "$checker_run/flex.json" "$checker_run/packing.json" "$checker_run/set-globals.json" "$checker_run/set-channels.json" "$checker_run/arithmetic.json" "$checker_run/standard.json" examples/checker-wasm/candidates.json target/debug/zincite-check "$checker_run/gecode.json"
+```
+
+The original invocation still runs its eighty-four cases and 168 comparisons.
+The optional Gecode artifact appends five edits and brings the total to 178
+comparisons. These check derived integer/set/float values, a complete invalid
+edit, a supplied output conflict, omitted inputs and known violations with
+incomplete input. Feedback carries both constraint and value IDs and exact
+entity `9007199254740993`. The earlier candidate records and artifacts are
+unchanged.

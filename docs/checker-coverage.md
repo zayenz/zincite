@@ -50,11 +50,14 @@ both include profiles, expands registry aliases literally, checks task assignmen
 and compares the generated tables. It also checks the admission names in
 `Lowerer::constraint`, `ArithmeticOperation::from_name` and the exact integer, Boolean, float, selection, set, counting, ordering, table, number-theory and distance matchers. `--write` updates only the generated section after source
 and ownership review. The helper needs Python 3.11 or newer and no dependencies.
-With `--checker`, it also prepares every direct standard declaration signature;
-source-only context promises are excluded from those emitted signatures. It does
-not compile a model or certify runtime semantics. The generated standard-profile
-accounting checks every selected optional include and explicitly lists upstream
-abort bodies and the table-reification width limit.
+With `--checker`, it prepares direct declarations from both profiles and every
+registered mathematical alias across all feature guards. Corresponding literal
+names or explicit positional contracts supply signatures; shared handlers do not
+merge fixed and variable element arrays. Generic index sets and enum elements
+lower to integer positions, and source-only context promises are excluded. The
+helper does not compile a model or certify runtime semantics. Both generated
+profile sections check every selected optional include and list source compiler
+limits. The standard table width limit applies only to its decomposition.
 
 For this inventory, the GitHub connector supplied individual source text. Its
 text-only API cannot fetch binary archives, so two fresh ignored local Git roots
@@ -753,7 +756,7 @@ value or rounds an integer payload through a float. The checker-015 policy above
 
 ## External hooks
 
-checker-031 owns located rejection of the following hooks under pure candidate
+The checker gives located rejection of the following hooks under pure candidate
 checking. They are excluded from mathematical support totals and never count as
 satisfied constraints. Their exact source signatures appear in the indexed
 `S/experimental/` and `G/experimental/` tables. A source declaration or wrapper does not remove a hook's
@@ -776,8 +779,9 @@ prototypes are malformed because they lack a terminating semicolon:
 `gecode_on_restart_last_val_float`, `gecode_on_restart_last_val_int`,
 `gecode_on_restart_last_val_set`, `gecode_on_restart_sol_float`,
 `gecode_on_restart_status` and `gecode_on_restart_uniform_float`. The scanner
-indexes their exact signatures and marks the missing delimiter; it does not
-claim those source files compile.
+indexes their exact signatures and marks the missing delimiter. Those source
+files do not compile; well-formed declarations and calls still receive the
+specific unsupported-history diagnostic.
 
 ## Registration counts and conditions
 
@@ -801,9 +805,9 @@ none of the counts proves full coverage.
 <!-- checker-coverage:begin -->
 ## Standard profile accounting
 
-The packaged `.msc` selects `minizinc/standard`, ahead of the pinned standard tree. All 752 selected files are checked, including optional entry points and deprecated companions. Every include edge resolves. Gecode selection excludes these packaged overrides.
+The packaged `.msc` selects `minizinc/standard`, ahead of the pinned standard tree. Gecode selection excludes these packaged overrides. All 752 selected files are checked, including optional entry points and deprecated companions. Every include edge resolves.
 
-Each external mathematical signature below has a direct checker operation, an exact-type decomposition loaded by its entry point and the default roots, or a named compiler lowering. This is an accounting of emittable leaves, not acceptance of every source expression. Experimental execution hooks are excluded. Function/test intrinsics belong to MiniZinc elaboration; they do not become FlatZinc predicates.
+Each external mathematical signature below has a direct checker operation, an exact-type decomposition loaded by its entry point and the default roots, or a named compiler lowering. This accounts for emittable leaves; it does not accept every source expression. Experimental execution hooks are excluded. Function/test intrinsics belong to MiniZinc elaboration.
 
 | Selected external signature | Route |
 | --- | --- |
@@ -1244,9 +1248,9 @@ Each external mathematical signature below has a direct checker operation, an ex
 | ` predicate float_floor(var float: value, var int: result) ` | direct checker operation |
 | ` predicate float_round(var float: value, var int: result) ` | direct checker operation |
 
-### Pinned source compiler limits
+### Standard source compiler limits
 
-The standard tree contains 32 unconditional abort bodies across 27 predicate names. These forms cannot emit a checker operation and get no runtime-support credit. The integer table reifier separately limits tuple width to 1..5 (`fzn_table_int_reif.mzn`).
+The selected tree contains 32 unconditional abort bodies across 27 predicate names. These forms cannot emit a checker operation and get no runtime-support credit. The integer table reifier separately limits tuple width to 1..5 (`fzn_table_int_reif.mzn`).
 
 | Source | Rejected signature |
 | --- | --- |
@@ -1283,9 +1287,693 @@ The standard tree contains 32 unconditional abort bodies across 27 predicate nam
 | ` S/fzn_value_precede_set_reif.mzn ` | ` predicate fzn_value_precede_set_reif( int: before, int: after, array [int] of var set of int: xs, var bool: b, ) ` |
 | ` S/fzn_wst_reif.mzn ` | ` predicate fzn_wst_reif( int: N, int: E, array [int] of int: from, array [int] of int: to, array [int] of int: w, array [int] of var bool: es, var int: weight_bound, var bool: b, ) ` |
 
+## Gecode profile accounting
+
+The Gecode profile selects the exact pinned upstream globals directory, then `minizinc/gecode` for application annotations and six missing decreasing compatibility relations. It excludes the standard primitive overrides. All 754 selected files are checked, including optional entry points and deprecated companions. Every include edge resolves.
+
+Each external mathematical signature below has a direct checker operation, an exact-type decomposition loaded by its entry point and the default roots, or a named compiler lowering. This accounts for emittable leaves; it does not accept every source expression. Experimental execution hooks are excluded. Function/test intrinsics belong to MiniZinc elaboration.
+
+| Selected external signature | Route |
+| --- | --- |
+| ` predicate fzn_all_different_int(array [int] of var int: xs) ` | direct checker operation |
+| ` predicate fzn_all_different_int_opt(array [int] of var opt int: xs) ` | selected decomposition: ` G/fzn_all_different_int_opt.mzn ` |
+| ` predicate fzn_all_different_set(array [int] of var set of int: xs) ` | selected decomposition: ` S/fzn_all_different_set.mzn ` |
+| ` predicate fzn_alldifferent_except(array [int] of var int: xs, set of int: except) ` | selected decomposition: ` G/fzn_alldifferent_except.mzn ` |
+| ` predicate all_different_except(array [$X] of var $$E: xs, set of $$E: except) :: mzn_deprecated("2.10.0", "https://www.minizinc.org/doc-2.10.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/all_different_except.mzn ` |
+| ` predicate all_different_except_0(array [$X] of var int: xs) :: mzn_deprecated("2.10.0", "https://www.minizinc.org/doc-2.10.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/all_different_except_0.mzn ` |
+| ` predicate all_different_int(array [int] of var int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/all_different_int.mzn ` |
+| ` predicate all_different_set(array [int] of var set of int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/all_different_set.mzn ` |
+| ` predicate fzn_all_disjoint(array [int] of var set of int: xs) ` | selected decomposition: ` S/fzn_all_disjoint.mzn ` |
+| ` predicate fzn_all_equal_int(array [int] of var int: xs) ` | direct checker operation |
+| ` predicate fzn_all_equal_set(array [int] of var set of int: xs) ` | selected decomposition: ` S/fzn_all_equal_set.mzn ` |
+| ` predicate all_equal_int(array [$X] of var int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/all_equal_int.mzn ` |
+| ` predicate all_equal_set(array [$X] of var set of int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/all_equal_set.mzn ` |
+| ` predicate fzn_alternative( var opt int: span_start, var int: span_duration, array [int] of var opt int: start, array [int] of var int: duration, ) ` | selected decomposition: ` S/fzn_alternative.mzn ` |
+| ` predicate fzn_among(var int: n, array [int] of var int: xs, set of int: values) ` | direct checker operation |
+| ` predicate fzn_maximum_arg_bool(array [int] of var bool: xs, var int: idx) ` | selected decomposition: ` G/fzn_arg_max_bool.mzn ` |
+| ` predicate fzn_maximum_arg_bool_opt(array [int] of var opt bool: xs, var int: idx) ` | selected decomposition: ` S/fzn_arg_max_bool_opt.mzn ` |
+| ` predicate fzn_maximum_arg_float(array [int] of var float: xs, var int: idx) ` | selected decomposition: ` S/fzn_arg_max_float.mzn ` |
+| ` predicate fzn_maximum_arg_float_opt(array [int] of var opt float: xs, var int: idx) ` | selected decomposition: ` S/fzn_arg_max_float_opt.mzn ` |
+| ` predicate fzn_maximum_arg_int(array [int] of var int: xs, var int: idx) ` | selected decomposition: ` G/fzn_arg_max_int.mzn ` |
+| ` predicate fzn_maximum_arg_int_opt(array [int] of var opt int: xs, var int: idx) ` | selected decomposition: ` S/fzn_arg_max_int_opt.mzn ` |
+| ` predicate maximum_arg_bool(array [$$E] of var bool: x, var $$E: i) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/arg_max_bool.mzn ` |
+| ` predicate maximum_arg_float(array [$$E] of var float: x, var $$E: i) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/arg_max_float.mzn ` |
+| ` predicate maximum_arg_int(array [$$E] of var int: x, var $$E: i) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/arg_max_int.mzn ` |
+| ` predicate fzn_minimum_arg_bool(array [int] of var bool: xs, var int: idx) ` | selected decomposition: ` G/fzn_arg_min_bool.mzn ` |
+| ` predicate fzn_minimum_arg_bool_opt(array [int] of var opt bool: xs, var int: idx) ` | selected decomposition: ` S/fzn_arg_min_bool_opt.mzn ` |
+| ` predicate fzn_minimum_arg_float(array [int] of var float: xs, var int: idx) ` | selected decomposition: ` S/fzn_arg_min_float.mzn ` |
+| ` predicate fzn_minimum_arg_float_opt(array [int] of var opt float: xs, var int: idx) ` | selected decomposition: ` S/fzn_arg_min_float_opt.mzn ` |
+| ` predicate fzn_minimum_arg_int(array [int] of var int: xs, var int: idx) ` | selected decomposition: ` G/fzn_arg_min_int.mzn ` |
+| ` predicate fzn_minimum_arg_int_opt(array [int] of var opt int: xs, var int: idx) ` | selected decomposition: ` S/fzn_arg_min_int_opt.mzn ` |
+| ` predicate minimum_arg_bool(array [$$E] of var bool: x, var $$E: i) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/arg_min_bool.mzn ` |
+| ` predicate minimum_arg_float(array [$$E] of var float: x, var $$E: i) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/arg_min_float.mzn ` |
+| ` predicate minimum_arg_int(array [$$E] of var int: x, var $$E: i) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/arg_min_int.mzn ` |
+| ` predicate fzn_arg_sort_int(array [int] of var int: xs, array [int] of var int: permutation) ` | selected decomposition: ` S/fzn_arg_sort_int.mzn ` |
+| ` predicate fzn_arg_sort_float(array [int] of var float: xs, array [int] of var int: permutation) ` | selected decomposition: ` S/fzn_arg_sort_float.mzn ` |
+| ` predicate arg_sort_float(array [int] of var float: x, array [int] of var int: p) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/arg_sort_float.mzn ` |
+| ` predicate arg_sort_int(array [$$E] of var int: x, array [int] of var $$E: p) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/arg_sort_int.mzn ` |
+| ` predicate arg_sort_int(array [$$E] of var int: x, array [int] of var $$E: p, var bool: b) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/arg_sort_int.mzn ` |
+| ` predicate fzn_arg_val_bool(array [int] of var bool: xs, var bool: value, var int: idx) ` | selected decomposition: ` S/fzn_arg_val_bool.mzn ` |
+| ` predicate fzn_arg_val_bool_opt(array [int] of var opt bool: xs, var opt bool: value, var int: idx) ` | selected decomposition: ` S/fzn_arg_val_bool_opt.mzn ` |
+| ` predicate fzn_arg_val_float(array [int] of var float: xs, var float: value, var int: idx) ` | selected decomposition: ` S/fzn_arg_val_float.mzn ` |
+| ` predicate fzn_arg_val_float_opt(array [int] of var opt float: xs, var opt float: value, var int: idx) ` | selected decomposition: ` S/fzn_arg_val_float_opt.mzn ` |
+| ` predicate fzn_arg_val_int(array [int] of var int: xs, var int: value, var int: idx) ` | selected decomposition: ` S/fzn_arg_val_int.mzn ` |
+| ` predicate fzn_arg_val_int_opt(array [int] of var opt int: xs, var opt int: value, var int: idx) ` | selected decomposition: ` S/fzn_arg_val_int_opt.mzn ` |
+| ` predicate fzn_at_least_int(int: n, array [int] of var int: xs, int: value) ` | direct checker operation |
+| ` predicate fzn_at_least_set(int: n, array [int] of var set of int: xs, set of int: value) ` | selected decomposition: ` G/fzn_at_least_set.mzn ` |
+| ` predicate at_least(int: n, array [$X] of var $$E: xs, $$E: value) :: mzn_deprecated("2.4.0", "https://www.minizinc.org/doc-2.4.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/at_least.mzn ` |
+| ` predicate fzn_at_most_int(int: n, array [int] of var int: xs, int: value) ` | direct checker operation |
+| ` predicate fzn_at_most_set(int: n, array [int] of var set of int: xs, set of int: value) ` | selected decomposition: ` G/fzn_at_most_set.mzn ` |
+| ` predicate at_most(int: n, array [$X] of var $$E: xs, $$E: value) :: mzn_deprecated("2.4.0", "https://www.minizinc.org/doc-2.4.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/at_most.mzn ` |
+| ` predicate fzn_at_most1(array [int] of var set of int: xs) ` | selected decomposition: ` S/fzn_at_most1.mzn ` |
+| ` predicate fzn_bin_packing(int: capacity, array [int] of var int: bin, array [int] of int: weight) ` | selected decomposition: ` G/fzn_bin_packing.mzn ` |
+| ` predicate fzn_bin_packing_opt(int: capacity, array [int] of var opt int: bin, array [int] of int: weight) ` | selected decomposition: ` S/fzn_bin_packing_opt.mzn ` |
+| ` predicate fzn_bin_packing_capa( array [int] of int: capacity, array [int] of var int: bin, array [int] of int: weight, ) ` | selected decomposition: ` G/fzn_bin_packing_capa.mzn ` |
+| ` predicate fzn_bin_packing_capa_opt( array [int] of int: capacity, array [int] of var opt int: bin, array [int] of int: weight, ) ` | selected decomposition: ` S/fzn_bin_packing_capa_opt.mzn ` |
+| ` predicate fzn_bin_packing_load( array [int] of var int: load, array [int] of var int: bin, array [int] of int: weight, ) ` | selected decomposition: ` G/fzn_bin_packing_load.mzn ` |
+| ` predicate fzn_bin_packing_load_opt( array [int] of var int: load, array [int] of var opt int: bin, array [int] of int: weight, ) ` | selected decomposition: ` S/fzn_bin_packing_load_opt.mzn ` |
+| ` predicate fzn_bounded_dpath( int: N, int: E, array [int] of int: from, array [int] of int: to, array [int] of int: w, var int: source, var int: sink, array [int] of var bool: ns, array [int] of var bool: es, var int: weight_bound, ) ` | selected decomposition: ` S/fzn_bounded_dpath_int.mzn ` |
+| ` predicate fzn_bounded_dpath( array [int] of int: from, array [int] of int: to, array [int] of int: w, var int: source, var int: sink, array [int] of var bool: ns, array [int] of var bool: es, var int: weight_bound, ) ` | selected decomposition: ` S/fzn_bounded_dpath_enum.mzn ` |
+| ` predicate fzn_bounded_path( int: N, int: E, array [int] of int: from, array [int] of int: to, array [int] of int: w, var int: source, var int: sink, array [int] of var bool: ns, array [int] of var bool: es, var int: weight_bound, ) ` | selected decomposition: ` S/fzn_bounded_path_int.mzn ` |
+| ` predicate fzn_bounded_path( array [int] of int: from, array [int] of int: to, array [int] of int: w, var int: source, var int: sink, array [int] of var bool: ns, array [int] of var bool: es, var int: weight_bound, ) ` | selected decomposition: ` S/fzn_bounded_path_enum.mzn ` |
+| ` predicate fzn_circuit(array [int] of var int: xs) ` | selected decomposition: ` G/fzn_circuit.mzn ` |
+| ` predicate fzn_circuit_opt(array [int] of var opt int: xs) ` | selected decomposition: ` S/fzn_circuit_opt.mzn ` |
+| ` predicate fzn_connected( array [int] of int: from, array [int] of int: to, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_connected.mzn ` |
+| ` predicate fzn_dconnected( array [int] of int: from, array [int] of int: to, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_dconnected.mzn ` |
+| ` predicate fzn_cost_mdd( array [int] of var int: xs, int: N, array [int] of int: level, int: E, array [int] of int: from, array [int] of set of int: label, array [int] of int: cost, array [int] of int: to, var int: total_cost, ) ` | selected decomposition: ` S/fzn_cost_mdd.mzn ` |
+| ` predicate fzn_cost_regular( array [int] of var int: xs, int: Q, int: S, array [int, int] of int: d, int: q0, set of int: F, array [int, int] of int: cost, var int: total_cost, ) ` | selected decomposition: ` S/fzn_cost_regular.mzn ` |
+| ` predicate fzn_count_eq(array [int] of var int: xs, var int: value, var int: n) ` | direct checker operation |
+| ` predicate fzn_count_eq_bool(array [int] of var bool: xs, var bool: value, var int: n) ` | selected decomposition: ` S/fzn_count_eq_bool.mzn ` |
+| ` predicate fzn_count_eq_bool_par(array [int] of var bool: xs, bool: value, int: n) ` | selected decomposition: ` S/fzn_count_eq_bool_par.mzn ` |
+| ` predicate fzn_count_eq_float(array [int] of var float: xs, var float: value, var int: n) ` | selected decomposition: ` S/fzn_count_eq_float.mzn ` |
+| ` predicate fzn_count_eq_float_par(array [int] of var float: xs, float: value, int: n) ` | selected decomposition: ` S/fzn_count_eq_float_par.mzn ` |
+| ` predicate fzn_count_eq_par(array [int] of var int: xs, int: value, int: n) ` | selected decomposition: ` S/fzn_count_eq_par.mzn ` |
+| ` predicate fzn_count_eq_set(array [int] of var set of int: xs, var set of int: value, var int: n) ` | selected decomposition: ` S/fzn_count_eq_set.mzn ` |
+| ` predicate fzn_count_eq_set_par(array [int] of var set of int: xs, set of int: value, int: n) ` | selected decomposition: ` S/fzn_count_eq_set_par.mzn ` |
+| ` predicate fzn_count_geq(array [int] of var int: xs, var int: value, var int: n) ` | selected decomposition: ` G/fzn_count_geq.mzn ` |
+| ` predicate fzn_count_geq_bool(array [int] of var bool: xs, var bool: value, var int: n) ` | selected decomposition: ` S/fzn_count_geq_bool.mzn ` |
+| ` predicate fzn_count_geq_bool_par(array [int] of var bool: xs, bool: value, int: n) ` | selected decomposition: ` S/fzn_count_geq_bool_par.mzn ` |
+| ` predicate fzn_count_geq_float(array [int] of var float: xs, var float: value, var int: n) ` | selected decomposition: ` S/fzn_count_geq_float.mzn ` |
+| ` predicate fzn_count_geq_float_par(array [int] of var float: xs, float: value, int: n) ` | selected decomposition: ` S/fzn_count_geq_float_par.mzn ` |
+| ` predicate fzn_count_geq_par(array [int] of var int: xs, int: value, int: n) ` | selected decomposition: ` S/fzn_count_geq_par.mzn ` |
+| ` predicate fzn_count_geq_set(array [int] of var set of int: xs, var set of int: value, var int: n) ` | selected decomposition: ` S/fzn_count_geq_set.mzn ` |
+| ` predicate fzn_count_geq_set_par(array [int] of var set of int: xs, set of int: value, int: n) ` | selected decomposition: ` S/fzn_count_geq_set_par.mzn ` |
+| ` predicate fzn_count_gt(array [int] of var int: xs, var int: value, var int: n) ` | selected decomposition: ` G/fzn_count_gt.mzn ` |
+| ` predicate fzn_count_gt_bool(array [int] of var bool: xs, var bool: value, var int: n) ` | selected decomposition: ` S/fzn_count_gt_bool.mzn ` |
+| ` predicate fzn_count_gt_bool_par(array [int] of var bool: xs, bool: value, int: n) ` | selected decomposition: ` S/fzn_count_gt_bool_par.mzn ` |
+| ` predicate fzn_count_gt_float(array [int] of var float: xs, var float: value, var int: n) ` | selected decomposition: ` S/fzn_count_gt_float.mzn ` |
+| ` predicate fzn_count_gt_float_par(array [int] of var float: xs, float: value, int: n) ` | selected decomposition: ` S/fzn_count_gt_float_par.mzn ` |
+| ` predicate fzn_count_gt_par(array [int] of var int: xs, int: value, int: n) ` | selected decomposition: ` S/fzn_count_gt_par.mzn ` |
+| ` predicate fzn_count_gt_set(array [int] of var set of int: xs, var set of int: value, var int: n) ` | selected decomposition: ` S/fzn_count_gt_set.mzn ` |
+| ` predicate fzn_count_gt_set_par(array [int] of var set of int: xs, set of int: value, int: n) ` | selected decomposition: ` S/fzn_count_gt_set_par.mzn ` |
+| ` predicate fzn_count_leq(array [int] of var int: xs, var int: value, var int: n) ` | selected decomposition: ` G/fzn_count_leq.mzn ` |
+| ` predicate fzn_count_leq_bool(array [int] of var bool: xs, var bool: value, var int: n) ` | selected decomposition: ` S/fzn_count_leq_bool.mzn ` |
+| ` predicate fzn_count_leq_bool_par(array [int] of var bool: xs, bool: value, int: n) ` | selected decomposition: ` S/fzn_count_leq_bool_par.mzn ` |
+| ` predicate fzn_count_leq_float(array [int] of var float: xs, var float: value, var int: n) ` | selected decomposition: ` S/fzn_count_leq_float.mzn ` |
+| ` predicate fzn_count_leq_float_par(array [int] of var float: xs, float: value, int: n) ` | selected decomposition: ` S/fzn_count_leq_float_par.mzn ` |
+| ` predicate fzn_count_leq_par(array [int] of var int: xs, int: value, int: n) ` | selected decomposition: ` S/fzn_count_leq_par.mzn ` |
+| ` predicate fzn_count_leq_set(array [int] of var set of int: xs, var set of int: value, var int: n) ` | selected decomposition: ` S/fzn_count_leq_set.mzn ` |
+| ` predicate fzn_count_leq_set_par( array [int] of var set of int: xs, set of int: value, int: n, ) ` | selected decomposition: ` S/fzn_count_leq_set_par.mzn ` |
+| ` predicate fzn_count_lt(array [int] of var int: xs, var int: value, var int: n) ` | selected decomposition: ` G/fzn_count_lt.mzn ` |
+| ` predicate fzn_count_lt_bool(array [int] of var bool: xs, var bool: value, var int: n) ` | selected decomposition: ` S/fzn_count_lt_bool.mzn ` |
+| ` predicate fzn_count_lt_bool_par(array [int] of var bool: xs, bool: value, int: n) ` | selected decomposition: ` S/fzn_count_lt_bool_par.mzn ` |
+| ` predicate fzn_count_lt_float(array [int] of var float: xs, var float: value, var int: n) ` | selected decomposition: ` S/fzn_count_lt_float.mzn ` |
+| ` predicate fzn_count_lt_float_par(array [int] of var float: xs, float: value, int: n) ` | selected decomposition: ` S/fzn_count_lt_float_par.mzn ` |
+| ` predicate fzn_count_lt_par(array [int] of var int: xs, int: value, int: n) ` | selected decomposition: ` S/fzn_count_lt_par.mzn ` |
+| ` predicate fzn_count_lt_set(array [int] of var set of int: xs, var set of int: value, var int: n) ` | selected decomposition: ` S/fzn_count_lt_set.mzn ` |
+| ` predicate fzn_count_lt_set_par(array [int] of var set of int: xs, set of int: value, int: n) ` | selected decomposition: ` S/fzn_count_lt_set_par.mzn ` |
+| ` predicate fzn_count_neq(array [int] of var int: xs, var int: value, var int: n) ` | selected decomposition: ` S/fzn_count_neq.mzn ` |
+| ` predicate fzn_count_neq_bool(array [int] of var bool: xs, var bool: value, var int: n) ` | selected decomposition: ` S/fzn_count_neq_bool.mzn ` |
+| ` predicate fzn_count_neq_bool_par(array [int] of var bool: xs, bool: value, int: n) ` | selected decomposition: ` S/fzn_count_neq_bool_par.mzn ` |
+| ` predicate fzn_count_neq_float(array [int] of var float: xs, var float: value, var int: n) ` | selected decomposition: ` S/fzn_count_neq_float.mzn ` |
+| ` predicate fzn_count_neq_float_par(array [int] of var float: xs, float: value, int: n) ` | selected decomposition: ` S/fzn_count_neq_float_par.mzn ` |
+| ` predicate fzn_count_neq_par(array [int] of var int: xs, int: value, int: n) ` | selected decomposition: ` S/fzn_count_neq_par.mzn ` |
+| ` predicate fzn_count_neq_set(array [int] of var set of int: xs, var set of int: value, var int: n) ` | selected decomposition: ` S/fzn_count_neq_set.mzn ` |
+| ` predicate fzn_count_neq_set_par(array [int] of var set of int: xs, set of int: value, int: n) ` | selected decomposition: ` S/fzn_count_neq_set_par.mzn ` |
+| ` predicate fzn_cumulative( array [int] of var int: start, array [int] of var int: duration, array [int] of var int: resource, var int: capacity, ) ` | selected decomposition: ` G/fzn_cumulative.mzn ` |
+| ` predicate fzn_cumulative_opt( array [int] of var opt int: start, array [int] of var int: duration, array [int] of var int: resource, var int: capacity, ) ` | selected decomposition: ` G/fzn_cumulative_opt.mzn ` |
+| ` predicate fzn_cumulatives( array [int] of var int: start, array [int] of var int: duration, array [int] of var int: resource, array [int] of var int: machine, array [int] of var int: bound, bool: is_upper_bound, int: min_machine, ) ` | selected decomposition: ` G/fzn_cumulatives.mzn ` |
+| ` predicate cumulatives( array [$$E] of var int: s, array [$$E] of var int: d, array [$$E] of var int: r, array [$$E] of var $$M: m, array [$$M] of var int: b, bool: upper, ) :: mzn_deprecated("2.10.0", "https://www.minizinc.org/doc-2.10.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/cumulatives.mzn ` |
+| ` predicate fzn_cumulatives_opt( array [int] of var opt int: start, array [int] of var int: duration, array [int] of var int: resource, array [int] of var int: machine, array [int] of var int: bound, bool: is_upper_bound, int: min_machine, ) ` | selected decomposition: ` S/fzn_cumulatives_opt.mzn ` |
+| ` predicate cumulatives( array [$$E] of var opt int: s, array [$$E] of var int: d, array [$$E] of var int: r, array [$$E] of var $$M: m, array [$$M] of var int: b, bool: upper, ) :: mzn_deprecated("2.10.0", "https://www.minizinc.org/doc-2.10.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/cumulatives_opt.mzn ` |
+| ` predicate fzn_dag( array [int] of int: from, array [int] of int: to, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_dag.mzn ` |
+| ` predicate decreasing_bool(array [$X] of var bool: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/decreasing_bool.mzn ` |
+| ` predicate decreasing_float(array [$X] of var float: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/decreasing_float.mzn ` |
+| ` predicate decreasing_int(array [$X] of var int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/decreasing_int.mzn ` |
+| ` predicate decreasing_set(array [$X] of var set of int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/decreasing_set.mzn ` |
+| ` predicate fzn_diffn( array [int] of var int: x, array [int] of var int: y, array [int] of var int: dx, array [int] of var int: dy, ) ` | selected decomposition: ` G/fzn_diffn.mzn ` |
+| ` predicate fzn_diffn_k( array [int, int] of var int: box_posn, array [int, int] of var int: box_size, ) ` | selected decomposition: ` S/fzn_diffn_k.mzn ` |
+| ` predicate fzn_diffn_nonstrict( array [int] of var int: x, array [int] of var int: y, array [int] of var int: dx, array [int] of var int: dy, ) ` | selected decomposition: ` S/fzn_diffn_nonstrict.mzn ` |
+| ` predicate fzn_diffn_nonstrict_k( array [int, int] of var int: box_posn, array [int, int] of var int: box_size, ) ` | selected decomposition: ` S/fzn_diffn_nonstrict_k.mzn ` |
+| ` predicate fzn_disjoint(var set of int: s, var set of int: t) ` | direct checker operation |
+| ` predicate fzn_disjunctive(array [int] of var int: start, array [int] of var int: duration) ` | selected decomposition: ` S/fzn_disjunctive.mzn ` |
+| ` predicate fzn_disjunctive_opt(array [int] of var opt int: start, array [int] of var int: duration) ` | selected decomposition: ` S/fzn_disjunctive_opt.mzn ` |
+| ` predicate fzn_disjunctive_strict(array [int] of var int: start, array [int] of var int: duration) ` | selected decomposition: ` G/fzn_disjunctive_strict.mzn ` |
+| ` predicate fzn_disjunctive_strict_opt(array [int] of var opt int: start, array [int] of var int: duration) ` | selected decomposition: ` G/fzn_disjunctive_strict_opt.mzn ` |
+| ` predicate fzn_distribute( array [int] of var int: count, array [int] of var int: cover, array [int] of var int: xs, ) ` | selected decomposition: ` S/fzn_distribute.mzn ` |
+| ` predicate element_bool(var $$E: i, array [$$E] of var bool: x, var bool: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/element_bool.mzn ` |
+| ` predicate element_float(var $$E: i, array [$$E] of var float: x, var float: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/element_float.mzn ` |
+| ` predicate element_int(var $$E: i, array [$$E] of var $$T: x, var $$T: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/element_int.mzn ` |
+| ` predicate element_set(var $$E: i, array [$$E] of var set of $$T: x, var set of $$T: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/element_set.mzn ` |
+| ` predicate fzn_exactly_int(int: n, array [int] of var int: xs, int: value) ` | selected decomposition: ` S/fzn_exactly_int.mzn ` |
+| ` predicate fzn_exactly_set(int: n, array [int] of var set of int: xs, set of int: value) ` | selected decomposition: ` G/fzn_exactly_set.mzn ` |
+| ` predicate exactly(int: n, array [$X] of var $$E: xs, $$E: value) :: mzn_deprecated("2.4.0", "https://www.minizinc.org/doc-2.4.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/exactly.mzn ` |
+| ` predicate int_abs(var int: x, var int: y) ` | direct checker operation |
+| ` predicate int_eq(var int: x, var int: y) :: promise_commutative ` | direct checker operation |
+| ` predicate int_eq_reif(var int: x, var int: y, var bool: b) ` | direct checker operation |
+| ` predicate int_le(var int: x, var int: y) ` | direct checker operation |
+| ` predicate int_le_reif(var int: x, var int: y, var bool: b) ` | direct checker operation |
+| ` predicate int_lin_eq(array [int] of int: as, array [int] of var int: xs, int: y) ` | direct checker operation |
+| ` predicate int_lin_eq_reif(array [int] of int: as, array [int] of var int: xs, int: y, var bool: b) ` | direct checker operation |
+| ` predicate int_lin_ne(array [int] of int: as, array [int] of var int: xs, int: y) ` | direct checker operation |
+| ` predicate int_lin_ne_reif(array [int] of int: as, array [int] of var int: xs, int: y, var bool: b) ` | direct checker operation |
+| ` predicate int_lin_le(array [int] of int: as, array [int] of var int: xs, int: y) ` | direct checker operation |
+| ` predicate int_lin_le_reif(array [int] of int: as, array [int] of var int: xs, int: y, var bool: b) ` | direct checker operation |
+| ` predicate int_ne(var int: x, var int: y) :: promise_commutative ` | direct checker operation |
+| ` predicate int_ne_reif(var int: x, var int: y, var bool: b) ` | direct checker operation |
+| ` predicate int_plus(var int: x, var int: y, var int: z) ` | direct checker operation |
+| ` predicate int_div(var int: x, var int: y, var int: z) ` | direct checker operation |
+| ` predicate int_lt(var int: x, var int: y) ` | direct checker operation |
+| ` predicate int_lt_reif(var int: x, var int: y, var bool: b) ` | direct checker operation |
+| ` predicate int_max(var int: x, var int: y, var int: z) ` | direct checker operation |
+| ` predicate int_min(var int: x, var int: y, var int: z) ` | direct checker operation |
+| ` predicate int_mod(var int: x, var int: y, var int: z) ` | direct checker operation |
+| ` predicate int_times(var int: x, var int: y, var int: z) ` | direct checker operation |
+| ` predicate int_pow(var int: x, var int: y, var int: z) ` | selected decomposition: ` G/redefinitions.mzn ` |
+| ` predicate set_in(var int: x, set of int: s) ` | direct checker operation |
+| ` predicate bool2int(var bool: x, var int: y) ` | direct checker operation |
+| ` predicate bool_and(var bool: x, var bool: y, var bool: b) ` | direct checker operation |
+| ` predicate bool_clause( array [int] of var bool: xs :: promise_ctx_monotone, array [int] of var bool: ys :: promise_ctx_antitone, ) ` | direct checker operation |
+| ` predicate bool_eq(var bool: x, var bool: y) :: promise_commutative ` | direct checker operation |
+| ` predicate bool_eq_reif(var bool: x, var bool: y, var bool: b) ` | direct checker operation |
+| ` predicate bool_le(var bool: x :: promise_ctx_antitone, var bool: y :: promise_ctx_monotone) ` | direct checker operation |
+| ` predicate bool_le_reif(var bool: x, var bool: y, var bool: b) ` | direct checker operation |
+| ` predicate bool_lin_eq(array [int] of int: as, array [int] of var bool: xs, var int: y) ` | direct checker operation |
+| ` predicate bool_lin_le(array [int] of int: as, array [int] of var bool: xs, int: y) ` | direct checker operation |
+| ` predicate bool_lt(var bool: x :: promise_ctx_antitone, var bool: y :: promise_ctx_monotone) ` | direct checker operation |
+| ` predicate bool_lt_reif(var bool: x, var bool: y, var bool: b) ` | direct checker operation |
+| ` predicate bool_not(var bool: x, var bool: y) ` | direct checker operation |
+| ` predicate bool_or(var bool: x, var bool: y, var bool: b) ` | direct checker operation |
+| ` predicate bool_xor(var bool: x, var bool: y, var bool: b) ` | direct checker operation |
+| ` predicate set_in(var int: x, var set of int: s) ` | direct checker operation |
+| ` predicate set_card(var set of int: s, var int: x) ` | direct checker operation |
+| ` predicate set_in_reif(var int: x, set of int: s, var bool: b) ` | direct checker operation |
+| ` predicate set_in_reif(var int: x, var set of int: s, var bool: b) ` | direct checker operation |
+| ` predicate set_subset(var set of int: s, var set of int: t) ` | direct checker operation |
+| ` predicate set_superset(var set of int: s, var set of int: t) ` | direct checker operation |
+| ` predicate set_subset_reif(var set of int: s, var set of int: t, var bool: b) ` | direct checker operation |
+| ` predicate set_superset_reif(var set of int: s, var set of int: t, var bool: b) ` | direct checker operation |
+| ` predicate set_le(var set of int: s, var set of int: t) ` | direct checker operation |
+| ` predicate set_le_reif(var set of int: s, var set of int: t, var bool: b) ` | direct checker operation |
+| ` predicate set_lt(var set of int: s, var set of int: t) ` | direct checker operation |
+| ` predicate set_lt_reif(var set of int: s, var set of int: t, var bool: b) ` | direct checker operation |
+| ` predicate set_eq(var set of int: s, var set of int: t) :: promise_commutative ` | direct checker operation |
+| ` predicate set_eq_reif(var set of int: s, var set of int: t, var bool: b) ` | direct checker operation |
+| ` predicate set_ne(var set of int: s, var set of int: t) :: promise_commutative ` | direct checker operation |
+| ` predicate set_ne_reif(var set of int: s, var set of int: t, var bool: b) ` | direct checker operation |
+| ` predicate set_intersect(var set of int: s, var set of int: t, var set of int: r) ` | direct checker operation |
+| ` predicate set_union(var set of int: s, var set of int: t, var set of int: r) ` | direct checker operation |
+| ` predicate set_diff(var set of int: s, var set of int: t, var set of int: r) ` | direct checker operation |
+| ` predicate set_symdiff(var set of int: s, var set of int: t, var set of int: r) ` | direct checker operation |
+| ` predicate float_abs(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_acos(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_acosh(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_asin(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_asinh(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_atan(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_atanh(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_cos(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_cosh(var float: x, var float: y) ` | selected decomposition: ` G/redefinitions.mzn ` |
+| ` predicate float_exp(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_ln(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_log10(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_log2(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_sqrt(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_pow(var float: x, var float: y, var float: z) ` | selected decomposition: ` G/redefinitions-2.0.mzn ` |
+| ` predicate float_sin(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_sinh(var float: x, var float: y) ` | selected decomposition: ` G/redefinitions.mzn ` |
+| ` predicate float_tan(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_tanh(var float: x, var float: y) ` | selected decomposition: ` G/redefinitions.mzn ` |
+| ` predicate float_eq(var float: x, var float: y) :: promise_commutative ` | direct checker operation |
+| ` predicate float_eq_reif(var float: x, var float: y, var bool: b) ` | direct checker operation |
+| ` predicate float_le(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_le_reif(var float: x, var float: y, var bool: b) ` | direct checker operation |
+| ` predicate float_lt(var float: x, var float: y) ` | direct checker operation |
+| ` predicate float_lt_reif(var float: x, var float: y, var bool: b) ` | direct checker operation |
+| ` predicate float_ne(var float: x, var float: y) :: promise_commutative ` | direct checker operation |
+| ` predicate float_ne_reif(var float: x, var float: y, var bool: b) ` | selected decomposition: ` G/redefinitions.mzn ` |
+| ` predicate float_lin_eq(array [int] of float: as, array [int] of var float: xs, float: y) ` | direct checker operation |
+| ` predicate float_lin_eq_reif( array [int] of float: as, array [int] of var float: xs, float: y, var bool: b, ) ` | direct checker operation |
+| ` predicate float_lin_le(array [int] of float: as, array [int] of var float: xs, float: y) ` | direct checker operation |
+| ` predicate float_lin_le_reif( array [int] of float: as, array [int] of var float: xs, float: y, var bool: b, ) ` | direct checker operation |
+| ` predicate float_lin_lt(array [int] of float: as, array [int] of var float: xs, float: y) ` | direct checker operation |
+| ` predicate float_lin_lt_reif( array [int] of float: as, array [int] of var float: xs, float: y, var bool: b, ) ` | direct checker operation |
+| ` predicate float_lin_ne(array [int] of float: as, array [int] of var float: xs, float: y) ` | direct checker operation |
+| ` predicate float_lin_ne_reif( array [int] of float: as, array [int] of var float: xs, float: y, var bool: b, ) ` | direct checker operation |
+| ` predicate float_max(var float: x, var float: y, var float: z) ` | direct checker operation |
+| ` predicate float_min(var float: x, var float: y, var float: z) ` | direct checker operation |
+| ` predicate float_plus(var float: x, var float: y, var float: z) ` | direct checker operation |
+| ` predicate float_div(var float: x, var float: y, var float: z) ` | direct checker operation |
+| ` predicate float_times(var float: x, var float: y, var float: z) ` | direct checker operation |
+| ` predicate int2float(var int: x, var float: y) ` | direct checker operation |
+| ` predicate array_bool_and(array [int] of var bool: xs, var bool: b) ` | direct checker operation |
+| ` predicate array_bool_xor(array [int] of var bool: xs) ` | direct checker operation |
+| ` predicate array_bool_element(var int: idx, array [int] of bool: xs, var bool: y) ` | direct checker operation |
+| ` predicate array_int_element(var int: idx, array [int] of int: xs, var int: y) ` | direct checker operation |
+| ` predicate array_float_element(var int: idx, array [int] of float: xs, var float: y) ` | selected decomposition: ` G/redefinitions.mzn ` |
+| ` predicate array_set_element(var int: idx, array [int] of set of int: xs, var set of int: y) ` | direct checker operation |
+| ` predicate array_var_bool_element(var int: idx, array [int] of var bool: xs, var bool: y) ` | direct checker operation |
+| ` predicate array_var_int_element(var int: idx, array [int] of var int: xs, var int: y) ` | direct checker operation |
+| ` predicate array_var_float_element(var int: idx, array [int] of var float: xs, var float: y) ` | selected decomposition: ` G/redefinitions.mzn ` |
+| ` predicate array_var_set_element(var int: idx, array [int] of var set of int: xs, var set of int: y) ` | direct checker operation |
+| ` predicate bool_clause_reif(array [int] of var bool: xs, array [int] of var bool: ys, var bool: b) ` | direct checker operation |
+| ` predicate array_int_maximum(var int: m, array [int] of var int: xs) ` | direct checker operation |
+| ` predicate array_float_maximum(var float: m, array [int] of var float: xs) ` | selected decomposition: ` G/redefinitions-2.0.mzn ` |
+| ` predicate array_int_minimum(var int: m, array [int] of var int: xs) ` | direct checker operation |
+| ` predicate array_float_minimum(var float: m, array [int] of var float: xs) ` | selected decomposition: ` G/redefinitions-2.0.mzn ` |
+| ` predicate array_var_bool_element_nonshifted(var int: idx, array [int] of var bool: xs, var bool: y) ` | selected decomposition: ` G/redefinitions-2.0.2.mzn ` |
+| ` predicate array_var_int_element_nonshifted(var int: idx, array [int] of var int: xs, var int: y) ` | selected decomposition: ` G/redefinitions-2.0.2.mzn ` |
+| ` predicate array_var_float_element_nonshifted( var int: idx, array [int] of var float: xs, var float: y, ) ` | selected decomposition: ` G/redefinitions-2.0.2.mzn ` |
+| ` predicate array_var_set_element_nonshifted( var int: idx, array [int] of var set of int: xs, var set of int: y, ) ` | selected decomposition: ` G/redefinitions-2.0.2.mzn ` |
+| ` predicate float_in(var float: x, float: l, float: u) ` | selected decomposition: ` S/redefinitions-2.1.mzn ` |
+| ` predicate float_dom(var float: x, array [int] of float: as) ` | selected decomposition: ` S/redefinitions-2.1.mzn ` |
+| ` predicate int_pow_fixed(var int: x, int: y, var int: z) ` | selected decomposition: ` G/redefinitions-2.2.1.mzn ` |
+| ` predicate float_set_in(var float: x, set of float: s) ` | selected decomposition: ` S/redefinitions-2.3.3.mzn ` |
+| ` predicate array_var_int_element2d_nonshifted( var int: idx1, var int: idx2, array [int, int] of var int: xs, var int: y, ) ` | selected decomposition: ` G/redefinitions-2.5.2.mzn ` |
+| ` predicate array_var_bool_element2d_nonshifted( var int: idx1, var int: idx2, array [int, int] of var bool: xs, var bool: y, ) ` | selected decomposition: ` G/redefinitions-2.5.2.mzn ` |
+| ` predicate array_var_float_element2d_nonshifted( var int: idx1, var int: idx2, array [int, int] of var float: xs, var float: y, ) ` | selected decomposition: ` G/redefinitions-2.5.2.mzn ` |
+| ` predicate array_var_set_element2d_nonshifted( var int: idx1, var int: idx2, array [int, int] of var set of int: xs, var set of int: y, ) ` | selected decomposition: ` G/redefinitions-2.5.2.mzn ` |
+| ` predicate float_ceil(var float: x, var int: y) ` | selected decomposition: ` S/redefinitions-2.7.1.mzn ` |
+| ` predicate float_floor(var float: x, var int: y) ` | selected decomposition: ` S/redefinitions-2.7.1.mzn ` |
+| ` predicate float_round(var float: x, var int: y) ` | selected decomposition: ` S/redefinitions-2.7.1.mzn ` |
+| ` predicate array_bool_or(array [int] of var bool: xs, var bool: b) :: mzn_deprecated("2.7.0", "https://www.minizinc.org/doc-2.7.0/en/lib-flatzinc-deprecated.html") ` | direct checker operation |
+| ` predicate fzn_regular(array [int] of var int: xs, string: regexp) ` | compiler regex-to-DFA lowering (regular.mzn) |
+| ` predicate fzn_regular( array [int] of var int: xs, int: Q, set of int: S, array [int, int] of int: d, int: q0, set of int: F, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/fzn_regular_set.mzn ` |
+| ` predicate fzn_geost( int: k, array [int, int] of int: rect_size, array [int, int] of int: rect_offset, array [int] of set of int: shape, array [int, int] of var int: xs, array [int] of var int: kind, ) ` | selected decomposition: ` S/fzn_geost.mzn ` |
+| ` predicate fzn_geost_bb( int: k, array [int, int] of int: rect_size, array [int, int] of int: rect_offset, array [int] of set of int: shape, array [int, int] of var int: xs, array [int] of var int: kind, array [int] of var int: lower_bound, array [int] of var int: upper_bound, ) ` | selected decomposition: ` S/fzn_geost_bb.mzn ` |
+| ` predicate fzn_geost_smallest_bb( int: k, array [int, int] of int: rect_size, array [int, int] of int: rect_offset, array [int] of set of int: shape, array [int, int] of var int: xs, array [int] of var int: kind, array [int] of var int: lower_bound, array [int] of var int: upper_bound, ) ` | selected decomposition: ` S/fzn_geost_smallest_bb.mzn ` |
+| ` predicate fzn_geost_nonoverlap_k( array [int] of var int: x1, array [int] of int: w1, array [int] of var int: x2, array [int] of int: w2, ) ` | selected decomposition: ` S/fzn_geost_nonoverlap_k.mzn ` |
+| ` predicate fzn_global_cardinality( array [int] of var int: xs, array [int] of int: cover, array [int] of var int: count, ) ` | selected decomposition: ` G/fzn_global_cardinality.mzn ` |
+| ` predicate fzn_global_cardinality_low_up( array [int] of var int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | direct checker operation |
+| ` predicate fzn_global_cardinality_low_up_opt( array [int] of var opt int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | selected decomposition: ` S/fzn_global_cardinality_low_up_opt.mzn ` |
+| ` predicate fzn_global_cardinality_low_up_set( array [int] of var set of int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | selected decomposition: ` S/fzn_global_cardinality_low_up_set.mzn ` |
+| ` predicate fzn_global_cardinality_opt( array [int] of var opt int: xs, array [int] of int: cover, array [int] of var int: count, ) ` | selected decomposition: ` S/fzn_global_cardinality_opt.mzn ` |
+| ` predicate fzn_global_cardinality_set( array [int] of var set of int: xs, array [int] of int: cover, array [int] of var int: count, ) ` | selected decomposition: ` S/fzn_global_cardinality_set.mzn ` |
+| ` predicate fzn_global_cardinality_closed( array [int] of var int: xs, array [int] of int: cover, array [int] of var int: count, ) ` | selected decomposition: ` G/fzn_global_cardinality_closed.mzn ` |
+| ` predicate fzn_global_cardinality_closed_opt( array [int] of var opt int: xs, array [int] of int: cover, array [int] of var int: count, ) ` | selected decomposition: ` S/fzn_global_cardinality_closed_opt.mzn ` |
+| ` predicate fzn_global_cardinality_closed_set( array [int] of var set of int: xs, array [int] of int: cover, array [int] of var int: count, ) ` | selected decomposition: ` S/fzn_global_cardinality_closed_set.mzn ` |
+| ` predicate fzn_global_cardinality_low_up_closed( array [int] of var int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | direct checker operation |
+| ` predicate fzn_global_cardinality_low_up_closed_opt( array [int] of var opt int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | selected decomposition: ` S/fzn_global_cardinality_low_up_closed_opt.mzn ` |
+| ` predicate fzn_global_cardinality_low_up_closed_set( array [int] of var set of int: xs, array [int] of int: cover, array [int] of int: lower_bound, array [int] of int: upper_bound, ) ` | selected decomposition: ` S/fzn_global_cardinality_low_up_closed_set.mzn ` |
+| ` predicate global_cardinality_low_up( array [$X] of var int: x, array [$Y] of int: cover, array [$Y] of int: lbound, array [$Y] of int: ubound, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/global_cardinality_low_up.mzn ` |
+| ` predicate global_cardinality_low_up_closed( array [$X] of var int: x, array [$Y] of int: cover, array [$Y] of int: lbound, array [$Y] of int: ubound, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/global_cardinality_low_up_closed.mzn ` |
+| ` predicate fzn_increasing_bool(array [int] of var bool: xs) ` | direct checker operation |
+| ` predicate fzn_increasing_float(array [int] of var float: xs) ` | selected decomposition: ` S/fzn_increasing_float.mzn ` |
+| ` predicate fzn_increasing_float_opt(array [int] of var opt float: xs) ` | selected decomposition: ` S/fzn_increasing_float_opt.mzn ` |
+| ` predicate fzn_increasing_int(array [int] of var int: xs) ` | direct checker operation |
+| ` predicate fzn_increasing_int_opt(array [int] of var opt int: xs) ` | selected decomposition: ` S/fzn_increasing_int_opt.mzn ` |
+| ` predicate fzn_increasing_set(array [int] of var set of int: xs) ` | selected decomposition: ` S/fzn_increasing_set.mzn ` |
+| ` predicate increasing_bool(array [$X] of var bool: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/increasing_bool.mzn ` |
+| ` predicate increasing_float(array [$X] of var float: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/increasing_float.mzn ` |
+| ` predicate increasing_int(array [$X] of var int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/increasing_int.mzn ` |
+| ` predicate increasing_set(array [$X] of var set of int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/increasing_set.mzn ` |
+| ` predicate fzn_int_set_channel(array [int] of var int: ints, array [int] of var set of int: sets) ` | selected decomposition: ` G/fzn_int_set_channel.mzn ` |
+| ` predicate fzn_inverse(array [int] of var int: f, array [int] of var int: invf) ` | selected decomposition: ` G/fzn_inverse.mzn ` |
+| ` predicate fzn_inverse_opt(array [int] of var opt int: f, array [int] of var opt int: invf) ` | selected decomposition: ` S/fzn_inverse_opt.mzn ` |
+| ` predicate fzn_inverse_in_range(array [int] of var int: xs, array [int] of var int: ys) ` | selected decomposition: ` S/fzn_inverse_in_range.mzn ` |
+| ` predicate fzn_inverse_set(array [int] of var set of int: f, array [int] of var set of int: invf) ` | selected decomposition: ` G/fzn_inverse_set.mzn ` |
+| ` predicate fzn_knapsack( array [int] of int: weight, array [int] of int: profit, array [int] of var int: xs, var int: total_weight, var int: total_profit, ) ` | selected decomposition: ` S/fzn_knapsack.mzn ` |
+| ` predicate fzn_lex2(array [int, int] of var int: xs) ` | selected decomposition: ` S/fzn_lex2.mzn ` |
+| ` predicate fzn_lex_chain_less_bool(array [int, int] of var bool: xs) ` | selected decomposition: ` S/fzn_lex_chain_less_bool.mzn ` |
+| ` predicate fzn_lex_chain_less_int(array [int, int] of var int: xs) ` | selected decomposition: ` S/fzn_lex_chain_less_int.mzn ` |
+| ` predicate lex_chain_less_bool(array [int, int] of var bool: a) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_chain_less_bool.mzn ` |
+| ` predicate lex_chain_less_int(array [int, int] of var int: a) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_chain_less_int.mzn ` |
+| ` predicate fzn_lex_chain_lesseq_bool(array [int, int] of var bool: xs) ` | selected decomposition: ` S/fzn_lex_chain_lesseq_bool.mzn ` |
+| ` predicate fzn_lex_chain_lesseq_int(array [int, int] of var int: xs) ` | selected decomposition: ` S/fzn_lex_chain_lesseq_int.mzn ` |
+| ` predicate lex_chain_lesseq_bool(array [int, int] of var bool: a) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_chain_lesseq_bool.mzn ` |
+| ` predicate lex_chain_lesseq_int(array [int, int] of var int: a) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_chain_lesseq_int.mzn ` |
+| ` predicate fzn_lex_chain_lesseq_orbitope(array [int, int] of var int: xs, int: _kind) ` | selected decomposition: ` S/fzn_lex_chain_lesseq_orbitope.mzn ` |
+| ` predicate fzn_lex_less_bool(array [int] of var bool: xs, array [int] of var bool: ys) ` | selected decomposition: ` G/fzn_lex_less_bool.mzn ` |
+| ` predicate fzn_lex_less_float(array [int] of var float: xs, array [int] of var float: ys) ` | selected decomposition: ` S/fzn_lex_less_float.mzn ` |
+| ` predicate fzn_lex_less_int(array [int] of var int: xs, array [int] of var int: ys) ` | selected decomposition: ` G/fzn_lex_less_int.mzn ` |
+| ` predicate fzn_lex_less_set(array [int] of var set of int: xs, array [int] of var set of int: ys) ` | selected decomposition: ` S/fzn_lex_less_set.mzn ` |
+| ` predicate lex_less_bool(array [int] of var bool: x, array [int] of var bool: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_less_bool.mzn ` |
+| ` predicate lex_lt_bool(array [int] of var bool: x, array [int] of var bool: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_less_bool.mzn ` |
+| ` predicate lex_less_float( array [int] of var float: x :: promise_ctx_antitone, array [int] of var float: y :: promise_ctx_monotone, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_less_float.mzn ` |
+| ` predicate lex_lt_float( array [int] of var float: x :: promise_ctx_antitone, array [int] of var float: y :: promise_ctx_monotone, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_less_float.mzn ` |
+| ` predicate lex_less_int( array [int] of var int: x :: promise_ctx_antitone, array [int] of var int: y :: promise_ctx_monotone, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_less_int.mzn ` |
+| ` predicate lex_lt_int( array [int] of var int: x :: promise_ctx_antitone, array [int] of var int: y :: promise_ctx_monotone, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_less_int.mzn ` |
+| ` predicate lex_less_set(array [int] of var set of int: x, array [int] of var set of int: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_less_set.mzn ` |
+| ` predicate lex_lt_set(array [int] of var set of int: x, array [int] of var set of int: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_less_set.mzn ` |
+| ` predicate fzn_lex_lesseq_bool( array [int] of var bool: xs :: promise_ctx_antitone, array [int] of var bool: ys :: promise_ctx_monotone, ) ` | selected decomposition: ` G/fzn_lex_lesseq_bool.mzn ` |
+| ` predicate fzn_lex_lesseq_float(array [int] of var float: xs, array [int] of var float: ys) ` | selected decomposition: ` S/fzn_lex_lesseq_float.mzn ` |
+| ` predicate fzn_lex_lesseq_int( array [int] of var int: xs :: promise_ctx_antitone, array [int] of var int: ys :: promise_ctx_monotone, ) ` | selected decomposition: ` G/fzn_lex_lesseq_int.mzn ` |
+| ` predicate fzn_lex_lesseq_set(array [int] of var set of int: xs, array [int] of var set of int: ys) ` | selected decomposition: ` S/fzn_lex_lesseq_set.mzn ` |
+| ` predicate lex_lesseq_bool( array [int] of var bool: x :: promise_ctx_antitone, array [int] of var bool: y :: promise_ctx_monotone, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_lesseq_bool.mzn ` |
+| ` predicate lex_leq_bool( array [int] of var bool: x :: promise_ctx_antitone, array [int] of var bool: y :: promise_ctx_monotone, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_lesseq_bool.mzn ` |
+| ` predicate lex_lesseq_float( array [int] of var float: x :: promise_ctx_antitone, array [int] of var float: y :: promise_ctx_monotone, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_lesseq_float.mzn ` |
+| ` predicate lex_leq_float( array [int] of var float: x :: promise_ctx_antitone, array [int] of var float: y :: promise_ctx_monotone, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_lesseq_float.mzn ` |
+| ` predicate lex_lesseq_int( array [int] of var int: x :: promise_ctx_antitone, array [int] of var int: y :: promise_ctx_monotone, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_lesseq_int.mzn ` |
+| ` predicate lex_leq_int( array [int] of var int: x :: promise_ctx_antitone, array [int] of var int: y :: promise_ctx_monotone, ) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_lesseq_int.mzn ` |
+| ` predicate lex_lesseq_set(array [int] of var set of int: x, array [int] of var set of int: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_lesseq_set.mzn ` |
+| ` predicate lex_leq_set(array [int] of var set of int: x, array [int] of var set of int: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/lex_lesseq_set.mzn ` |
+| ` predicate fzn_link_set_to_booleans(var set of int: s, array [int] of var bool: bs) ` | selected decomposition: ` G/fzn_link_set_to_booleans.mzn ` |
+| ` predicate fzn_mdd( array [int] of var int: xs, int: N, array [int] of int: level, int: E, array [int] of int: from, array [int] of set of int: label, array [int] of int: to, ) ` | selected decomposition: ` S/fzn_mdd.mzn ` |
+| ` predicate fzn_mdd_nondet( array [int] of var int: xs, int: N, array [int] of int: level, int: E, array [int] of int: from, array [int] of set of int: label, array [int] of int: to, ) ` | selected decomposition: ` S/fzn_mdd_nondet.mzn ` |
+| ` predicate fzn_member_bool(array [int] of var bool: x, var bool: y) ` | direct checker operation |
+| ` predicate fzn_member_float(array [int] of var float: x, var float: y) ` | selected decomposition: ` S/fzn_member_float.mzn ` |
+| ` predicate fzn_member_int(array [int] of var int: x, var int: y) ` | direct checker operation |
+| ` predicate fzn_member_set(array [int] of var set of int: x, var set of int: y) ` | selected decomposition: ` S/fzn_member_set.mzn ` |
+| ` predicate fzn_set_member(var set of int: x, var int: y) ` | selected decomposition: ` S/fzn_set_member.mzn ` |
+| ` predicate member_bool(array [int] of var bool: x, var bool: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/member_bool.mzn ` |
+| ` predicate member_float(array [int] of var float: x, var float: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/member_float.mzn ` |
+| ` predicate member_int(array [int] of var $$E: x, var $$E: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/member_int.mzn ` |
+| ` predicate member_set(array [int] of var set of $$E: x, var set of $$E: y) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/member_set.mzn ` |
+| ` predicate fzn_network_flow( array [int, 1..2] of int: arcs, array [int] of int: balance, array [int] of var int: flow, ) ` | selected decomposition: ` S/fzn_network_flow.mzn ` |
+| ` predicate fzn_network_flow_cost( array [int, 1..2] of int: arcs, array [int] of int: balance, array [int] of int: weight, array [int] of var int: flow, var int: total_cost, ) ` | selected decomposition: ` S/fzn_network_flow_cost.mzn ` |
+| ` predicate fzn_neural_net( array [int] of var float: inputs, array [int] of int: input_id, array [int] of var float: outputs, array [int] of int: output_id, array [int] of float: bias, array [int] of float: edge_weight, array [int] of int: edge_parent, array [int] of int: first_edge, NEURON_TYPE: neuron_type, ) ` | selected decomposition: ` S/fzn_neural_net.mzn ` |
+| ` predicate fzn_nvalue(var int: n, array [int] of var int: xs) ` | direct checker operation |
+| ` predicate fzn_partition_set(array [int] of var set of int: xs, set of int: universe) ` | selected decomposition: ` G/fzn_partition_set.mzn ` |
+| ` predicate fzn_path( int: N, int: E, array [int] of int: from, array [int] of int: to, var int: source, var int: sink, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_path_int.mzn ` |
+| ` predicate fzn_path( array [int] of int: from, array [int] of int: to, var int: source, var int: sink, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_path_enum.mzn ` |
+| ` predicate fzn_dpath( int: N, int: E, array [int] of int: from, array [int] of int: to, var int: source, var int: sink, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_dpath_int.mzn ` |
+| ` predicate fzn_dpath( array [int] of int: from, array [int] of int: to, var int: source, var int: sink, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_dpath_enum.mzn ` |
+| ` predicate fzn_piecewise_linear( var float: x, var float: y, array [int] of float: x_knot, array [int] of float: y_knot, ) ` | selected decomposition: ` S/fzn_piecewise_linear.mzn ` |
+| ` predicate fzn_piecewise_linear_non_continuous( var float: x, var float: y, array [int] of float: x_start, array [int] of float: x_end, array [int] of float: y_start, array [int] of float: y_end, ) ` | selected decomposition: ` S/fzn_piecewise_linear_non_continuous.mzn ` |
+| ` predicate fzn_range(array [int] of var int: xs, var set of int: domain, var set of int: image) ` | selected decomposition: ` G/fzn_range.mzn ` |
+| ` predicate fzn_dreachable( int: N, int: E, array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_dreachable_int.mzn ` |
+| ` predicate fzn_dreachable( array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_dreachable_enum.mzn ` |
+| ` predicate fzn_reachable( int: N, int: E, array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_reachable_int.mzn ` |
+| ` predicate fzn_reachable( array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_reachable_enum.mzn ` |
+| ` predicate fzn_regular( array [int] of var int: xs, int: Q, int: S, array [int, int] of int: d, int: q0, set of int: F, ) ` | selected decomposition: ` G/fzn_regular.mzn ` |
+| ` predicate fzn_regular_set( array [int] of var int: xs, int: Q, set of int: S, array [int, int] of int: d, int: q0, set of int: F, ) ` | selected decomposition: ` S/fzn_regular_set.mzn ` |
+| ` predicate fzn_regular_nfa( array [int] of var int: xs, int: Q, int: S, array [int, int] of set of int: d, int: q0, set of int: F, ) ` | selected decomposition: ` G/fzn_regular_nfa.mzn ` |
+| ` predicate fzn_roots(array [int] of var int: xs, var set of int: preimage, var set of int: image) ` | selected decomposition: ` G/fzn_roots.mzn ` |
+| ` predicate fzn_seq_precede_chain_int(array [int] of var int: xs) ` | selected decomposition: ` S/fzn_seq_precede_chain_int.mzn ` |
+| ` predicate fzn_seq_precede_chain_set(array [int] of var set of int: xs) ` | selected decomposition: ` S/fzn_seq_precede_chain_set.mzn ` |
+| ` predicate fzn_sliding_among_int(int: low, int: up, int: window_size, array [int] of var int: xs, set of int: values) ` | selected decomposition: ` G/fzn_sliding_among_int.mzn ` |
+| ` predicate fzn_sliding_among_bool(int: low, int: up, int: window_size, array [int] of var bool: xs, bool: value) ` | selected decomposition: ` G/fzn_sliding_among_bool.mzn ` |
+| ` predicate fzn_sliding_sum(int: low, int: up, int: window_size, array [int] of var int: xs) ` | selected decomposition: ` S/fzn_sliding_sum.mzn ` |
+| ` predicate fzn_sort(array [int] of var int: xs, array [int] of var int: ys) ` | direct checker operation |
+| ` predicate fzn_span( var opt int: span_start, var int: span_duration, array [int] of var opt int: start, array [int] of var int: duration, ) ` | selected decomposition: ` S/fzn_span.mzn ` |
+| ` predicate symmetry_breaking_constraint(var bool: b) ` | selected decomposition: ` G/redefinitions-2.0.2.mzn ` |
+| ` predicate redundant_constraint(var bool: b) ` | selected decomposition: ` G/redefinitions-2.0.2.mzn ` |
+| ` predicate implied_constraint(var bool: b) ` | compiler elaboration |
+| ` predicate bool_xor(var bool: x, var bool: y) :: promise_commutative ` | direct checker operation |
+| ` predicate mzn_symmetry_breaking_constraint(var bool: b) ` | compiler elaboration |
+| ` predicate mzn_redundant_constraint(var bool: b) ` | compiler elaboration |
+| ` predicate fzn_dsteiner( int: N, int: E, array [int] of int: from, array [int] of int: to, array [int] of int: w, var int: root, array [int] of var bool: ns, array [int] of var bool: es, var int: weight_bound, ) ` | selected decomposition: ` S/fzn_dsteiner.mzn ` |
+| ` predicate fzn_steiner( int: N, int: E, array [int] of int: from, array [int] of int: to, array [int] of int: w, array [int] of var bool: ns, array [int] of var bool: es, var int: weight_bound, ) ` | selected decomposition: ` S/fzn_steiner.mzn ` |
+| ` predicate fzn_strict_lex2(array [int, int] of var int: xs) ` | selected decomposition: ` S/fzn_strict_lex2.mzn ` |
+| ` predicate fzn_strictly_increasing_float(array [int] of var float: xs) ` | selected decomposition: ` S/fzn_strictly_increasing_float.mzn ` |
+| ` predicate fzn_strictly_increasing_float_opt(array [int] of var opt float: xs) ` | selected decomposition: ` S/fzn_strictly_increasing_float_opt.mzn ` |
+| ` predicate fzn_strictly_increasing_int(array [int] of var int: xs) ` | selected decomposition: ` S/fzn_strictly_increasing_int.mzn ` |
+| ` predicate fzn_strictly_increasing_int_opt(array [int] of var opt int: xs) ` | selected decomposition: ` S/fzn_strictly_increasing_int_opt.mzn ` |
+| ` predicate fzn_strictly_increasing_set(array [int] of var set of int: xs) ` | selected decomposition: ` S/fzn_strictly_increasing_set.mzn ` |
+| ` predicate fzn_subcircuit(array [int] of var int: xs) ` | selected decomposition: ` S/fzn_subcircuit.mzn ` |
+| ` predicate fzn_subgraph( int: N, int: E, array [int] of int: from, array [int] of int: to, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_subgraph_int.mzn ` |
+| ` predicate fzn_subgraph( array [int] of int: from, array [int] of int: to, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_subgraph_enum.mzn ` |
+| ` predicate fzn_sum_pred( var int: idx, array [int] of set of int: sets, array [int] of int: coefficients, var int: total, ) ` | selected decomposition: ` G/fzn_sum_pred.mzn ` |
+| ` predicate fzn_sum_set( array [int] of int: values, array [int] of int: weights, var set of int: selected, var int: total, ) ` | selected decomposition: ` G/fzn_sum_set.mzn ` |
+| ` predicate fzn_symmetric_all_different(array [int] of var int: xs) ` | selected decomposition: ` S/fzn_symmetric_all_different.mzn ` |
+| ` predicate fzn_table_bool(array [int] of var bool: xs, array [int, int] of bool: tuples) ` | selected decomposition: ` G/fzn_table_bool.mzn ` |
+| ` predicate fzn_table_int(array [int] of var int: xs, array [int, int] of int: tuples) ` | selected decomposition: ` G/fzn_table_int.mzn ` |
+| ` predicate fzn_table_int_opt(array [int] of var opt int: xs, array [int, int] of opt int: tuples) ` | selected decomposition: ` S/fzn_table_int_opt.mzn ` |
+| ` predicate table_bool(array [$$E] of var bool: x, array [int, $$E] of bool: t) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/table_bool.mzn ` |
+| ` predicate table_int(array [$$E] of var int: x, array [int, $$E] of int: t) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/table_int.mzn ` |
+| ` predicate fzn_tree( int: N, int: E, array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_tree_int.mzn ` |
+| ` predicate fzn_tree( array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_tree_enum.mzn ` |
+| ` predicate fzn_dtree( int: N, int: E, array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_dtree_int.mzn ` |
+| ` predicate fzn_dtree( array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, ) ` | selected decomposition: ` S/fzn_dtree_enum.mzn ` |
+| ` predicate fzn_value_precede_int(int: before, int: after, array [int] of var int: xs) ` | selected decomposition: ` G/fzn_value_precede_int.mzn ` |
+| ` predicate fzn_value_precede_int_opt(int: before, int: after, array [int] of var opt int: xs) ` | selected decomposition: ` S/fzn_value_precede_int_opt.mzn ` |
+| ` predicate fzn_value_precede_set(int: before, int: after, array [int] of var set of int: xs) ` | selected decomposition: ` G/fzn_value_precede_set.mzn ` |
+| ` predicate fzn_value_precede_chain_int(array [int] of int: order, array [int] of var int: xs) ` | selected decomposition: ` S/fzn_value_precede_chain_int.mzn ` |
+| ` predicate fzn_value_precede_chain_int_opt( array [int] of int: order, array [int] of var opt int: xs, ) ` | selected decomposition: ` S/fzn_value_precede_chain_int_opt.mzn ` |
+| ` predicate fzn_value_precede_chain_set( array [int] of int: order, array [int] of var set of int: xs, ) ` | selected decomposition: ` S/fzn_value_precede_chain_set.mzn ` |
+| ` predicate value_precede_chain_int(array [int] of int: c, array [int] of var int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/value_precede_chain_int.mzn ` |
+| ` predicate value_precede_chain_set(array [int] of int: c, array [int] of var set of int: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/value_precede_chain_set.mzn ` |
+| ` predicate value_precede_int($$E: s, $$E: t, array [int] of var $$E: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/value_precede_int.mzn ` |
+| ` predicate value_precede_set($$E: s, $$E: t, array [int] of var set of $$E: x) :: mzn_deprecated("2.6.0", "https://www.minizinc.org/doc-2.6.0/en/lib-globals.html#deprecated") ` | selected decomposition: ` S/value_precede_set.mzn ` |
+| ` predicate fzn_var_perm_sym(array [int] of var int: xs, array [int, int] of int: permutations) ` | selected decomposition: ` S/fzn_var_perm_sym.mzn ` |
+| ` predicate fzn_var_sqr_sym(array [int, int] of var int: xs) ` | selected decomposition: ` S/fzn_var_sqr_sym.mzn ` |
+| ` predicate fzn_dwst( int: N, int: E, array [int] of int: from, array [int] of int: to, array [int] of int: w, var int: root, array [int] of var bool: es, var int: weight_bound, ) ` | selected decomposition: ` S/fzn_dwst.mzn ` |
+| ` predicate fzn_wst( int: N, int: E, array [int] of int: from, array [int] of int: to, array [int] of int: w, array [int] of var bool: es, var int: weight_bound, ) ` | selected decomposition: ` S/fzn_wst.mzn ` |
+| ` predicate fzn_write(array [int] of var int: I, var int: i, var int: v, array [int] of var int: O) ` | selected decomposition: ` S/fzn_write.mzn ` |
+| ` predicate fzn_writes( array [int] of var int: I, array [int] of var int: P, array [int] of var int: V, array [int] of var int: O, ) ` | selected decomposition: ` S/fzn_writes.mzn ` |
+| ` predicate fzn_writes_seq( array [int] of var int: I, array [int] of var int: P, array [int] of var int: V, array [int] of var int: O, ) ` | selected decomposition: ` S/fzn_writes_seq.mzn ` |
+| ` predicate gecode_blackbox( array[int] of var int: int_input, array[int] of var float: float_input, array[int] of var int: int_output, array[int] of var float: float_output ) ` | excluded external execution/search hook |
+| ` predicate gecode_blackbox_bounds( array[int] of var int: int_input, array[int] of var float: float_input, array[int] of int: flat_reason ) ` | excluded external execution/search hook |
+| ` predicate gecode_on_restart_complete(var bool: marker) ` | excluded external execution/search hook |
+| ` predicate gecode_on_restart_last_val_bool(var bool: input, var bool: out) ` | excluded external execution/search hook; malformed upstream prototype has no terminating semicolon |
+| ` predicate gecode_on_restart_last_val_float(var float: input, var float: out) ` | excluded external execution/search hook; malformed upstream prototype has no terminating semicolon |
+| ` predicate gecode_on_restart_last_val_int(var int: input, var int: out) ` | excluded external execution/search hook; malformed upstream prototype has no terminating semicolon |
+| ` predicate gecode_on_restart_last_val_set(var set of int: input, var set of int: out) ` | excluded external execution/search hook; malformed upstream prototype has no terminating semicolon |
+| ` predicate gecode_on_restart_sol_bool(var bool: input, var bool: out) ` | excluded external execution/search hook |
+| ` predicate gecode_on_restart_sol_float(var float: input, var float: out) ` | excluded external execution/search hook; malformed upstream prototype has no terminating semicolon |
+| ` predicate gecode_on_restart_sol_int(var int: input, var int: out) ` | excluded external execution/search hook |
+| ` predicate gecode_on_restart_sol_set(var set of int: input, var set of int: out) ` | excluded external execution/search hook |
+| ` predicate gecode_on_restart_status(var int: s) ` | excluded external execution/search hook; malformed upstream prototype has no terminating semicolon |
+| ` predicate gecode_on_restart_uniform_float(float: low, float: high, var float: out) ` | excluded external execution/search hook; malformed upstream prototype has no terminating semicolon |
+| ` predicate gecode_on_restart_uniform_int(int: low, int: high, var int: out) ` | excluded external execution/search hook |
+| ` predicate fzn_all_different_int(array[int] of var int: x) ` | direct checker operation |
+| ` predicate gecode_all_different_optional( array[int] of var int: x, array[int] of var bool: present, ) ` | direct checker operation |
+| ` predicate fzn_all_equal_int(array[int] of var int: x) ` | direct checker operation |
+| ` predicate gecode_not_all_equal_int(array[int] of var int: xs) ` | direct checker operation |
+| ` predicate gecode_all_different_except(array[int] of var int: x, int: except_value) ` | direct checker operation |
+| ` predicate fzn_among(var int: n, array[int] of var int: x, set of int: v) ` | direct checker operation |
+| ` predicate gecode_maximum_arg_bool_offset(array[int] of var bool: x, int: offset, var int: i) ` | direct checker operation |
+| ` predicate gecode_maximum_arg_int_offset(array[int] of var int: x, int: offset, var int: i) ` | direct checker operation |
+| ` predicate gecode_minimum_arg_bool_offset(array[int] of var bool: x, int: offset, var int: i) ` | direct checker operation |
+| ` predicate gecode_minimum_arg_int_offset(array[int] of var int: x, int: offset, var int: i) ` | direct checker operation |
+| ` predicate gecode_array_set_intersect( array[int] of var set of int: x, var set of int: y, ) ` | direct checker operation |
+| ` predicate fzn_at_least_int(int: n, array[int] of var int: x, int: v) ` | direct checker operation |
+| ` predicate fzn_at_most_int(int: n, array[int] of var int: x, int: v) ` | direct checker operation |
+| ` predicate gecode_bin_packing_load(array[int] of var int: l, array[int] of var int: bin, array[int] of int: w, int: minIndex) ` | direct checker operation |
+| ` predicate gecode_circuit(int: offset, array[int] of var int: x) ` | direct checker operation |
+| ` predicate fzn_count_eq(array[int] of var int: x, var int: y, var int: c) ` | direct checker operation |
+| ` predicate fzn_count_eq_reif(array[int] of var int: x, var int: y, var int: c, var bool: b) ` | direct checker operation |
+| ` predicate fzn_count_eq_imp(array[int] of var int: x, var int: y, var int: c, var bool: r) ` | direct checker operation |
+| ` predicate gecode_count_int_fzn( array[int] of var int: x, var int: value, int: relation, var int: n, ) ` | direct checker operation |
+| ` predicate gecode_unary_flex( array[int] of var int: s, array[int] of var int: d, array[int] of var int: e, ) ` | direct checker operation |
+| ` predicate gecode_cumulative_flex( array[int] of var int: s, array[int] of var int: d, array[int] of var int: e, array[int] of int: r, var int: b, ) ` | direct checker operation |
+| ` predicate gecode_cumulative_flex_optional( array[int] of var int: s, array[int] of var int: d, array[int] of var int: e, array[int] of int: r, var int: b, array[int] of var bool: present, ) ` | direct checker operation |
+| ` predicate gecode_cumulatives_flex( array[int] of var int: s, array[int] of var int: d, array[int] of var int: e, array[int] of var int: r, array[int] of var int: m, array[int] of int: b, bool: upper, ) ` | direct checker operation |
+| ` predicate gecode_schedule_unary( array[int] of var int: s, array[int] of int: d, ) ` | direct checker operation |
+| ` predicate gecode_schedule_cumulative_optional( array[int] of var int: s, array[int] of int: d, array[int] of int: r, array[int] of var bool: present, var int: b, ) ` | direct checker operation |
+| ` predicate gecode_cumulatives( array[int] of var int: s, array[int] of var int: d, array[int] of var int: r, var int: b, ) ` | direct checker operation |
+| ` predicate gecode_schedule_cumulative_optional( array[int] of var int: start, array[int] of int: duration, array[int] of int: usage, array[int] of var bool: m, var int: capacity, ) ` | direct checker operation |
+| ` predicate gecode_cumulative_flex_optional( array[int] of var int: start, array[int] of var int: duration, array[int] of var int: end, array[int] of int: usage, var int: capacity, array[int] of var bool: present, ) ` | direct checker operation |
+| ` predicate gecode_cumulatives( array[int] of var int: s, array[int] of var int: d, array[int] of var int: r, array[int] of var int: m, array[int] of int: b, bool: upper, ) ` | direct checker operation |
+| ` predicate fzn_decreasing_bool(array[int] of var bool: x) ` | direct checker operation |
+| ` predicate fzn_decreasing_int(array[int] of var int: x) ` | direct checker operation |
+| ` predicate gecode_nooverlap_fzn( array[int] of var int: x, array[int] of var int: w, array[int] of var int: y, array[int] of var int: h, ) ` | direct checker operation |
+| ` predicate fzn_disjoint(var set of int: s1, var set of int: s2) ` | direct checker operation |
+| ` predicate gecode_schedule_unary(array[int] of var int: x, array[int] of int: p) ` | direct checker operation |
+| ` predicate gecode_schedule_unary_optional( array[int] of var int: x, array[int] of int: p, array[int] of var bool: m, ) ` | direct checker operation |
+| ` predicate gecode_unary_flex_optional( array[int] of var int: start, array[int] of var int: duration, array[int] of var int: end, array[int] of var bool: present, ) ` | direct checker operation |
+| ` predicate gecode_global_cardinality(array[int] of var int: x, array[int] of int: cover, array[int] of var int: counts) ` | direct checker operation |
+| ` predicate gecode_global_cardinality_closed(array[int] of var int: x, array[int] of int: cover, array[int] of var int: counts) ` | direct checker operation |
+| ` predicate fzn_global_cardinality_low_up(array[int] of var int: x, array[int] of int: cover, array[int] of int: lbound, array[int] of int: ubound) ` | direct checker operation |
+| ` predicate fzn_global_cardinality_low_up_closed(array[int] of var int: x, array[int] of int: cover, array[int] of int: lbound, array[int] of int: ubound) ` | direct checker operation |
+| ` predicate gecode_bool_ite( var bool: b, var bool: x, var bool: y, var bool: z, ) ` | direct checker operation |
+| ` predicate gecode_float_ite( var bool: b, var float: x, var float: y, var float: z, ) ` | direct checker operation |
+| ` predicate gecode_int_ite( var bool: b, var int: x, var int: y, var int: z, ) ` | direct checker operation |
+| ` predicate gecode_set_ite( var bool: b, var set of int: x, var set of int: y, var set of int: z, ) ` | direct checker operation |
+| ` predicate fzn_increasing_bool(array[int] of var bool: x) ` | direct checker operation |
+| ` predicate fzn_increasing_int(array[int] of var int: x) ` | direct checker operation |
+| ` predicate gecode_int_set_channel(array[int] of var int: x, int: xoff, array[int] of var set of int: y, int: yoff) ` | direct checker operation |
+| ` predicate inverse_offsets(array[int] of var int: f, int: foff, array[int] of var int: invf, int: invfoff) ` | direct checker operation |
+| ` predicate gecode_inverse_set(array[int] of var set of int: f, array[int] of var set of int: invf, int: xoff, int: yoff) ` | direct checker operation |
+| ` predicate array_bool_lt(array[int] of var bool: x, array[int] of var bool: y) ` | direct checker operation |
+| ` predicate array_int_lt(array[int] of var int: x, array[int] of var int: y) ` | direct checker operation |
+| ` predicate array_bool_lq(array[int] of var bool: x, array[int] of var bool: y) ` | direct checker operation |
+| ` predicate array_int_lq(array[int] of var int: x, array[int] of var int: y) ` | direct checker operation |
+| ` predicate gecode_link_set_to_booleans(var set of int: s, array[int] of var bool: b, int: idx) ` | direct checker operation |
+| ` predicate fzn_member_bool(array[int] of var bool: x, var bool: y) ` | direct checker operation |
+| ` predicate gecode_member_bool_reif(array[int] of var bool: x, var bool: y, var bool: b) ` | direct checker operation |
+| ` predicate fzn_member_int(array[int] of var int: x, var int: y) ` | direct checker operation |
+| ` predicate gecode_member_int_reif(array[int] of var int: x, var int: y, var bool: b) ` | direct checker operation |
+| ` predicate fzn_nvalue(var int: n, array[int] of var int: x) ` | direct checker operation |
+| ` predicate array_set_partition(array[int] of var set of int: S, set of int: universe) ` | direct checker operation |
+| ` predicate gecode_range(array[int] of var int: x, int: xoff, var set of int: s, var set of int: t) ` | direct checker operation |
+| ` predicate gecode_regular(array[int] of var int: x, int: Q, int: S, array[int] of int: d, int: q0, set of int: F) ` | direct checker operation |
+| ` predicate gecode_regular_nfa_int_fzn( array[int] of var int: x, int: q, int: first_symbol, int: symbols, array[int] of set of int: transitions, int: initial, set of int: final, ) ` | direct checker operation |
+| ` predicate gecode_array_set_element_union(var set of int: x, array[int] of var set of int: y, var set of int: z) ` | direct checker operation |
+| ` predicate gecode_among_seq_bool(array[int] of var bool: x, bool: b, int: l, int: m, int: n) ` | direct checker operation |
+| ` predicate gecode_among_seq_int(array[int] of var int: x, set of int: S, int: l, int: m, int: n) ` | direct checker operation |
+| ` predicate fzn_sort(array[int] of var int: x, array[int] of var int: y) ` | direct checker operation |
+| ` predicate gecode_set_weights(array[int] of int: csi,array[int] of int: cs, var set of int: x, var int: y) ` | direct checker operation |
+| ` predicate gecode_table_bool(array[int] of var bool: x, array[int] of bool: t) ` | direct checker operation |
+| ` predicate gecode_table_bool_reif(array[int] of var bool: x, array[int] of bool: t, var bool: b) ` | direct checker operation |
+| ` predicate gecode_table_bool_imp(array[int] of var bool: x, array[int] of bool: t, var bool: b) ` | direct checker operation |
+| ` predicate gecode_table_int(array[int] of var int: x, array[int] of int: t) ` | direct checker operation |
+| ` predicate gecode_table_int_reif(array[int] of var int: x, array[int] of int: t, var bool: b) ` | direct checker operation |
+| ` predicate gecode_table_int_imp(array[int] of var int: x, array[int] of int: t, var bool: b) ` | direct checker operation |
+| ` predicate gecode_precede(array[int] of var int: x, int: s, int: t) ` | direct checker operation |
+| ` predicate gecode_precede_set(array[int] of var set of int: x, int: s, int: t) ` | direct checker operation |
+| ` predicate gecode_array_set_element_intersect(var set of int: x, array[int] of var set of int: y, var set of int: z) ` | direct checker operation |
+| ` predicate gecode_array_set_element_partition(var set of int: x, array[int] of var set of int: y, var set of int: z) ` | direct checker operation |
+| ` predicate gecode_array_set_element_intersect_in(var set of int: x, array[int] of var set of int: y, var set of int: z, set of int: u) ` | direct checker operation |
+| ` predicate gecode_circuit_cost_array(array[int] of int: c, array[int] of var int: x, array[int] of var int: y, var int: z) ` | direct checker operation |
+| ` predicate gecode_circuit_cost(array[int] of int: c, array[int] of var int: x, var int: z) ` | direct checker operation |
+| ` predicate gecode_schedule_unary_optional(array[int] of var int: x, array[int] of int: p, array[int] of var bool: m) ` | direct checker operation |
+| ` predicate gecode_schedule_cumulative_optional(array[int] of var int: start, array[int] of int: duration, array[int] of int: usage, array[int] of var bool: m, var int: capacity) ` | direct checker operation |
+| ` predicate gecode_inter_distance_fzn(array[int] of var int: x, var int: distance) ` | direct checker operation |
+| ` predicate gecode_all_different_offset_fzn( array[int] of int: offset, array[int] of var int: x, ) ` | direct checker operation |
+| ` predicate gecode_bool_int_channel( array[int] of var bool: x, var int: value, int: offset, ) ` | direct checker operation |
+| ` predicate gecode_sort_permutation( array[int] of var int: x, array[int] of var int: y, array[int] of var int: permutation, int: offset, ) ` | direct checker operation |
+| ` predicate gecode_count_int_fzn( array[int] of var int: x, var int: value, int: relation, var int: count, ) ` | direct checker operation |
+| ` predicate gecode_count_matches_fzn( array[int] of var int: x, array[int] of int: values, int: relation, var int: count, ) ` | direct checker operation |
+| ` predicate gecode_array_int_ne(array[int] of var int: x, array[int] of var int: y) ` | direct checker operation |
+| ` predicate gecode_array_bool_ne(array[int] of var bool: x, array[int] of var bool: y) ` | direct checker operation |
+| ` predicate gecode_not_all_equal_int(array[int] of var int: x) ` | direct checker operation |
+| ` predicate gecode_int_ite(var bool: b, var int: x, var int: y, var int: z) ` | direct checker operation |
+| ` predicate gecode_bool_ite(var bool: b, var bool: x, var bool: y, var bool: z) ` | direct checker operation |
+| ` predicate gecode_float_ite(var bool: b, var float: x, var float: y, var float: z) ` | direct checker operation |
+| ` predicate gecode_gcd_int(var int: x, var int: y, var int: result) ` | direct checker operation |
+| ` predicate gecode_gcd_int_reif(var int: x, var int: y, var int: result, var bool: b) ` | direct checker operation |
+| ` predicate gecode_gcd_int_imp(var int: x, var int: y, var int: result, var bool: b) ` | direct checker operation |
+| ` predicate gecode_divides_int(var int: divisor, var int: dividend) ` | direct checker operation |
+| ` predicate gecode_divides_int_reif(var int: divisor, var int: dividend, var bool: b) ` | direct checker operation |
+| ` predicate gecode_divides_int_imp(var int: divisor, var int: dividend, var bool: b) ` | direct checker operation |
+| ` predicate gecode_product_int(array[int] of var int: x, var int: result) ` | direct checker operation |
+| ` predicate gecode_product_int_reif(array[int] of var int: x, var int: result, var bool: b) ` | direct checker operation |
+| ` predicate gecode_product_int_imp(array[int] of var int: x, var int: result, var bool: b) ` | direct checker operation |
+| ` predicate gecode_product_mod_fixed_fzn(array[int] of var int: x, int: modulus, var int: result) ` | direct checker operation |
+| ` predicate gecode_product_mod_fixed_fzn_reif(array[int] of var int: x, int: modulus, var int: result, var bool: b) ` | direct checker operation |
+| ` predicate gecode_product_mod_fixed_fzn_imp(array[int] of var int: x, int: modulus, var int: result, var bool: b) ` | direct checker operation |
+| ` predicate gecode_product_mod_var_fzn(array[int] of var int: x, var int: modulus, var int: result) ` | direct checker operation |
+| ` predicate gecode_product_mod_var_fzn_reif(array[int] of var int: x, var int: modulus, var int: result, var bool: b) ` | direct checker operation |
+| ` predicate gecode_product_mod_var_fzn_imp(array[int] of var int: x, var int: modulus, var int: result, var bool: b) ` | direct checker operation |
+| ` predicate gecode_minimum_distance_fzn( array[int] of var int: sites, int: size, array[int] of int: distances, var int: result, ) ` | direct checker operation |
+| ` predicate gecode_minimum_distance_required_fzn( array[int] of var int: sites, int: size, array[int] of int: distances, var int: result, array[int] of int: requirements, ) ` | direct checker operation |
+| ` predicate gecode_int_nroot(var int: x, int: n, var int: y) ` | direct checker operation |
+| ` predicate gecode_unary_flex( array[int] of var int: start, array[int] of var int: duration, array[int] of var int: end, ) ` | direct checker operation |
+| ` predicate gecode_cumulative_flex( array[int] of var int: start, array[int] of var int: duration, array[int] of var int: end, array[int] of int: usage, var int: capacity, ) ` | direct checker operation |
+| ` predicate gecode_cumulatives_flex( array[int] of var int: start, array[int] of var int: duration, array[int] of var int: end, array[int] of var int: usage, array[int] of var int: machine, array[int] of int: capacity, bool: upper, ) ` | direct checker operation |
+| ` predicate gecode_nooverlap_optional( array[int] of var int: x, array[int] of int: width, array[int] of var int: y, array[int] of int: height, array[int] of var bool: present, ) ` | direct checker operation |
+| ` predicate gecode_nooverlap_flex_optional( array[int] of var int: x, array[int] of var int: width, array[int] of var int: right, array[int] of var int: y, array[int] of var int: height, array[int] of var int: top, array[int] of var bool: present, ) ` | direct checker operation |
+| ` predicate gecode_set_convex_hull(var set of int: x, var set of int: hull) ` | direct checker operation |
+| ` predicate gecode_set_convex(var set of int: x) ` | direct checker operation |
+| ` predicate gecode_set_atmost_one(array[int] of var set of int: x, int: cardinality) ` | direct checker operation |
+| ` predicate gecode_set_channel_sorted(array[int] of var int: x, var set of int: y) ` | direct checker operation |
+| ` predicate gecode_set_element2d( array[int] of var set of int: x, var int: column, int: width, var int: row, int: height, var set of int: value, ) ` | direct checker operation |
+| ` predicate gecode_float_pow(var float: x, int: n, var float: y) ` | direct checker operation |
+| ` predicate gecode_float_array_min(array[int] of var float: x, var float: y) ` | direct checker operation |
+| ` predicate gecode_float_array_max(array[int] of var float: x, var float: y) ` | direct checker operation |
+| ` predicate gecode_float_pow_base(float: base, var float: x, var float: y) ` | direct checker operation |
+| ` predicate gecode_arg_min_int( array[int] of var int: x, int: offset, var int: index, bool: break_ties, ) ` | direct checker operation |
+| ` predicate gecode_arg_max_int( array[int] of var int: x, int: offset, var int: index, bool: break_ties, ) ` | direct checker operation |
+| ` predicate gecode_arg_min_bool( array[int] of var bool: x, int: offset, var int: index, bool: break_ties, ) ` | direct checker operation |
+| ` predicate gecode_arg_max_bool( array[int] of var bool: x, int: offset, var int: index, bool: break_ties, ) ` | direct checker operation |
+| ` predicate gecode_set_min(var set of int: s, var int: x) ` | direct checker operation |
+| ` predicate gecode_set_min_reif(var set of int: s, var int: x, var bool: b) ` | direct checker operation |
+| ` predicate gecode_set_min_imp(var set of int: s, var int: x, var bool: b) ` | direct checker operation |
+| ` predicate gecode_set_max(var set of int: s, var int: x) ` | direct checker operation |
+| ` predicate gecode_set_max_reif(var set of int: s, var int: x, var bool: b) ` | direct checker operation |
+| ` predicate gecode_set_max_imp(var set of int: s, var int: x, var bool: b) ` | direct checker operation |
+| ` predicate gecode_array_set_seq(array[int] of var set of int: x) ` | direct checker operation |
+| ` predicate gecode_array_set_seq_union(array[int] of var set of int: x, var set of int: y) ` | direct checker operation |
+| ` predicate gecode_float_rel_imp_fzn(var float: x, int: relation, var float: y, var bool: b) ` | direct checker operation |
+| ` predicate gecode_set_rel_imp_fzn(var set of int: x, int: relation, var set of int: y, var bool: b) ` | direct checker operation |
+| ` predicate gecode_bool_element(var int: idx, int: idxoffset, array[int] of var bool: x, var bool: c) ` | direct checker operation |
+| ` predicate gecode_int_element(var int: idx, int: idxoffset, array[int] of var int: x, var int: c) ` | direct checker operation |
+| ` predicate bool_clause_reif(array[int] of var bool: as, array[int] of var bool: bs, var bool: b) ` | direct checker operation |
+| ` predicate array_int_maximum(var int: m, array[int] of var int: x) ` | direct checker operation |
+| ` predicate gecode_float_array_max(array[int] of var float: x, var float: m) ` | direct checker operation |
+| ` predicate array_int_minimum(var int: m, array[int] of var int: x) ` | direct checker operation |
+| ` predicate gecode_float_array_min(array[int] of var float: x, var float: m) ` | direct checker operation |
+| ` predicate gecode_set_min(var set of int: s, var int: m) ` | direct checker operation |
+| ` predicate gecode_set_min_reif(var set of int: s, var int: m, var bool: b) ` | direct checker operation |
+| ` predicate gecode_set_min_imp(var set of int: s, var int: m, var bool: b) ` | direct checker operation |
+| ` predicate gecode_set_max(var set of int: s, var int: m) ` | direct checker operation |
+| ` predicate gecode_set_max_reif(var set of int: s, var int: m, var bool: b) ` | direct checker operation |
+| ` predicate gecode_set_max_imp(var set of int: s, var int: m, var bool: b) ` | direct checker operation |
+| ` predicate gecode_int_pow(var int: x, int: y, var int: z) ` | direct checker operation |
+| ` predicate gecode_int_element2d(var int: idx1, var int: idx2, array[int] of var int: x, set of int: idxset1, set of int: idxset2, var int: c) ` | direct checker operation |
+| ` predicate gecode_bool_element2d(var int: idx1, var int: idx2, array[int] of var bool: x, set of int: idxset1, set of int: idxset2, var bool: c) ` | direct checker operation |
+| ` predicate bool_lin_eq(array[int] of int: a, array[int] of var bool: x, var int: c) ` | direct checker operation |
+| ` predicate bool_lin_ne(array[int] of int: a, array[int] of var bool: x, var int: c) ` | direct checker operation |
+| ` predicate bool_lin_le(array[int] of int: a, array[int] of var bool: x, var int: c) ` | direct checker operation |
+| ` predicate bool_lin_lt(array[int] of int: a, array[int] of var bool: x, var int: c) ` | direct checker operation |
+| ` predicate bool_lin_ge(array[int] of int: a, array[int] of var bool: x, var int: c) ` | direct checker operation |
+| ` predicate bool_lin_gt(array[int] of int: a, array[int] of var bool: x, var int: c) ` | direct checker operation |
+| ` predicate array_bool_and_imp(array [int] of var bool: as, var bool: r) ` | direct checker operation |
+| ` predicate array_bool_or_imp(array [int] of var bool: as, var bool: r) ` | direct checker operation |
+| ` predicate array_bool_xor_imp(array [int] of var bool: as, var bool: r) ` | direct checker operation |
+| ` predicate bool_and_imp(var bool: a, var bool: b, var bool: r) ` | direct checker operation |
+| ` predicate bool_clause_imp(array [int] of var bool: as, array [int] of var bool: bs, var bool: r) ` | direct checker operation |
+| ` predicate bool_ge_imp(var bool: a, var bool: b, var bool: r) ` | direct checker operation |
+| ` predicate bool_gt_imp(var bool: a, var bool: b, var bool: r) ` | direct checker operation |
+| ` predicate bool_le_imp(var bool: a, var bool: b, var bool: r) ` | direct checker operation |
+| ` predicate bool_lt_imp(var bool: a, var bool: b, var bool: r) ` | direct checker operation |
+| ` predicate bool_ne_imp(var bool: a, var bool: b, var bool: r) ` | direct checker operation |
+| ` predicate bool_or_imp(var bool: a, var bool: b, var bool: r) ` | direct checker operation |
+| ` predicate bool_xor_imp(var bool: a, var bool: b, var bool: r) ` | direct checker operation |
+| ` predicate bool_lin_eq_imp(array [int] of int: as, array [int] of var bool: bs, var int: c, var bool: r) ` | direct checker operation |
+| ` predicate bool_lin_ge_imp(array [int] of int: as, array [int] of var bool: bs, var int: c, var bool: r) ` | direct checker operation |
+| ` predicate bool_lin_gt_imp(array [int] of int: as, array [int] of var bool: bs, var int: c, var bool: r) ` | direct checker operation |
+| ` predicate bool_lin_le_imp(array [int] of int: as, array [int] of var bool: bs, var int: c, var bool: r) ` | direct checker operation |
+| ` predicate bool_lin_lt_imp(array [int] of int: as, array [int] of var bool: bs, var int: c, var bool: r) ` | direct checker operation |
+| ` predicate bool_lin_ne_imp(array [int] of int: as, array [int] of var bool: bs, var int: c, var bool: r) ` | direct checker operation |
+| ` predicate int_eq_imp(var int: a, var int: b, var bool: r) ` | direct checker operation |
+| ` predicate int_ge_imp(var int: a, var int: b, var bool: r) ` | direct checker operation |
+| ` predicate int_gt_imp(var int: a, var int: b, var bool: r) ` | direct checker operation |
+| ` predicate int_le_imp(var int: a, var int: b, var bool: r) ` | direct checker operation |
+| ` predicate int_lt_imp(var int: a, var int: b, var bool: r) ` | direct checker operation |
+| ` predicate int_ne_imp(var int: a, var int: b, var bool: r) ` | direct checker operation |
+| ` predicate int_lin_eq_imp(array [int] of int: as, array [int] of var int: bs, int: c, var bool: r) ` | direct checker operation |
+| ` predicate int_lin_ge_imp(array [int] of int: as, array [int] of var int: bs, int: c, var bool: r) ` | direct checker operation |
+| ` predicate int_lin_gt_imp(array [int] of int: as, array [int] of var int: bs, int: c, var bool: r) ` | direct checker operation |
+| ` predicate int_lin_le_imp(array [int] of int: as, array [int] of var int: bs, int: c, var bool: r) ` | direct checker operation |
+| ` predicate int_lin_lt_imp(array [int] of int: as, array [int] of var int: bs, int: c, var bool: r) ` | direct checker operation |
+| ` predicate int_lin_ne_imp(array [int] of int: as, array [int] of var int: bs, int: c, var bool: r) ` | direct checker operation |
+| ` predicate set_in_imp(var int: x, set of int: S, var bool: r) ` | direct checker operation |
+| ` predicate gecode_float_rel_imp_fzn( var float: x, int: relation, var float: y, var bool: b, ) ` | direct checker operation |
+| ` predicate gecode_set_rel_imp_fzn( var set of int: x, int: relation, var set of int: y, var bool: b, ) ` | direct checker operation |
+
+### Gecode source compiler limits
+
+The selected tree contains 31 unconditional abort bodies across 26 predicate names. These forms cannot emit a checker operation and get no runtime-support credit. Gecode's native integer and Boolean table reifiers bypass the standard tuple-width restriction.
+
+| Source | Rejected signature |
+| --- | --- |
+| ` S/fzn_circuit_reif.mzn ` | ` predicate fzn_circuit_reif(array [int] of var int: xs, var bool: b) ` |
+| ` S/fzn_connected_reif.mzn ` | ` predicate fzn_connected_reif( array [int] of int: from, array [int] of int: to, array [int] of var bool: ns, array [int] of var bool: es, var bool: b, ) ` |
+| ` S/fzn_cost_mdd_reif.mzn ` | ` predicate fzn_cost_mdd_reif( array [int] of var int: xs, int: N, array [int] of int: level, int: E, array [int] of int: from, array [int] of set of int: label, array [int] of int: cost, array [int] of int: to, var int: total_cost, var bool: b, ) ` |
+| ` S/fzn_cost_regular_reif.mzn ` | ` predicate fzn_cost_regular_reif( array [int] of var int: xs, int: Q, int: S, array [int, int] of int: d, int: q0, set of int: F, array [int, int] of int: cost, var int: total_cost, var bool: b, ) ` |
+| ` S/fzn_dag_reif.mzn ` | ` predicate fzn_dag_reif( array [int] of int: from, array [int] of int: to, array [int] of var bool: ns, array [int] of var bool: es, var bool: b, ) ` |
+| ` S/fzn_dconnected_reif.mzn ` | ` predicate fzn_dconnected_reif( array [int] of int: from, array [int] of int: to, array [int] of var bool: ns, array [int] of var bool: es, var bool: b, ) ` |
+| ` S/fzn_dpath_enum_reif.mzn ` | ` predicate fzn_dpath_reif( array [int] of int: from, array [int] of int: to, var int: source, var int: sink, array [int] of var bool: ns, array [int] of var bool: es, var bool: b, ) ` |
+| ` S/fzn_dreachable_enum_reif.mzn ` | ` predicate fzn_dreachable_reif( array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, var bool: b, ) ` |
+| ` S/fzn_dreachable_int_reif.mzn ` | ` predicate fzn_dreachable_reif( int: N, int: E, array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, var bool: b, ) ` |
+| ` S/fzn_dsteiner_reif.mzn ` | ` predicate fzn_dsteiner_reif( int: N, int: E, array [int] of int: from, array [int] of int: to, array [int] of int: w, var int: root, array [int] of var bool: ns, array [int] of var bool: es, var int: weight_bound, var bool: b, ) ` |
+| ` S/fzn_dtree_enum_reif.mzn ` | ` predicate fzn_dtree_reif( array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, var bool: b, ) ` |
+| ` S/fzn_dtree_int_reif.mzn ` | ` predicate fzn_dtree_reif( int: N, int: E, array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, var bool: b, ) ` |
+| ` S/fzn_dwst_reif.mzn ` | ` predicate fzn_dwst_reif( int: N, int: E, array [int] of int: from, array [int] of int: to, array [int] of int: w, var int: root, array [int] of var bool: es, var int: weight_bound, var bool: b, ) ` |
+| ` S/fzn_neural_net_reif.mzn ` | ` predicate fzn_neural_net_reif( array [int] of var float: inputs, array [int] of int: input_id, array [int] of var float: outputs, array [int] of int: output_id, array [int] of float: bias, array [int] of float: edge_weight, array [int] of int: edge_parent, array [int] of int: first_edge, NEURON_TYPE: neuron_type, var bool: b, ) ` |
+| ` S/fzn_path_enum_reif.mzn ` | ` predicate fzn_path_reif( array [int] of int: from, array [int] of int: to, var int: source, var int: sink, array [int] of var bool: ns, array [int] of var bool: es, var bool: b, ) ` |
+| ` S/fzn_path_int_reif.mzn ` | ` predicate fzn_path_reif( int: N, int: E, array [int] of int: from, array [int] of int: to, var int: source, var int: sink, array [int] of var bool: ns, array [int] of var bool: es, var bool: b, ) ` |
+| ` S/fzn_piecewise_linear_non_continuous_reif.mzn ` | ` predicate fzn_piecewise_linear_non_continuous_reif( var float: x, var float: y, array [int] of float: x_start, array [int] of float: x_end, array [int] of float: y_start, array [int] of float: y_end, var bool: b, ) ` |
+| ` S/fzn_piecewise_linear_reif.mzn ` | ` predicate fzn_piecewise_linear_reif( var float: x, var float: y, array [int] of float: x_knot, array [int] of float: y_knot, var bool: b, ) ` |
+| ` S/fzn_regular_nfa_reif.mzn ` | ` predicate fzn_regular_nfa_reif( array [int] of var int: xs, int: Q, int: S, array [int, int] of set of int: d, int: q0, set of int: F, var bool: b, ) ` |
+| ` S/fzn_regular_nfa_set_reif.mzn ` | ` predicate fzn_regular_nfa_reif( array [int] of var int: xs, int: Q, set of int: S, array [int, int] of set of int: d, int: q0, set of int: F, var bool: b, ) ` |
+| ` S/fzn_seq_precede_chain_int_reif.mzn ` | ` predicate fzn_seq_precede_chain_int_reif(array [int] of var int: xs, var bool: b) ` |
+| ` S/fzn_seq_precede_chain_set_reif.mzn ` | ` predicate fzn_seq_precede_chain_set_reif(array [int] of var set of int: X) ` |
+| ` S/fzn_steiner_reif.mzn ` | ` predicate fzn_steiner_reif( int: N, int: E, array [int] of int: from, array [int] of int: to, array [int] of int: w, array [int] of var bool: ns, array [int] of var bool: es, var int: weight_bound, var bool: b, ) ` |
+| ` S/fzn_subcircuit_reif.mzn ` | ` predicate fzn_subcircuit_reif(array [int] of var int: xs, var bool: b) ` |
+| ` S/fzn_tree_enum_reif.mzn ` | ` predicate fzn_tree_reif( array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, var bool: b, ) ` |
+| ` S/fzn_tree_int_reif.mzn ` | ` predicate fzn_tree_reif( int: N, int: E, array [int] of int: from, array [int] of int: to, var int: root, array [int] of var bool: ns, array [int] of var bool: es, var bool: b, ) ` |
+| ` S/fzn_value_precede_chain_int_reif.mzn ` | ` predicate fzn_value_precede_chain_int_reif( array [int] of int: order, array [int] of var int: xs, var bool: b, ) ` |
+| ` S/fzn_value_precede_chain_set_reif.mzn ` | ` predicate fzn_value_precede_chain_set_reif( array [int] of int: order, array [int] of var set of int: xs, var bool: b, ) ` |
+| ` S/fzn_value_precede_int_reif.mzn ` | ` predicate fzn_value_precede_int_reif(int: before, int: after, array [int] of var int: xs, var bool: b) ` |
+| ` S/fzn_value_precede_set_reif.mzn ` | ` predicate fzn_value_precede_set_reif( int: before, int: after, array [int] of var set of int: xs, var bool: b, ) ` |
+| ` S/fzn_wst_reif.mzn ` | ` predicate fzn_wst_reif( int: N, int: E, array [int] of int: from, array [int] of int: to, array [int] of int: w, array [int] of var bool: es, var int: weight_bound, var bool: b, ) ` |
+
 ## Extracted totals and name index
 
-The two source trees contain 743 standard files and 102 Gecode files, with 3187 declarations. The static default closure selects 605 files for the standard profile and 604 files for Gecode. Every file is indexed below, including optional entry points, deprecated companions and resources outside those default closures.
+The two source trees contain 743 standard files and 102 Gecode files, with 3195 declarations. The static default closure selects 605 files for the standard profile and 604 files for Gecode. Every file is indexed below, including optional entry points, deprecated companions and resources outside those default closures.
 
 The name index links to the first declaration; each source file table lists its overloads and repeated declarations. The registry table lists every generated alias separately from this source index.
 
@@ -1417,13 +2105,13 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r070"></a>[R070](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2183) | ` bool_or_imp `, ` gecode_bool_or_imp `, ` fzn_bool_or_imp ` | ` p_bool_or_imp ` / ` always ` | [D3133](#d3133) | ` bool_or_imp `, ` gecode_bool_or_imp `, ` fzn_bool_or_imp ` | [checker-014](#family-014) | none (guard) |
 | <a id="r071"></a>[R071](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2184) | ` bool_and `, ` gecode_bool_and `, ` fzn_bool_and ` | ` p_bool_and ` / ` always ` | [D0484](#d0484) | ` bool_and `, ` gecode_bool_and `, ` fzn_bool_and ` | [checker-014](#family-014) | result Boolean when present; XOR arity rule |
 | <a id="r072"></a>[R072](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2185) | ` bool_and_imp `, ` gecode_bool_and_imp `, ` fzn_bool_and_imp ` | ` p_bool_and_imp ` / ` always ` | [D3125](#d3125) | ` bool_and_imp `, ` gecode_bool_and_imp `, ` fzn_bool_and_imp ` | [checker-014](#family-014) | none (guard) |
-| <a id="r073"></a>[R073](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2186) | ` bool_xor `, ` gecode_bool_xor `, ` fzn_bool_xor ` | ` p_bool_xor ` / ` always ` | [D0496](#d0496), [D1967](#d1967) | ` bool_xor `, ` gecode_bool_xor `, ` fzn_bool_xor ` | [checker-014](#family-014) | result Boolean when present; XOR arity rule |
+| <a id="r073"></a>[R073](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2186) | ` bool_xor `, ` gecode_bool_xor `, ` fzn_bool_xor ` | ` p_bool_xor ` / ` always ` | [D0496](#d0496) | ` bool_xor `, ` gecode_bool_xor `, ` fzn_bool_xor ` | [checker-014](#family-014) | result Boolean when present; XOR arity rule |
 | <a id="r074"></a>[R074](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2187) | ` bool_xor_imp `, ` gecode_bool_xor_imp `, ` fzn_bool_xor_imp ` | ` p_bool_xor_imp ` / ` always ` | [D3134](#d3134) | ` bool_xor_imp `, ` gecode_bool_xor_imp `, ` fzn_bool_xor_imp ` | [checker-014](#family-014) | none (guard) |
-| <a id="r075"></a>[R075](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2188) | ` array_bool_and `, ` gecode_array_bool_and `, ` fzn_array_bool_and ` | ` p_array_bool_and ` / ` always ` | [D0558](#d0558); handler: ` array_bool_and(array[int] of var bool: x) ` or ` array_bool_and(array[int] of var bool: x, var bool: b) ` | ` array_bool_and `, ` gecode_array_bool_and `, ` fzn_array_bool_and ` | [checker-014](#family-014) | result Boolean when present; XOR arity rule |
+| <a id="r075"></a>[R075](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2188) | ` array_bool_and `, ` gecode_array_bool_and `, ` fzn_array_bool_and ` | ` p_array_bool_and ` / ` always ` | [D0558](#d0558), ` array_bool_and(array[int] of var bool: x) ` (handler) | ` array_bool_and `, ` gecode_array_bool_and `, ` fzn_array_bool_and ` | [checker-014](#family-014) | result Boolean when present; XOR arity rule |
 | <a id="r076"></a>[R076](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2189) | ` array_bool_and_imp `, ` gecode_array_bool_and_imp `, ` fzn_array_bool_and_imp ` | ` p_array_bool_and_imp ` / ` always ` | [D3122](#d3122) | ` array_bool_and_imp `, ` gecode_array_bool_and_imp `, ` fzn_array_bool_and_imp ` | [checker-014](#family-014) | none (guard) |
-| <a id="r077"></a>[R077](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2190) | ` array_bool_or `, ` gecode_array_bool_or `, ` fzn_array_bool_or ` | ` p_array_bool_or ` / ` always ` | [D0590](#d0590); handler: ` array_bool_or(array[int] of var bool: x) ` or ` array_bool_or(array[int] of var bool: x, var bool: b) ` | ` array_bool_or `, ` gecode_array_bool_or `, ` fzn_array_bool_or ` | [checker-014](#family-014) | result Boolean when present; XOR arity rule |
+| <a id="r077"></a>[R077](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2190) | ` array_bool_or `, ` gecode_array_bool_or `, ` fzn_array_bool_or ` | ` p_array_bool_or ` / ` always ` | [D0590](#d0590), ` array_bool_or(array[int] of var bool: x) ` (handler) | ` array_bool_or `, ` gecode_array_bool_or `, ` fzn_array_bool_or ` | [checker-014](#family-014) | result Boolean when present; XOR arity rule |
 | <a id="r078"></a>[R078](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2191) | ` array_bool_or_imp `, ` gecode_array_bool_or_imp `, ` fzn_array_bool_or_imp ` | ` p_array_bool_or_imp ` / ` always ` | [D3123](#d3123) | ` array_bool_or_imp `, ` gecode_array_bool_or_imp `, ` fzn_array_bool_or_imp ` | [checker-014](#family-014) | none (guard) |
-| <a id="r079"></a>[R079](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2192) | ` array_bool_xor `, ` gecode_array_bool_xor `, ` fzn_array_bool_xor ` | ` p_array_bool_xor ` / ` always ` | [D0559](#d0559); handler: ` array_bool_xor(array[int] of var bool: x) ` or ` array_bool_xor(array[int] of var bool: x, var bool: b) ` | ` array_bool_xor `, ` gecode_array_bool_xor `, ` fzn_array_bool_xor ` | [checker-014](#family-014) | result Boolean when present; XOR arity rule |
+| <a id="r079"></a>[R079](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2192) | ` array_bool_xor `, ` gecode_array_bool_xor `, ` fzn_array_bool_xor ` | ` p_array_bool_xor ` / ` always ` | [D0559](#d0559), ` array_bool_xor(array[int] of var bool: x) ` (handler) | ` array_bool_xor `, ` gecode_array_bool_xor `, ` fzn_array_bool_xor ` | [checker-014](#family-014) | result Boolean when present; XOR arity rule |
 | <a id="r080"></a>[R080](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2193) | ` array_bool_xor_imp `, ` gecode_array_bool_xor_imp `, ` fzn_array_bool_xor_imp ` | ` p_array_bool_xor_imp ` / ` always ` | [D3124](#d3124) | ` array_bool_xor_imp `, ` gecode_array_bool_xor_imp `, ` fzn_array_bool_xor_imp ` | [checker-014](#family-014) | none (guard) |
 | <a id="r081"></a>[R081](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2194) | ` bool_clause `, ` gecode_bool_clause `, ` fzn_bool_clause ` | ` p_array_bool_clause ` / ` always ` | [D0485](#d0485) | ` bool_clause `, ` gecode_bool_clause `, ` fzn_bool_clause ` | [checker-014](#family-014) | result Boolean when present; XOR arity rule |
 | <a id="r082"></a>[R082](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2195) | ` bool_clause_reif `, ` gecode_bool_clause_reif `, ` fzn_bool_clause_reif ` | ` p_array_bool_clause_reif ` / ` always ` | [D0568](#d0568), [D3072](#d3072), [D3179](#d3179) | ` bool_clause_reif `, ` gecode_bool_clause_reif `, ` fzn_bool_clause_reif ` | [checker-014](#family-014) | last Boolean (truth) |
@@ -1431,30 +2119,30 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r084"></a>[R084](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2197) | ` bool_left_imp `, ` gecode_bool_left_imp `, ` fzn_bool_left_imp ` | ` p_bool_l_imp ` / ` always ` | ` bool_left_imp(var bool: x, var bool: y, var bool: b) ` (handler) | ` bool_left_imp `, ` gecode_bool_left_imp `, ` fzn_bool_left_imp ` | [checker-014](#family-014) | argument 3 (y -> x) |
 | <a id="r085"></a>[R085](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2198) | ` bool_right_imp `, ` gecode_bool_right_imp `, ` fzn_bool_right_imp ` | ` p_bool_r_imp ` / ` always ` | ` bool_right_imp(var bool: x, var bool: y, var bool: b) ` (handler) | ` bool_right_imp `, ` gecode_bool_right_imp `, ` fzn_bool_right_imp ` | [checker-014](#family-014) | argument 3 (x -> y) |
 | <a id="r086"></a>[R086](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2199) | ` bool_not `, ` gecode_bool_not `, ` fzn_bool_not ` | ` p_bool_not ` / ` always ` | [D0494](#d0494) | ` bool_not `, ` gecode_bool_not `, ` fzn_bool_not ` | [checker-014](#family-014) | either scalar, when unique |
-| <a id="r087"></a>[R087](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2200) | ` array_int_element `, ` gecode_array_int_element `, ` fzn_array_int_element ` | ` p_array_int_element ` / ` always ` | [D0561](#d0561), [D0565](#d0565) | ` array_int_element `, ` gecode_array_int_element `, ` fzn_array_int_element ` | [checker-016](#family-016) | selected result (known index/condition) |
-| <a id="r088"></a>[R088](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2201) | ` array_var_int_element `, ` gecode_array_var_int_element `, ` fzn_array_var_int_element ` | ` p_array_int_element ` / ` always ` | [D0561](#d0561), [D0565](#d0565) | ` array_var_int_element `, ` gecode_array_var_int_element `, ` fzn_array_var_int_element ` | [checker-016](#family-016) | selected result (known index/condition) |
+| <a id="r087"></a>[R087](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2200) | ` array_int_element `, ` gecode_array_int_element `, ` fzn_array_int_element ` | ` p_array_int_element ` / ` always ` | [D0561](#d0561) | ` array_int_element `, ` gecode_array_int_element `, ` fzn_array_int_element ` | [checker-016](#family-016) | selected result (known index/condition) |
+| <a id="r088"></a>[R088](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2201) | ` array_var_int_element `, ` gecode_array_var_int_element `, ` fzn_array_var_int_element ` | ` p_array_int_element ` / ` always ` | [D0565](#d0565) | ` array_var_int_element `, ` gecode_array_var_int_element `, ` fzn_array_var_int_element ` | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="r089"></a>[R089](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2202) | ` gecode_int_element `, ` gecode_gecode_int_element `, ` fzn_gecode_int_element ` | ` p_array_int_element_offset ` / ` always ` | [D3067](#d3067) | ` gecode_int_element `, ` gecode_gecode_int_element `, ` fzn_gecode_int_element ` | [checker-016](#family-016) | selected result (known index/condition) |
-| <a id="r090"></a>[R090](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2203) | ` gecode_var_int_element `, ` gecode_gecode_var_int_element `, ` fzn_gecode_var_int_element ` | ` p_array_int_element_offset ` / ` always ` | [D3067](#d3067) | ` gecode_var_int_element `, ` gecode_gecode_var_int_element `, ` fzn_gecode_var_int_element ` | [checker-016](#family-016) | selected result (known index/condition) |
+| <a id="r090"></a>[R090](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2203) | ` gecode_var_int_element `, ` gecode_gecode_var_int_element `, ` fzn_gecode_var_int_element ` | ` p_array_int_element_offset ` / ` always ` | ` gecode_var_int_element(var int: index, int: offset, array[int] of var int: x, var int: result) ` (handler) | ` gecode_var_int_element `, ` gecode_gecode_var_int_element `, ` fzn_gecode_var_int_element ` | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="r091"></a>[R091](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2204) | ` gecode_int_element2d `, ` gecode_gecode_int_element2d `, ` fzn_gecode_int_element2d ` | ` p_array_int_element2d ` / ` always ` | [D3096](#d3096) | ` gecode_int_element2d `, ` gecode_gecode_int_element2d `, ` fzn_gecode_int_element2d ` | [checker-016](#family-016) | selected result (known index/condition) |
-| <a id="r092"></a>[R092](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2205) | ` array_bool_element `, ` gecode_array_bool_element `, ` fzn_array_bool_element ` | ` p_array_bool_element ` / ` always ` | [D0560](#d0560), [D0564](#d0564) | ` array_bool_element `, ` gecode_array_bool_element `, ` fzn_array_bool_element ` | [checker-016](#family-016) | selected result (known index/condition) |
-| <a id="r093"></a>[R093](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2206) | ` array_var_bool_element `, ` gecode_array_var_bool_element `, ` fzn_array_var_bool_element ` | ` p_array_bool_element ` / ` always ` | [D0560](#d0560), [D0564](#d0564) | ` array_var_bool_element `, ` gecode_array_var_bool_element `, ` fzn_array_var_bool_element ` | [checker-016](#family-016) | selected result (known index/condition) |
+| <a id="r092"></a>[R092](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2205) | ` array_bool_element `, ` gecode_array_bool_element `, ` fzn_array_bool_element ` | ` p_array_bool_element ` / ` always ` | [D0560](#d0560) | ` array_bool_element `, ` gecode_array_bool_element `, ` fzn_array_bool_element ` | [checker-016](#family-016) | selected result (known index/condition) |
+| <a id="r093"></a>[R093](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2206) | ` array_var_bool_element `, ` gecode_array_var_bool_element `, ` fzn_array_var_bool_element ` | ` p_array_bool_element ` / ` always ` | [D0564](#d0564) | ` array_var_bool_element `, ` gecode_array_var_bool_element `, ` fzn_array_var_bool_element ` | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="r094"></a>[R094](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2207) | ` gecode_bool_element `, ` gecode_gecode_bool_element `, ` fzn_gecode_bool_element ` | ` p_array_bool_element_offset ` / ` always ` | [D3066](#d3066) | ` gecode_bool_element `, ` gecode_gecode_bool_element `, ` fzn_gecode_bool_element ` | [checker-016](#family-016) | selected result (known index/condition) |
-| <a id="r095"></a>[R095](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2208) | ` gecode_var_bool_element `, ` gecode_gecode_var_bool_element `, ` fzn_gecode_var_bool_element ` | ` p_array_bool_element_offset ` / ` always ` | [D3066](#d3066) | ` gecode_var_bool_element `, ` gecode_gecode_var_bool_element `, ` fzn_gecode_var_bool_element ` | [checker-016](#family-016) | selected result (known index/condition) |
+| <a id="r095"></a>[R095](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2208) | ` gecode_var_bool_element `, ` gecode_gecode_var_bool_element `, ` fzn_gecode_var_bool_element ` | ` p_array_bool_element_offset ` / ` always ` | ` gecode_var_bool_element(var int: index, int: offset, array[int] of var bool: x, var bool: result) ` (handler) | ` gecode_var_bool_element `, ` gecode_gecode_var_bool_element `, ` fzn_gecode_var_bool_element ` | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="r096"></a>[R096](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2209) | ` gecode_bool_element2d `, ` gecode_gecode_bool_element2d `, ` fzn_gecode_bool_element2d ` | ` p_array_bool_element2d ` / ` always ` | [D3097](#d3097) | ` gecode_bool_element2d `, ` gecode_gecode_bool_element2d `, ` fzn_gecode_bool_element2d ` | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="r097"></a>[R097](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2210) | ` bool2int `, ` gecode_bool2int `, ` fzn_bool2int ` | ` p_bool2int ` / ` always ` | [D0483](#d0483) | ` bool2int `, ` gecode_bool2int `, ` fzn_bool2int ` | [checker-014](#family-014) | either scalar, when unique |
-| <a id="r098"></a>[R098](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2211) | ` int_in `, ` gecode_int_in `, ` fzn_int_in ` | ` p_int_in ` / ` always ` | [D0482](#d0482); handler: ` int_in(var bool: x, set of int: s) ` | ` int_in `, ` gecode_int_in `, ` fzn_int_in ` | [checker-017](#family-017) | none |
-| <a id="r099"></a>[R099](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2212) | ` int_in_reif `, ` gecode_int_in_reif `, ` fzn_int_in_reif ` | ` p_int_in_reif ` / ` always ` | [D0499](#d0499); handler: ` int_in_reif(var bool: x, set of int: s, var bool: b) ` | ` int_in_reif `, ` gecode_int_in_reif `, ` fzn_int_in_reif ` | [checker-017](#family-017) | last Boolean (truth) |
-| <a id="r100"></a>[R100](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2213) | ` int_in_imp `, ` gecode_int_in_imp `, ` fzn_int_in_imp ` | ` p_int_in_imp ` / ` always ` | [D3153](#d3153); handler: ` int_in_imp(var bool: x, set of int: s, var bool: b) ` | ` int_in_imp `, ` gecode_int_in_imp `, ` fzn_int_in_imp ` | [checker-017](#family-017) | none (guard) |
-| <a id="r101"></a>[R101](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2215) | ` set_in `, ` gecode_set_in `, ` fzn_set_in ` | ` p_int_in ` / ` !GECODE_HAS_SET_VARS ` | [D0482](#d0482); handler: ` set_in(var bool: x, set of int: s) ` | ` set_in `, ` gecode_set_in `, ` fzn_set_in ` | [checker-017](#family-017) | none |
-| <a id="r102"></a>[R102](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2216) | ` set_in_reif `, ` gecode_set_in_reif `, ` fzn_set_in_reif ` | ` p_int_in_reif ` / ` !GECODE_HAS_SET_VARS ` | [D0499](#d0499); handler: ` set_in_reif(var bool: x, set of int: s, var bool: b) ` | ` set_in_reif `, ` gecode_set_in_reif `, ` fzn_set_in_reif ` | [checker-017](#family-017) | last Boolean (truth) |
-| <a id="r103"></a>[R103](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2217) | ` set_in_imp `, ` gecode_set_in_imp `, ` fzn_set_in_imp ` | ` p_int_in_imp ` / ` !GECODE_HAS_SET_VARS ` | [D3153](#d3153); handler: ` set_in_imp(var bool: x, set of int: s, var bool: b) ` | ` set_in_imp `, ` gecode_set_in_imp `, ` fzn_set_in_imp ` | [checker-017](#family-017) | none (guard) |
+| <a id="r098"></a>[R098](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2211) | ` int_in `, ` gecode_int_in `, ` fzn_int_in ` | ` p_int_in ` / ` always ` | ` int_in(var int: x, set of int: s) ` (handler), ` int_in(var bool: x, set of int: s) ` (handler) | ` int_in `, ` gecode_int_in `, ` fzn_int_in ` | [checker-017](#family-017) | none |
+| <a id="r099"></a>[R099](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2212) | ` int_in_reif `, ` gecode_int_in_reif `, ` fzn_int_in_reif ` | ` p_int_in_reif ` / ` always ` | ` int_in_reif(var int: x, set of int: s, var bool: b) ` (handler), ` int_in_reif(var bool: x, set of int: s, var bool: b) ` (handler) | ` int_in_reif `, ` gecode_int_in_reif `, ` fzn_int_in_reif ` | [checker-017](#family-017) | last Boolean (truth) |
+| <a id="r100"></a>[R100](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2213) | ` int_in_imp `, ` gecode_int_in_imp `, ` fzn_int_in_imp ` | ` p_int_in_imp ` / ` always ` | ` int_in_imp(var int: x, set of int: s, var bool: b) ` (handler), ` int_in_imp(var bool: x, set of int: s, var bool: b) ` (handler) | ` int_in_imp `, ` gecode_int_in_imp `, ` fzn_int_in_imp ` | [checker-017](#family-017) | none (guard) |
+| <a id="r101"></a>[R101](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2215) | ` set_in `, ` gecode_set_in `, ` fzn_set_in ` | ` p_int_in ` / ` !GECODE_HAS_SET_VARS ` | [D0482](#d0482), ` set_in(var bool: x, set of int: s) ` (handler) | ` set_in `, ` gecode_set_in `, ` fzn_set_in ` | [checker-017](#family-017) | none |
+| <a id="r102"></a>[R102](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2216) | ` set_in_reif `, ` gecode_set_in_reif `, ` fzn_set_in_reif ` | ` p_int_in_reif ` / ` !GECODE_HAS_SET_VARS ` | [D0499](#d0499), ` set_in_reif(var bool: x, set of int: s, var bool: b) ` (handler) | ` set_in_reif `, ` gecode_set_in_reif `, ` fzn_set_in_reif ` | [checker-017](#family-017) | last Boolean (truth) |
+| <a id="r103"></a>[R103](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2217) | ` set_in_imp `, ` gecode_set_in_imp `, ` fzn_set_in_imp ` | ` p_int_in_imp ` / ` !GECODE_HAS_SET_VARS ` | [D3153](#d3153), ` set_in_imp(var bool: x, set of int: s, var bool: b) ` (handler) | ` set_in_imp `, ` gecode_set_in_imp `, ` fzn_set_in_imp ` | [checker-017](#family-017) | none (guard) |
 | <a id="r104"></a>[R104](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2220) | ` array_int_lt `, ` gecode_array_int_lt `, ` fzn_array_int_lt ` | ` p_array_int_lt ` / ` always ` | [D2888](#d2888) | ` array_int_lt `, ` gecode_array_int_lt `, ` fzn_array_int_lt ` | [checker-020](#family-020) | none |
 | <a id="r105"></a>[R105](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2221) | ` array_int_lq `, ` gecode_array_int_lq `, ` fzn_array_int_lq ` | ` p_array_int_lq ` / ` always ` | [D2892](#d2892) | ` array_int_lq `, ` gecode_array_int_lq `, ` fzn_array_int_lq ` | [checker-020](#family-020) | none |
 | <a id="r106"></a>[R106](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2222) | ` array_bool_lt `, ` gecode_array_bool_lt `, ` fzn_array_bool_lt ` | ` p_array_bool_lt ` / ` always ` | [D2886](#d2886) | ` array_bool_lt `, ` gecode_array_bool_lt `, ` fzn_array_bool_lt ` | [checker-020](#family-020) | none |
 | <a id="r107"></a>[R107](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2223) | ` array_bool_lq `, ` gecode_array_bool_lq `, ` fzn_array_bool_lq ` | ` p_array_bool_lq ` / ` always ` | [D2890](#d2890) | ` array_bool_lq `, ` gecode_array_bool_lq `, ` fzn_array_bool_lq ` | [checker-020](#family-020) | none |
-| <a id="r108"></a>[R108](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2224) | ` count `, ` gecode_count `, ` fzn_count ` | ` p_count ` / ` always ` | [D0206](#d0206), [D2823](#d2823) | ` count `, ` gecode_count `, ` fzn_count ` | [checker-019](#family-019) | count(s), when equality fixes them |
-| <a id="r109"></a>[R109](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2225) | ` count_reif `, ` gecode_count_reif `, ` fzn_count_reif ` | ` p_count_reif ` / ` always ` | [D2824](#d2824) | ` count_reif `, ` gecode_count_reif `, ` fzn_count_reif ` | [checker-019](#family-019) | last Boolean (truth) |
-| <a id="r110"></a>[R110](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2226) | ` count_imp `, ` gecode_count_imp `, ` fzn_count_imp ` | ` p_count_imp ` / ` always ` | [D2825](#d2825) | ` count_imp `, ` gecode_count_imp `, ` fzn_count_imp ` | [checker-019](#family-019) | none (guard) |
+| <a id="r108"></a>[R108](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2224) | ` count `, ` gecode_count `, ` fzn_count ` | ` p_count ` / ` always ` | ` count(array[int] of var int: x, var int: value, var int: count) ` (handler) | ` count `, ` gecode_count `, ` fzn_count ` | [checker-019](#family-019) | count(s), when equality fixes them |
+| <a id="r109"></a>[R109](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2225) | ` count_reif `, ` gecode_count_reif `, ` fzn_count_reif ` | ` p_count_reif ` / ` always ` | ` count_reif(array[int] of var int: x, var int: value, var int: count, var bool: b) ` (handler) | ` count_reif `, ` gecode_count_reif `, ` fzn_count_reif ` | [checker-019](#family-019) | last Boolean (truth) |
+| <a id="r110"></a>[R110](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2226) | ` count_imp `, ` gecode_count_imp `, ` fzn_count_imp ` | ` p_count_imp ` / ` always ` | ` count_imp(array[int] of var int: x, var int: value, var int: count, var bool: b) ` (handler) | ` count_imp `, ` gecode_count_imp `, ` fzn_count_imp ` | [checker-019](#family-019) | none (guard) |
 | <a id="r111"></a>[R111](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2227) | ` count_eq `, ` gecode_count_eq `, ` fzn_count_eq ` | ` p_count ` / ` always ` | [D0206](#d0206), [D2823](#d2823) | ` count_eq `, ` gecode_count_eq `, ` fzn_count_eq ` | [checker-019](#family-019) | count(s), when equality fixes them |
 | <a id="r112"></a>[R112](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2228) | ` count_eq_reif `, ` gecode_count_eq_reif `, ` fzn_count_eq_reif ` | ` p_count_reif ` / ` always ` | [D2824](#d2824) | ` count_eq_reif `, ` gecode_count_eq_reif `, ` fzn_count_eq_reif ` | [checker-019](#family-019) | last Boolean (truth) |
 | <a id="r113"></a>[R113](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2229) | ` count_eq_imp `, ` gecode_count_eq_imp `, ` fzn_count_eq_imp ` | ` p_count_imp ` / ` always ` | [D2825](#d2825) | ` count_eq_imp `, ` gecode_count_eq_imp `, ` fzn_count_eq_imp ` | [checker-019](#family-019) | none (guard) |
@@ -1486,7 +2174,7 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r139"></a>[R139](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2258) | ` gecode_table_bool `, ` gecode_gecode_table_bool `, ` fzn_gecode_table_bool ` | ` p_table_bool ` / ` always ` | [D2924](#d2924) | ` gecode_table_bool `, ` gecode_gecode_table_bool `, ` fzn_gecode_table_bool ` | [checker-021](#family-021) | none |
 | <a id="r140"></a>[R140](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2259) | ` gecode_table_bool_reif `, ` gecode_gecode_table_bool_reif `, ` fzn_gecode_table_bool_reif ` | ` p_table_bool_reif ` / ` always ` | [D2926](#d2926) | ` gecode_table_bool_reif `, ` gecode_gecode_table_bool_reif `, ` fzn_gecode_table_bool_reif ` | [checker-021](#family-021) | last Boolean (truth) |
 | <a id="r141"></a>[R141](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2260) | ` gecode_table_bool_imp `, ` gecode_gecode_table_bool_imp `, ` fzn_gecode_table_bool_imp ` | ` p_table_bool_imp ` / ` always ` | [D2927](#d2927) | ` gecode_table_bool_imp `, ` gecode_gecode_table_bool_imp `, ` fzn_gecode_table_bool_imp ` | [checker-021](#family-021) | none (guard) |
-| <a id="r142"></a>[R142](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2261) | ` cumulatives `, ` gecode_cumulatives `, ` fzn_cumulatives ` | ` p_cumulatives ` / ` always ` | [D0318](#d0318), [D0323](#d0323), [D0329](#d0329), [D2837](#d2837), [D2841](#d2841), [D2846](#d2846), [D2847](#d2847), [D3035](#d3035) | ` cumulatives `, ` gecode_cumulatives `, ` fzn_cumulatives ` (legacy arities 4/6; native explicit-end arity 7; standard min_machine wrapper excluded) | [checker-024](#family-024) / [checker-025](#family-025) | none |
+| <a id="r142"></a>[R142](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2261) | ` cumulatives `, ` gecode_cumulatives `, ` fzn_cumulatives ` | ` p_cumulatives ` / ` always ` | [D2841](#d2841), [D2846](#d2846) | ` cumulatives `, ` gecode_cumulatives `, ` fzn_cumulatives ` (legacy arities 4/6; native explicit-end arity 7; standard min_machine wrapper excluded) | [checker-024](#family-024) / [checker-025](#family-025) | none |
 | <a id="r143"></a>[R143](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2262) | ` gecode_among_seq_int `, ` gecode_gecode_among_seq_int `, ` fzn_gecode_among_seq_int ` | ` p_among_seq_int ` / ` always ` | [D2917](#d2917) | ` gecode_among_seq_int `, ` gecode_gecode_among_seq_int `, ` fzn_gecode_among_seq_int ` | [checker-019](#family-019) | none |
 | <a id="r144"></a>[R144](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2263) | ` gecode_among_seq_bool `, ` gecode_gecode_among_seq_bool `, ` fzn_gecode_among_seq_bool ` | ` p_among_seq_bool ` / ` always ` | [D2915](#d2915) | ` gecode_among_seq_bool `, ` gecode_gecode_among_seq_bool `, ` fzn_gecode_among_seq_bool ` | [checker-019](#family-019) | none |
 | <a id="r145"></a>[R145](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2265) | ` bool_lin_eq `, ` gecode_bool_lin_eq `, ` fzn_bool_lin_eq ` | ` p_bool_lin_eq ` / ` always ` | [D0490](#d0490), [D3103](#d3103) | ` bool_lin_eq `, ` gecode_bool_lin_eq `, ` fzn_bool_lin_eq ` | [checker-014](#family-014) | exact equality slot only |
@@ -1524,7 +2212,7 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r177"></a>[R177](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2300) | ` gecode_member_bool_reif `, ` gecode_gecode_member_bool_reif `, ` fzn_gecode_member_bool_reif ` | ` p_member_bool_reif ` / ` always ` | [D2897](#d2897) | ` gecode_member_bool_reif `, ` gecode_gecode_member_bool_reif `, ` fzn_gecode_member_bool_reif ` | [checker-020](#family-020) | last Boolean (truth) |
 | <a id="r178"></a>[R178](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2302) | ` gecode_unary_flex `, ` gecode_gecode_unary_flex `, ` fzn_gecode_unary_flex ` | ` p_unary_flex ` / ` always ` | [D2834](#d2834), [D3033](#d3033) | ` gecode_unary_flex `, ` gecode_gecode_unary_flex `, ` fzn_gecode_unary_flex ` | [checker-025](#family-025) | none |
 | <a id="r179"></a>[R179](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2303) | ` gecode_cumulative_flex `, ` gecode_gecode_cumulative_flex `, ` fzn_gecode_cumulative_flex ` | ` p_cumulative_flex ` / ` always ` | [D2835](#d2835), [D3034](#d3034) | ` gecode_cumulative_flex `, ` gecode_gecode_cumulative_flex `, ` fzn_gecode_cumulative_flex ` | [checker-025](#family-025) | none |
-| <a id="r180"></a>[R180](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2304) | ` gecode_cumulatives_flex `, ` gecode_gecode_cumulatives_flex `, ` fzn_gecode_cumulatives_flex ` | ` p_cumulatives ` / ` always ` | [D0318](#d0318), [D0323](#d0323), [D0329](#d0329), [D2837](#d2837), [D2841](#d2841), [D2846](#d2846), [D2847](#d2847), [D3035](#d3035) | ` gecode_cumulatives_flex `, ` gecode_gecode_cumulatives_flex `, ` fzn_gecode_cumulatives_flex ` | [checker-025](#family-025) | none |
+| <a id="r180"></a>[R180](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2304) | ` gecode_cumulatives_flex `, ` gecode_gecode_cumulatives_flex `, ` fzn_gecode_cumulatives_flex ` | ` p_cumulatives ` / ` always ` | [D2837](#d2837), [D2847](#d2847), [D3035](#d3035) | ` gecode_cumulatives_flex `, ` gecode_gecode_cumulatives_flex `, ` fzn_gecode_cumulatives_flex ` | [checker-025](#family-025) | none |
 | <a id="r181"></a>[R181](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2305) | ` gecode_unary_flex_optional `, ` gecode_gecode_unary_flex_optional `, ` fzn_gecode_unary_flex_optional ` | ` p_unary_flex_optional ` / ` always ` | [D2856](#d2856), [D3036](#d3036) | ` gecode_unary_flex_optional `, ` gecode_gecode_unary_flex_optional `, ` fzn_gecode_unary_flex_optional ` | [checker-025](#family-025) | none |
 | <a id="r182"></a>[R182](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2306) | ` gecode_cumulative_flex_optional `, ` gecode_gecode_cumulative_flex_optional `, ` fzn_gecode_cumulative_flex_optional ` | ` p_cumulative_flex_optional ` / ` always ` | [D2836](#d2836), [D2843](#d2843), [D3037](#d3037) | ` gecode_cumulative_flex_optional `, ` gecode_gecode_cumulative_flex_optional `, ` fzn_gecode_cumulative_flex_optional ` | [checker-025](#family-025) | none |
 | <a id="r183"></a>[R183](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2307) | ` gecode_array_int_ne `, ` gecode_gecode_array_int_ne `, ` fzn_gecode_array_int_ne ` | ` p_array_int_ne ` / ` always ` | [D3007](#d3007) | ` gecode_array_int_ne `, ` gecode_gecode_array_int_ne `, ` fzn_gecode_array_int_ne ` | [checker-020](#family-020) | none |
@@ -1553,8 +2241,8 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r206"></a>[R206](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2330) | ` gecode_product_mod_var_fzn `, ` gecode_gecode_product_mod_var_fzn `, ` fzn_gecode_product_mod_var_fzn ` | ` p_product_mod<false> ` / ` always ` | [D3026](#d3026) | ` gecode_product_mod_var_fzn `, ` gecode_gecode_product_mod_var_fzn `, ` fzn_gecode_product_mod_var_fzn ` | [checker-029](#family-029) | last result; family domain rule |
 | <a id="r207"></a>[R207](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2331) | ` gecode_product_mod_var_fzn_reif `, ` gecode_gecode_product_mod_var_fzn_reif `, ` fzn_gecode_product_mod_var_fzn_reif ` | ` p_product_mod_reif<false,RM_EQV> ` / ` always ` | [D3027](#d3027) | ` gecode_product_mod_var_fzn_reif `, ` gecode_gecode_product_mod_var_fzn_reif `, ` fzn_gecode_product_mod_var_fzn_reif ` | [checker-029](#family-029) | last Boolean (truth) |
 | <a id="r208"></a>[R208](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2332) | ` gecode_product_mod_var_fzn_imp `, ` gecode_gecode_product_mod_var_fzn_imp `, ` fzn_gecode_product_mod_var_fzn_imp ` | ` p_product_mod_reif<false,RM_IMP> ` / ` always ` | [D3028](#d3028) | ` gecode_product_mod_var_fzn_imp `, ` gecode_gecode_product_mod_var_fzn_imp `, ` fzn_gecode_product_mod_var_fzn_imp ` | [checker-029](#family-029) | none (guard) |
-| <a id="r209"></a>[R209](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2333) | ` gecode_minimum_distance_fzn `, ` gecode_gecode_minimum_distance_fzn `, ` fzn_gecode_minimum_distance_fzn ` | ` p_minimum_distance ` / ` always ` | [D3029](#d3029), [D3030](#d3030) | ` gecode_minimum_distance_fzn `, ` gecode_gecode_minimum_distance_fzn `, ` fzn_gecode_minimum_distance_fzn ` | [checker-029](#family-029) | argument 4 (minimum distance) |
-| <a id="r210"></a>[R210](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2334) | ` gecode_minimum_distance_required_fzn `, ` gecode_gecode_minimum_distance_required_fzn `, ` fzn_gecode_minimum_distance_required_fzn ` | ` p_minimum_distance ` / ` always ` | [D3029](#d3029), [D3030](#d3030) | ` gecode_minimum_distance_required_fzn `, ` gecode_gecode_minimum_distance_required_fzn `, ` fzn_gecode_minimum_distance_required_fzn ` | [checker-029](#family-029) | argument 4 (minimum distance) |
+| <a id="r209"></a>[R209](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2333) | ` gecode_minimum_distance_fzn `, ` gecode_gecode_minimum_distance_fzn `, ` fzn_gecode_minimum_distance_fzn ` | ` p_minimum_distance ` / ` always ` | [D3029](#d3029) | ` gecode_minimum_distance_fzn `, ` gecode_gecode_minimum_distance_fzn `, ` fzn_gecode_minimum_distance_fzn ` | [checker-029](#family-029) | argument 4 (minimum distance) |
+| <a id="r210"></a>[R210](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2334) | ` gecode_minimum_distance_required_fzn `, ` gecode_gecode_minimum_distance_required_fzn `, ` fzn_gecode_minimum_distance_required_fzn ` | ` p_minimum_distance ` / ` always ` | [D3030](#d3030) | ` gecode_minimum_distance_required_fzn `, ` gecode_gecode_minimum_distance_required_fzn `, ` fzn_gecode_minimum_distance_required_fzn ` | [checker-029](#family-029) | argument 4 (minimum distance) |
 | <a id="r211"></a>[R211](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2335) | ` gecode_int_nroot `, ` gecode_gecode_int_nroot `, ` fzn_gecode_int_nroot ` | ` p_int_nroot ` / ` always ` | [D3031](#d3031) | ` gecode_int_nroot `, ` gecode_gecode_int_nroot `, ` fzn_gecode_int_nroot ` | [checker-029](#family-029) | last result; family domain rule |
 | <a id="r212"></a>[R212](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2336) | ` gecode_nooverlap_optional `, ` gecode_gecode_nooverlap_optional `, ` fzn_gecode_nooverlap_optional ` | ` p_nooverlap_optional ` / ` always ` | [D3038](#d3038) | ` gecode_nooverlap_optional `, ` gecode_gecode_nooverlap_optional `, ` fzn_gecode_nooverlap_optional ` | [checker-026](#family-026) | none |
 | <a id="r213"></a>[R213](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2337) | ` gecode_all_different_optional `, ` gecode_gecode_all_different_optional `, ` fzn_gecode_all_different_optional ` | ` p_distinct_optional ` / ` always ` | [D2793](#d2793), [D3000](#d3000) | ` gecode_all_different_optional `, ` gecode_gecode_all_different_optional `, ` fzn_gecode_all_different_optional ` | [checker-020](#family-020) | none |
@@ -1573,8 +2261,8 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r226"></a>[R226](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2732) | ` equal `, ` gecode_equal `, ` fzn_equal ` | ` p_set_eq ` / ` GECODE_HAS_SET_VARS ` | [D0509](#d0509) | ` equal `, ` gecode_equal `, ` fzn_equal ` | [checker-017](#family-017) | either set |
 | <a id="r227"></a>[R227](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2733) | ` set_ne `, ` gecode_set_ne `, ` fzn_set_ne ` | ` p_set_ne ` / ` GECODE_HAS_SET_VARS ` | [D0511](#d0511) | ` set_ne `, ` gecode_set_ne `, ` fzn_set_ne ` | [checker-017](#family-017) | none |
 | <a id="r228"></a>[R228](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2734) | ` set_union `, ` gecode_set_union `, ` fzn_set_union ` | ` p_set_union ` / ` GECODE_HAS_SET_VARS ` | [D0514](#d0514) | ` set_union `, ` gecode_set_union `, ` fzn_set_union ` | [checker-017](#family-017) | last result |
-| <a id="r229"></a>[R229](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2735) | ` array_set_element `, ` gecode_array_set_element `, ` fzn_array_set_element ` | ` p_array_set_element ` / ` GECODE_HAS_SET_VARS ` | [D0563](#d0563), [D0567](#d0567) | ` array_set_element `, ` gecode_array_set_element `, ` fzn_array_set_element ` | [checker-016](#family-016) | selected result (known index/condition) |
-| <a id="r230"></a>[R230](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2736) | ` array_var_set_element `, ` gecode_array_var_set_element `, ` fzn_array_var_set_element ` | ` p_array_set_element ` / ` GECODE_HAS_SET_VARS ` | [D0563](#d0563), [D0567](#d0567) | ` array_var_set_element `, ` gecode_array_var_set_element `, ` fzn_array_var_set_element ` | [checker-016](#family-016) | selected result (known index/condition) |
+| <a id="r229"></a>[R229](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2735) | ` array_set_element `, ` gecode_array_set_element `, ` fzn_array_set_element ` | ` p_array_set_element ` / ` GECODE_HAS_SET_VARS ` | [D0563](#d0563) | ` array_set_element `, ` gecode_array_set_element `, ` fzn_array_set_element ` | [checker-016](#family-016) | selected result (known index/condition) |
+| <a id="r230"></a>[R230](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2736) | ` array_var_set_element `, ` gecode_array_var_set_element `, ` fzn_array_var_set_element ` | ` p_array_set_element ` / ` GECODE_HAS_SET_VARS ` | [D0567](#d0567) | ` array_var_set_element `, ` gecode_array_var_set_element `, ` fzn_array_var_set_element ` | [checker-016](#family-016) | selected result (known index/condition) |
 | <a id="r231"></a>[R231](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2737) | ` set_intersect `, ` gecode_set_intersect `, ` fzn_set_intersect ` | ` p_set_intersect ` / ` GECODE_HAS_SET_VARS ` | [D0513](#d0513) | ` set_intersect `, ` gecode_set_intersect `, ` fzn_set_intersect ` | [checker-017](#family-017) | last result |
 | <a id="r232"></a>[R232](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2738) | ` set_diff `, ` gecode_set_diff `, ` fzn_set_diff ` | ` p_set_diff ` / ` GECODE_HAS_SET_VARS ` | [D0515](#d0515) | ` set_diff `, ` gecode_set_diff `, ` fzn_set_diff ` | [checker-017](#family-017) | last result |
 | <a id="r233"></a>[R233](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2739) | ` set_symdiff `, ` gecode_set_symdiff `, ` fzn_set_symdiff ` | ` p_set_symdiff ` / ` GECODE_HAS_SET_VARS ` | [D0516](#d0516) | ` set_symdiff `, ` gecode_set_symdiff `, ` fzn_set_symdiff ` | [checker-017](#family-017) | last result |
@@ -1660,7 +2348,7 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 
 ## Include and selection index
 
-`S/` identifies the standard tree; `G/` identifies Gecode's tree. `default` marks membership in the roots' transitive closure. Other selected files are optional entry points. `shadowed` files still have source rows so the standard fallback stays visible. Targets list explicit includes plus compiler-loaded deprecated companions. Resources have no MiniZinc declarations.
+`S/` identifies the standard tree; `G/` identifies Gecode's tree. `P/` identifies packaged standard overrides and `Q/` Gecode compatibility files. `default` marks membership in the roots' transitive closure. Other selected files are optional entry points. `shadowed` files still have source rows so the standard fallback stays visible. Targets list explicit includes plus compiler-loaded deprecated companions. Resources have no MiniZinc declarations.
 
 | Source file / declarations | Standard selection → targets | Gecode selection → targets |
 | --- | --- | --- |
@@ -1744,13 +2432,13 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | [` S/cumulatives_opt.mzn.deprecated.mzn `](#file-078) / 1 | default → — | default → — |
 | [` S/dag.mzn `](#file-079) / 2 | default → [` S/fzn_dag.mzn `](#file-321), [` S/fzn_dag_reif.mzn `](#file-322) | default → [` S/fzn_dag.mzn `](#file-321), [` S/fzn_dag_reif.mzn `](#file-322) |
 | [` S/decreasing.mzn `](#file-080) / 4 | default → [` S/increasing.mzn `](#file-592) | default → [` S/increasing.mzn `](#file-592) |
-| [` S/decreasing_bool.mzn `](#file-081) / 1 | optional → [` P/fzn_decreasing_bool.mzn `](#file-847), [` P/fzn_decreasing_bool_reif.mzn `](#file-848), [` S/decreasing_bool.mzn.deprecated.mzn `](#file-082) | optional → [` G/fzn_decreasing_bool.mzn `](#file-787), ` missing:fzn_decreasing_bool_reif.mzn ` / [checker-031](#family-031), [` S/decreasing_bool.mzn.deprecated.mzn `](#file-082) |
+| [` S/decreasing_bool.mzn `](#file-081) / 1 | optional → [` P/fzn_decreasing_bool.mzn `](#file-847), [` P/fzn_decreasing_bool_reif.mzn `](#file-848), [` S/decreasing_bool.mzn.deprecated.mzn `](#file-082) | optional → [` G/fzn_decreasing_bool.mzn `](#file-787), [` Q/fzn_decreasing_bool_reif.mzn `](#file-859), [` S/decreasing_bool.mzn.deprecated.mzn `](#file-082) |
 | [` S/decreasing_bool.mzn.deprecated.mzn `](#file-082) / 1 | optional → — | optional → — |
-| [` S/decreasing_float.mzn `](#file-083) / 1 | optional → [` P/fzn_decreasing_float.mzn `](#file-849), [` P/fzn_decreasing_float_reif.mzn `](#file-850), [` S/decreasing_float.mzn.deprecated.mzn `](#file-084) | optional → ` missing:fzn_decreasing_float.mzn ` / [checker-031](#family-031), ` missing:fzn_decreasing_float_reif.mzn ` / [checker-031](#family-031), [` S/decreasing_float.mzn.deprecated.mzn `](#file-084) |
+| [` S/decreasing_float.mzn `](#file-083) / 1 | optional → [` P/fzn_decreasing_float.mzn `](#file-849), [` P/fzn_decreasing_float_reif.mzn `](#file-850), [` S/decreasing_float.mzn.deprecated.mzn `](#file-084) | optional → [` Q/fzn_decreasing_float.mzn `](#file-860), [` Q/fzn_decreasing_float_reif.mzn `](#file-861), [` S/decreasing_float.mzn.deprecated.mzn `](#file-084) |
 | [` S/decreasing_float.mzn.deprecated.mzn `](#file-084) / 1 | optional → — | optional → — |
-| [` S/decreasing_int.mzn `](#file-085) / 1 | optional → [` P/fzn_decreasing_int.mzn `](#file-851), [` P/fzn_decreasing_int_reif.mzn `](#file-852), [` S/decreasing_int.mzn.deprecated.mzn `](#file-086) | optional → [` G/fzn_decreasing_int.mzn `](#file-788), ` missing:fzn_decreasing_int_reif.mzn ` / [checker-031](#family-031), [` S/decreasing_int.mzn.deprecated.mzn `](#file-086) |
+| [` S/decreasing_int.mzn `](#file-085) / 1 | optional → [` P/fzn_decreasing_int.mzn `](#file-851), [` P/fzn_decreasing_int_reif.mzn `](#file-852), [` S/decreasing_int.mzn.deprecated.mzn `](#file-086) | optional → [` G/fzn_decreasing_int.mzn `](#file-788), [` Q/fzn_decreasing_int_reif.mzn `](#file-862), [` S/decreasing_int.mzn.deprecated.mzn `](#file-086) |
 | [` S/decreasing_int.mzn.deprecated.mzn `](#file-086) / 1 | optional → — | optional → — |
-| [` S/decreasing_set.mzn `](#file-087) / 1 | optional → [` P/fzn_decreasing_set.mzn `](#file-853), [` P/fzn_decreasing_set_reif.mzn `](#file-854), [` S/decreasing_set.mzn.deprecated.mzn `](#file-088) | optional → ` missing:fzn_decreasing_set.mzn ` / [checker-031](#family-031), ` missing:fzn_decreasing_set_reif.mzn ` / [checker-031](#family-031), [` S/decreasing_set.mzn.deprecated.mzn `](#file-088) |
+| [` S/decreasing_set.mzn `](#file-087) / 1 | optional → [` P/fzn_decreasing_set.mzn `](#file-853), [` P/fzn_decreasing_set_reif.mzn `](#file-854), [` S/decreasing_set.mzn.deprecated.mzn `](#file-088) | optional → [` Q/fzn_decreasing_set.mzn `](#file-863), [` Q/fzn_decreasing_set_reif.mzn `](#file-864), [` S/decreasing_set.mzn.deprecated.mzn `](#file-088) |
 | [` S/decreasing_set.mzn.deprecated.mzn `](#file-088) / 1 | optional → — | optional → — |
 | [` S/diffn.mzn `](#file-089) / 2 | default → [` S/fzn_diffn.mzn `](#file-325), [` S/fzn_diffn_reif.mzn `](#file-332) | default → [` G/fzn_diffn.mzn `](#file-789), [` S/fzn_diffn_reif.mzn `](#file-332) |
 | [` S/diffn_k.mzn `](#file-090) / 2 | default → [` S/fzn_diffn_k.mzn `](#file-326), [` S/fzn_diffn_k_reif.mzn `](#file-327) | default → [` S/fzn_diffn_k.mzn `](#file-326), [` S/fzn_diffn_k_reif.mzn `](#file-327) |
@@ -2521,6 +3209,13 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | [` P/redefinitions-2.0.mzn `](#file-855) / 5 | default → — | outside Gecode profile |
 | [` P/redefinitions-2.2.1.mzn `](#file-856) / 1 | default → — | outside Gecode profile |
 | [` P/redefinitions-2.7.1.mzn `](#file-857) / 3 | default → — | outside Gecode profile |
+| [` Q/checker_annotations.mzn `](#file-858) / 2 | outside standard profile | optional → — |
+| [` Q/fzn_decreasing_bool_reif.mzn `](#file-859) / 1 | outside standard profile | optional → [` S/fzn_increasing_bool_reif.mzn `](#file-407) |
+| [` Q/fzn_decreasing_float.mzn `](#file-860) / 1 | outside standard profile | optional → [` S/fzn_increasing_float.mzn `](#file-408) |
+| [` Q/fzn_decreasing_float_reif.mzn `](#file-861) / 1 | outside standard profile | optional → [` S/fzn_increasing_float_reif.mzn `](#file-411) |
+| [` Q/fzn_decreasing_int_reif.mzn `](#file-862) / 1 | outside standard profile | optional → [` S/fzn_increasing_int_reif.mzn `](#file-415) |
+| [` Q/fzn_decreasing_set.mzn `](#file-863) / 1 | outside standard profile | optional → [` S/fzn_increasing_set.mzn `](#file-416) |
+| [` Q/fzn_decreasing_set_reif.mzn `](#file-864) / 1 | outside standard profile | optional → [` S/fzn_increasing_set_reif.mzn `](#file-417) |
 
 ## Source signatures and decomposition calls
 
@@ -10836,5 +11531,55 @@ Include/resource entry only; see the selection index.
 | <a id="d3185"></a>D3185 / 2 | ` predicate float_ceil(var float: value, var int: result) ` | S direct; G outside profile | C (qualified) | [checker-015](#family-015) | last result; family domain rule |
 | <a id="d3186"></a>D3186 / 3 | ` predicate float_floor(var float: value, var int: result) ` | S direct; G outside profile | C (qualified) | [checker-015](#family-015) | last result; family domain rule |
 | <a id="d3187"></a>D3187 / 4 | ` predicate float_round(var float: value, var int: result) ` | S direct; G outside profile | C (qualified) | [checker-015](#family-015) | last result; family domain rule |
+
+<a id="file-858"></a>
+### [Q/checker_annotations.mzn](../crates/zincite-check/minizinc/gecode/checker_annotations.mzn)
+
+| Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
+| --- | --- | --- | --- | --- | --- |
+| <a id="d3188"></a>D3188 / 2 | ` annotation checker_constraint(string: id, array[int] of int: entities) ` | annotation metadata; see classes | planned | [checker-011](#family-011) | metadata |
+| <a id="d3189"></a>D3189 / 3 | ` annotation checker_value(string: id, array[int] of int: entities) ` | annotation metadata; see classes | planned | [checker-011](#family-011) | metadata |
+
+<a id="file-859"></a>
+### [Q/fzn_decreasing_bool_reif.mzn](../crates/zincite-check/minizinc/gecode/fzn_decreasing_bool_reif.mzn)
+
+| Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
+| --- | --- | --- | --- | --- | --- |
+| <a id="d3190"></a>D3190 / 3 | ` predicate fzn_decreasing_bool_reif(array[int] of var bool: values, var bool: result) ` | wrapper → ` fzn_increasing_bool_reif `, ` reverse ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
+
+<a id="file-860"></a>
+### [Q/fzn_decreasing_float.mzn](../crates/zincite-check/minizinc/gecode/fzn_decreasing_float.mzn)
+
+| Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
+| --- | --- | --- | --- | --- | --- |
+| <a id="d3191"></a>D3191 / 3 | ` predicate fzn_decreasing_float(array[int] of var float: values) ` | wrapper → ` fzn_increasing_float `, ` reverse ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
+
+<a id="file-861"></a>
+### [Q/fzn_decreasing_float_reif.mzn](../crates/zincite-check/minizinc/gecode/fzn_decreasing_float_reif.mzn)
+
+| Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
+| --- | --- | --- | --- | --- | --- |
+| <a id="d3192"></a>D3192 / 3 | ` predicate fzn_decreasing_float_reif(array[int] of var float: values, var bool: result) ` | wrapper → ` fzn_increasing_float_reif `, ` reverse ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
+
+<a id="file-862"></a>
+### [Q/fzn_decreasing_int_reif.mzn](../crates/zincite-check/minizinc/gecode/fzn_decreasing_int_reif.mzn)
+
+| Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
+| --- | --- | --- | --- | --- | --- |
+| <a id="d3193"></a>D3193 / 3 | ` predicate fzn_decreasing_int_reif(array[int] of var int: values, var bool: result) ` | wrapper → ` fzn_increasing_int_reif `, ` reverse ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
+
+<a id="file-863"></a>
+### [Q/fzn_decreasing_set.mzn](../crates/zincite-check/minizinc/gecode/fzn_decreasing_set.mzn)
+
+| Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
+| --- | --- | --- | --- | --- | --- |
+| <a id="d3194"></a>D3194 / 3 | ` predicate fzn_decreasing_set(array[int] of var set of int: values) ` | wrapper → ` fzn_increasing_set `, ` reverse ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
+
+<a id="file-864"></a>
+### [Q/fzn_decreasing_set_reif.mzn](../crates/zincite-check/minizinc/gecode/fzn_decreasing_set_reif.mzn)
+
+| Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
+| --- | --- | --- | --- | --- | --- |
+| <a id="d3195"></a>D3195 / 3 | ` predicate fzn_decreasing_set_reif(array[int] of var set of int: values, var bool: result) ` | wrapper → ` fzn_increasing_set_reif `, ` reverse ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <!-- checker-coverage:end -->

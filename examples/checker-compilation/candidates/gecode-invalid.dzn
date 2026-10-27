@@ -1,0 +1,5 @@
+budget_offset = -3;
+chosen = {2, 3};
+amount = 2.0;
+enabled = true;
+X_INTRODUCED_22_ = 3;

@@ -162,9 +162,8 @@ zincite-check --load --format json target/checker-standard/model.json examples/c
 
 The `.msc` is an entry point for `--compile`; it supplies no search or solver
 protocol. Its `mznlib` path resolves beside the configuration file, including in
-the crate package. The native checker never invokes MiniZinc. Gecode compilation
-continues to use its own library plus `-I crates/zincite-check/minizinc` for the
-existing annotations and strict-disjunctive override.
+the crate package. The native checker never invokes MiniZinc. The complete Gecode
+profile below selects upstream globals and a separate compatibility include.
 
 The [saved control](../../examples/checker-compilation/standard-controls.fzn)
 has ten scalar slots and eight constraints. The compiler turns `y = x + 2`
@@ -201,6 +200,95 @@ source equivalence. `-O0` still tightens domains and eliminates names and labels
 array metadata can disappear during flattening. Use the symmetry ignore flag
 when an application permits every representative, and inspect the compiled
 model when it needs symmetry-breaking constraints instead.
+
+## Pinned Gecode compilation
+
+The complete Gecode profile selects MiniZinc 2.10.1 commit
+`c3448c48e7f05f13805616cfd1b9e94972eef58c` and Gecode main commit
+`186551447db0f74639d65cb8de5af190f15ac2c2`. Use the clean source trees from the
+[coverage inventory](../../docs/checker-coverage.md#sources-and-repeat-command).
+The installed compiler is MiniZinc 2.10.1 build 33348285743; `--globals-dir`
+selects the pinned upstream library, including `gecode.mzn`, `gecode_fzn.mzn`
+and its versioned redefinitions. `minizinc/gecode` adds application annotations
+and six missing decreasing compatibility relations. It contains no primitive
+overrides. Keep that include path separate from `minizinc/standard` and the
+original narrow checker library.
+
+Reproduce the [saved application control](../../examples/checker-compilation/gecode-controls.fzn)
+from the repository root:
+
+```sh
+mkdir -p target/checker031-validation
+minizinc --compile --solver org.gecode.gecode --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc/gecode -O0 --keep-paths --no-half-reifications --no-output-ozn -D mzn_ignore_symmetry_breaking_constraints=true --output-fzn-to-file target/checker031-validation/gecode-controls.fzn --output-paths-to-file target/checker031-validation/gecode-controls.paths examples/checker-compilation/gecode-controls.mzn
+zincite-check --export target/checker031-validation/model.json target/checker031-validation/gecode-controls.fzn
+zincite-check --format json target/checker031-validation/gecode-controls.fzn examples/checker-compilation/candidates/gecode-valid.dzn
+zincite-check --load --format json target/checker031-validation/model.json examples/checker-compilation/candidates/gecode-valid.dzn
+```
+
+Compilation is offline and compile-only. The selected native library emits
+`gecode_gcd_int` and `gecode_float_pow`, alongside integer, Boolean and set
+primitives. The checker derives `tool_capacity=budget_offset+2`, `combined=chosen union {1}`,
+`gcd_result=gcd(budget_offset,6)`, `squared=amount^2` and `allowed=(budget_offset<=1)`. The cardinality
+operation has no definition hint: the saved candidates supply
+`X_INTRODUCED_22_=card(combined)`. This name belongs to the archived output.
+
+The compiler tightens `budget_offset` to `-2..3` and `squared` to `0.0..1.0`, substitutes
+`budget_offset+2` for `tool_capacity` in the capacity check, and removes that check's application ID
+while keeping its label. Domain feedback uses the value metadata. The defining
+linear relation carries both constraint ID `offset` and copied value ID `tool_capacity`,
+with exact entity `9007199254740993`. Gcd, power, Boolean and set relations keep
+their labels or paths where emitted. The compiler can still remove names,
+constraints and metadata at `-O0`; checking does not reconstruct them.
+
+| Saved candidate | Direct calculation | Report |
+| --- | --- | --- |
+| `gecode-valid.dzn` | `budget_offset=0` gives `tool_capacity=2`, gcd 6, union `{1,2}`, size 2 and square 1 | Valid, complete |
+| `gecode-invalid.dzn` | `budget_offset=-3` gives `tool_capacity=-1`, gcd 3, union `{1,2,3}`, size 3 and square 4 | Invalid, complete; domains for budget_offset, tool_capacity and square fail, plus capacity |
+| `gecode-conflict.dzn` | Supplied `tool_capacity=0` conflicts with calculated 2 and stays the objective value | Invalid, complete; one finding with both IDs |
+| `gecode-partial.dzn` | Empty file supplies no values | Incomplete; eleven unresolved scalar slots |
+
+Supplying only `budget_offset=-3` gives two known domain findings with incomplete checks.
+Every check starts afresh, so the valid edit passes again after these states.
+The [native/Wasm smoke](../../examples/checker-wasm/README.md) compares the same
+five edits and the existing exact integer/set cases. No solver runs.
+
+The symmetry ignore flag permits every representative. With it false, `budget_offset=2`
+fails the compiled symmetry domain; with it true, the otherwise valid candidate
+passes. `mzn_ignore_redundant_constraints=true` can also remove implied source
+constraints. These flags act during compilation, before the checker sees a model.
+Recognized search and propagation annotations are metadata, including Gecode's
+search choices; they select no candidate values.
+
+The [Gecode accounting](../../docs/checker-coverage.md#gecode-profile-accounting)
+checks all 754 selected files, optional and deprecated includes, and every
+external signature. Native preparation validates 316 direct Gecode signatures
+and all registered mathematical aliases, including feature-guarded set, float
+and MPFR names. Exact aliases use corresponding declarations or explicit
+positional contracts; a shared handler does not merge fixed and variable array
+signatures. Both bound roles work for `bool_lin_le`, `gecode_bool_lin_le` and
+`fzn_bool_lin_le`.
+
+The 27 existing compile controls and this application control prepare with the
+pinned Gecode library. They include explicit-end schedules, optional rectangles,
+set channels, floats and number theory. Separate checks compile deprecated
+decreasing includes and native Boolean/integer table reifiers. The selected
+standard fallbacks still contain 31 unconditional abort bodies across 26 names;
+these source forms emit no FlatZinc and get no runtime-support credit. The
+standard profile's integer-table width limit does not apply to Gecode's native
+table override.
+
+External executable/DLL hooks and restart status/history hooks produce specific
+located diagnostics at declarations, calls and annotations. The seven malformed
+upstream restart prototypes listed in the [hook inventory](../../docs/checker-coverage.md#external-hooks)
+lack semicolons and are source compiler limits; valid declarations of those
+hooks still reject unavailable history. The checker performs no external
+execution, search or random value selection.
+
+The authored model, candidates and compatibility files pass formatting and local
+naming/label checks. Default linting of the complete include closure reports
+the upstream naming warning for Gecode's parameter `S` and 44 explicit analysis
+limitations. The pinned sources are unchanged. These diagnostics do not establish
+complete semantic lint analysis.
 
 ## Shared-bench workshop example
 

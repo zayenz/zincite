@@ -37,6 +37,9 @@ impl Lowerer<'_> {
                 continue;
             }
             let name = self.source.name(expression)?;
+            if let Some(reason) = external_hook_reason(&name) {
+                return Err(self.source.error(expression, format!("'{name}': {reason}")));
+            }
             if !name.as_bytes()[0].is_ascii_alphabetic() {
                 return Err(self
                     .source
@@ -266,6 +269,9 @@ impl Lowerer<'_> {
 
     fn search_annotation(&mut self, node: &SyntaxNode, role: SearchRole) -> Result<()> {
         let name = self.source.name(node)?;
+        if let Some(reason) = external_hook_reason(&name) {
+            return Err(self.source.error(node, format!("'{name}': {reason}")));
+        }
         let args: Vec<_> = node.child_nodes().collect();
         let call = node.kind() == NodeKind::CallExpression;
         let flag = node.kind() == NodeKind::Expression && args.is_empty();

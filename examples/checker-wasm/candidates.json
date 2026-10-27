@@ -3019,5 +3019,245 @@
         },
         "status": "incomplete",
         "complete": false
+    },
+    {
+        "name": "gecode-valid",
+        "model": "gecode",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "budget_offset",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                },
+                {
+                    "name": "chosen",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "2",
+                                        "upper": "2"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "amount",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "float",
+                            "value": 1.0
+                        }
+                    }
+                },
+                {
+                    "name": "enabled",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                },
+                {
+                    "name": "X_INTRODUCED_22_",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "2"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "valid",
+        "complete": true
+    },
+    {
+        "name": "gecode-invalid",
+        "model": "gecode",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "budget_offset",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "-3"
+                        }
+                    }
+                },
+                {
+                    "name": "chosen",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "2",
+                                        "upper": "3"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "amount",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "float",
+                            "value": 2.0
+                        }
+                    }
+                },
+                {
+                    "name": "enabled",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                },
+                {
+                    "name": "X_INTRODUCED_22_",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "3"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "gecode-conflict",
+        "model": "gecode",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "budget_offset",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                },
+                {
+                    "name": "chosen",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer_set",
+                            "value": {
+                                "ranges": [
+                                    {
+                                        "lower": "2",
+                                        "upper": "2"
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "name": "amount",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "float",
+                            "value": 1.0
+                        }
+                    }
+                },
+                {
+                    "name": "enabled",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                },
+                {
+                    "name": "X_INTRODUCED_22_",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "2"
+                        }
+                    }
+                },
+                {
+                    "name": "tool_capacity",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "gecode-partial",
+        "model": "gecode",
+        "assignment": {
+            "entries": []
+        },
+        "status": "incomplete",
+        "complete": false
+    },
+    {
+        "name": "gecode-incomplete-invalid",
+        "model": "gecode",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "budget_offset",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "-3"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": false
     }
 ]
