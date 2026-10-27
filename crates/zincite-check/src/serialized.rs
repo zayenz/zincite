@@ -217,6 +217,23 @@ impl PreparedModel {
                     self.validate_table(constraint, table)?;
                     &constraint.reference.predicate
                 }
+                Predicate::Scheduling(schedule) => {
+                    if SchedulingName::from_name(&constraint.reference.predicate, schedule.arity())
+                        != Some(schedule.name())
+                    {
+                        return Err(invalid(
+                            "scheduling predicate name does not match its executable contract",
+                        ));
+                    }
+                    schedule.validate_shape().map_err(invalid)?;
+                    for operand in schedule.integer_operands() {
+                        self.validate_operand(operand, ValueType::Integer)?;
+                    }
+                    for operand in schedule.presence().into_iter().flatten() {
+                        self.validate_operand(operand, ValueType::Boolean)?;
+                    }
+                    &constraint.reference.predicate
+                }
                 Predicate::Circuit(circuit) => {
                     if CircuitName::from_name(&constraint.reference.predicate)
                         != Some(circuit.name())

@@ -90,7 +90,9 @@ All other mathematical calls and aliases are planned work.
 | `set_card(s,n)` | Checked i64 cardinality; all exact `gecode_`/`fzn_` prefixes | `n` |
 | `set_union/intersect/diff/symdiff(s,t,r)` | Compact range algebra; all exact `gecode_`/`fzn_` prefixes | `r`, absent from the inputs |
 | `gecode_set_rel_imp_fzn(s,code,t,b)` and its literal `gecode_`/`fzn_` prefixes | Fixed code 1–10; native characteristic order for codes 7–10; complement within the Gecode universe | None |
-| `fzn_disjunctive_strict(start,duration)` | Equal array lengths; fixed nonnegative durations; matching bodyless declaration; formal names can vary | None |
+| `gecode_schedule_unary`, `gecode_schedule_unary_optional`, `gecode_schedule_cumulative_optional` | Fixed nonnegative durations/usages; optional presence; exact literal registry prefixes | None |
+| `cumulatives(s,d,u,b)` and `(s,d,u,m,b,upper)` | Concrete four-argument horizon or signed multi-machine active intervals; fixed six-argument capacities/flag; all three registry prefixes | None |
+| `fzn_disjunctive_strict(start,duration)` | Equal array lengths; nonnegative variable/fixed durations; matching bodyless declaration; formal names can vary | None |
 | `int_abs(x,r)`, `int_negate(x,r)` | Checked i64 absolute value/negation; also each exact `gecode_` and `fzn_` prefix | `r`, absent from the input |
 | `int_plus(x,y,r)`, `int_minus(x,y,r)`, `int_times(x,y,r)`, `int_div(x,y,r)`, `int_mod(x,y,r)`, `int_min(x,y,r)`, `int_max(x,y,r)` | Checked i64 operands/results; also each exact `gecode_` and `fzn_` prefix | `r`, absent from both inputs |
 | `int_pow(x,y,r)` | Variable or fixed integer exponent | `r`, absent from both inputs |
@@ -134,10 +136,10 @@ All other mathematical calls and aliases are planned work.
 | `gecode_regular`, `gecode_regular_set`, `gecode_regular_nfa_int_fzn` | Concrete DFA/NFA acceptance; fixed row-major transitions; validated alphabets, states and target sets | None |
 | `gecode_circuit`, `gecode_circuit_cost`, `gecode_circuit_cost_array` | Nonempty single-cycle permutation; plain offset or zero-based cost rows; independent edge equalities and actual cost sum | Marked edge costs and totals from their known inputs |
 
-The checker admits 779 exact names, including 165 Boolean-family names,
+The checker admits 791 exact names, including 165 Boolean-family names,
 108 integer scalar/linear relation spellings, 80 float-core names, 57 selection
 names, 84 set-family names, 54 float-function names, 54 counting-family names,
-108 ordering/channel names, 18 table names, nine automaton names and nine circuit names.
+108 ordering/channel names, 18 table names, nine automaton names, nine circuit names and twelve new legacy scheduling names.
 The `fzn_disjunctive_strict` declaration is required for that external call.
 The other listed names accept calls without declarations. All matching declarations
 validate signatures, roles and shapes, with call checks for declared domains and
@@ -504,13 +506,28 @@ Public `fzn_circuit` and cost wrappers follow compiler lowering; checker-030/031
 own profile closure and missing or misplaced definition markers.
 
 <a id="family-024"></a>
-**checker-024 — legacy scheduling.** Check unary/disjunctive, optional unary,
-cumulative and legacy cumulatives under their own fixed/variable duration, usage,
-capacity and presence arguments. The currently supported strict disjunctive
-relation requires for each pair `start[i]+duration[i] <= start[j]` or its reverse;
-a zero-duration task inside an occupied interval conflicts. Standard nonstrict
-cumulative empty-task behavior differs from explicit-end native calls. Use event
-boundaries for resource checks and do not choose starts or durations.
+**checker-024 — legacy scheduling.** The strict global accepts variable or
+fixed nonnegative durations. Native unary/optional unary require fixed
+nonnegative durations; native optional cumulative also requires fixed
+nonnegative usages and nonnegative capacity, including empty/absent schedules.
+A zero-duration unary task conflicts strictly inside another task. Optional
+cumulative checks each zero task separately with tasks strictly spanning its
+start. Six-argument cumulatives uses zero-based machines, signed usages and
+capacities, upper/lower bounds during active intervals, and separate caller
+obligations for nonnegative durations and valid machines.
+
+Four-argument cumulatives and its exact aliases use the approved concrete-value
+exception to upstream's domain-dependent posting behavior. Empty arrays pass;
+a singleton checks only positive duration implies usage at most capacity.
+Larger arrays check the concrete horizon `min(start)..max(start+duration)` with
+an exclusive upper endpoint, including idle gaps at usage zero. Signed usages,
+capacity and durations work; nonpositive durations contribute no active interval.
+Declared start domains and posting effects do not alter this relation. See the
+[guide](../crates/zincite-check/README.md#legacy-scheduling) for examples and report
+contracts. Checks visit event boundaries and choose no values. Four/six-argument
+source signatures are qualified individually; standard seven-argument wrappers
+belong to compiler-profile work, and explicit-end native arity seven belongs to
+checker-025.
 
 <a id="family-025"></a>
 **checker-025 — explicit-end scheduling.** The five `*_flex` interfaces check
@@ -901,7 +918,7 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r139"></a>[R139](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2258) | ` gecode_table_bool `, ` gecode_gecode_table_bool `, ` fzn_gecode_table_bool ` | ` p_table_bool ` / ` always ` | [D2924](#d2924) | ` gecode_table_bool `, ` gecode_gecode_table_bool `, ` fzn_gecode_table_bool ` | [checker-021](#family-021) | none |
 | <a id="r140"></a>[R140](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2259) | ` gecode_table_bool_reif `, ` gecode_gecode_table_bool_reif `, ` fzn_gecode_table_bool_reif ` | ` p_table_bool_reif ` / ` always ` | [D2926](#d2926) | ` gecode_table_bool_reif `, ` gecode_gecode_table_bool_reif `, ` fzn_gecode_table_bool_reif ` | [checker-021](#family-021) | last Boolean (truth) |
 | <a id="r141"></a>[R141](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2260) | ` gecode_table_bool_imp `, ` gecode_gecode_table_bool_imp `, ` fzn_gecode_table_bool_imp ` | ` p_table_bool_imp ` / ` always ` | [D2927](#d2927) | ` gecode_table_bool_imp `, ` gecode_gecode_table_bool_imp `, ` fzn_gecode_table_bool_imp ` | [checker-021](#family-021) | none (guard) |
-| <a id="r142"></a>[R142](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2261) | ` cumulatives `, ` gecode_cumulatives `, ` fzn_cumulatives ` | ` p_cumulatives ` / ` always ` | [D0318](#d0318), [D0323](#d0323), [D0329](#d0329), [D2837](#d2837), [D2841](#d2841), [D2846](#d2846), [D2847](#d2847), [D3035](#d3035) | planned | [checker-024](#family-024) | none |
+| <a id="r142"></a>[R142](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2261) | ` cumulatives `, ` gecode_cumulatives `, ` fzn_cumulatives ` | ` p_cumulatives ` / ` always ` | [D0318](#d0318), [D0323](#d0323), [D0329](#d0329), [D2837](#d2837), [D2841](#d2841), [D2846](#d2846), [D2847](#d2847), [D3035](#d3035) | ` cumulatives `, ` gecode_cumulatives `, ` fzn_cumulatives ` (legacy arities 4/6; explicit-end arity 7 planned) | [checker-024](#family-024) | none |
 | <a id="r143"></a>[R143](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2262) | ` gecode_among_seq_int `, ` gecode_gecode_among_seq_int `, ` fzn_gecode_among_seq_int ` | ` p_among_seq_int ` / ` always ` | [D2917](#d2917) | ` gecode_among_seq_int `, ` gecode_gecode_among_seq_int `, ` fzn_gecode_among_seq_int ` | [checker-019](#family-019) | none |
 | <a id="r144"></a>[R144](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2263) | ` gecode_among_seq_bool `, ` gecode_gecode_among_seq_bool `, ` fzn_gecode_among_seq_bool ` | ` p_among_seq_bool ` / ` always ` | [D2915](#d2915) | ` gecode_among_seq_bool `, ` gecode_gecode_among_seq_bool `, ` fzn_gecode_among_seq_bool ` | [checker-019](#family-019) | none |
 | <a id="r145"></a>[R145](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2265) | ` bool_lin_eq `, ` gecode_bool_lin_eq `, ` fzn_bool_lin_eq ` | ` p_bool_lin_eq ` / ` always ` | [D0490](#d0490), [D3103](#d3103) | ` bool_lin_eq `, ` gecode_bool_lin_eq `, ` fzn_bool_lin_eq ` | [checker-014](#family-014) | exact equality slot only |
@@ -922,9 +939,9 @@ Each row is one active registration statement. Prefix expansion is literal; all 
 | <a id="r160"></a>[R160](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2281) | ` bool_lin_ge_imp `, ` gecode_bool_lin_ge_imp `, ` fzn_bool_lin_ge_imp ` | ` p_bool_lin_ge_imp ` / ` always ` | [D3136](#d3136) | ` bool_lin_ge_imp `, ` gecode_bool_lin_ge_imp `, ` fzn_bool_lin_ge_imp ` | [checker-014](#family-014) | none (guard) |
 | <a id="r161"></a>[R161](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2282) | ` bool_lin_gt_reif `, ` gecode_bool_lin_gt_reif `, ` fzn_bool_lin_gt_reif ` | ` p_bool_lin_gt_reif ` / ` always ` | ` bool_lin_gt_reif(array[int] of int: a, array[int] of var bool: x, var int: c, var bool: b) ` (handler) | ` bool_lin_gt_reif `, ` gecode_bool_lin_gt_reif `, ` fzn_bool_lin_gt_reif ` | [checker-014](#family-014) | last Boolean (truth) |
 | <a id="r162"></a>[R162](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2283) | ` bool_lin_gt_imp `, ` gecode_bool_lin_gt_imp `, ` fzn_bool_lin_gt_imp ` | ` p_bool_lin_gt_imp ` / ` always ` | [D3137](#d3137) | ` bool_lin_gt_imp `, ` gecode_bool_lin_gt_imp `, ` fzn_bool_lin_gt_imp ` | [checker-014](#family-014) | none (guard) |
-| <a id="r163"></a>[R163](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2285) | ` gecode_schedule_unary `, ` gecode_gecode_schedule_unary `, ` fzn_gecode_schedule_unary ` | ` p_schedule_unary ` / ` always ` | [D2839](#d2839), [D2853](#d2853), [D2969](#d2969) | planned | [checker-024](#family-024) | none |
-| <a id="r164"></a>[R164](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2286) | ` gecode_schedule_unary_optional `, ` gecode_gecode_schedule_unary_optional `, ` fzn_gecode_schedule_unary_optional ` | ` p_schedule_unary_optional ` / ` always ` | [D2855](#d2855), [D2970](#d2970) | planned | [checker-024](#family-024) | none |
-| <a id="r165"></a>[R165](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2287) | ` gecode_schedule_cumulative_optional `, ` gecode_gecode_schedule_cumulative_optional `, ` fzn_gecode_schedule_cumulative_optional ` | ` p_cumulative_opt ` / ` always ` | [D2840](#d2840), [D2842](#d2842), [D2971](#d2971) | planned | [checker-024](#family-024) | none |
+| <a id="r163"></a>[R163](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2285) | ` gecode_schedule_unary `, ` gecode_gecode_schedule_unary `, ` fzn_gecode_schedule_unary ` | ` p_schedule_unary ` / ` always ` | [D2839](#d2839), [D2853](#d2853), [D2969](#d2969) | ` gecode_schedule_unary `, ` gecode_gecode_schedule_unary `, ` fzn_gecode_schedule_unary ` | [checker-024](#family-024) | none |
+| <a id="r164"></a>[R164](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2286) | ` gecode_schedule_unary_optional `, ` gecode_gecode_schedule_unary_optional `, ` fzn_gecode_schedule_unary_optional ` | ` p_schedule_unary_optional ` / ` always ` | [D2855](#d2855), [D2970](#d2970) | ` gecode_schedule_unary_optional `, ` gecode_gecode_schedule_unary_optional `, ` fzn_gecode_schedule_unary_optional ` | [checker-024](#family-024) | none |
+| <a id="r165"></a>[R165](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2287) | ` gecode_schedule_cumulative_optional `, ` gecode_gecode_schedule_cumulative_optional `, ` fzn_gecode_schedule_cumulative_optional ` | ` p_cumulative_opt ` / ` always ` | [D2840](#d2840), [D2842](#d2842), [D2971](#d2971) | ` gecode_schedule_cumulative_optional `, ` gecode_gecode_schedule_cumulative_optional `, ` fzn_gecode_schedule_cumulative_optional ` | [checker-024](#family-024) | none |
 | <a id="r166"></a>[R166](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2289) | ` gecode_circuit `, ` gecode_gecode_circuit `, ` fzn_gecode_circuit ` | ` p_circuit ` / ` always ` | [D2821](#d2821) | ` gecode_circuit `, ` gecode_gecode_circuit `, ` fzn_gecode_circuit ` | [checker-023](#family-023) | none |
 | <a id="r167"></a>[R167](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2290) | ` gecode_circuit_cost_array `, ` gecode_gecode_circuit_cost_array `, ` fzn_gecode_circuit_cost_array ` | ` p_circuit_cost_array ` / ` always ` | [D2965](#d2965) | ` gecode_circuit_cost_array `, ` gecode_gecode_circuit_cost_array `, ` fzn_gecode_circuit_cost_array ` | [checker-023](#family-023) | argument 3 (selected edge costs); argument 4 (actual cost sum) |
 | <a id="r168"></a>[R168](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L2291) | ` gecode_circuit_cost `, ` gecode_gecode_circuit_cost `, ` fzn_gecode_circuit_cost ` | ` p_circuit_cost ` / ` always ` | [D2966](#d2966) | ` gecode_circuit_cost `, ` gecode_gecode_circuit_cost `, ` fzn_gecode_circuit_cost ` | [checker-023](#family-023) | argument 3 (selected matrix cost sum) |
@@ -2689,7 +2706,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d0318"></a>D0318 / 3 | ` predicate fzn_cumulatives( array [int] of var int: start, array [int] of var int: duration, array [int] of var int: resource, array [int] of var int: machine, array [int] of var int: bound, bool: is_upper_bound, int: min_machine, ) ` | S decomposition → [D0782](#d0782); G decomposition → [D2845](#d2845) | planned | [checker-024](#family-024) | none |
+| <a id="d0318"></a>D0318 / 3 | ` predicate fzn_cumulatives( array [int] of var int: start, array [int] of var int: duration, array [int] of var int: resource, array [int] of var int: machine, array [int] of var int: bound, bool: is_upper_bound, int: min_machine, ) ` | S decomposition → [D0782](#d0782); G decomposition → [D2845](#d2845) | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0319"></a>D0319 / 16 | ` predicate cumulatives_helper( array [$$E] of var int: start, array [$$E] of var int: duration, array [$$E] of var int: resource, array [$$E] of var $$M: machine, array [$$M] of var int: bound, bool: is_upper_bound, ) ` | wrapper → ` assert `, ` enum2int `, ` fzn_cumulatives `, ` index2int `, ` index_set `, ` index_sets_agree `, ` lb_array `, ` length `, ` max `, ` min `, ` ub_array ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0320"></a>D0320 / 61 | ` predicate cumulatives( array [$$E] of var int: start, array [$$E] of var int: duration, array [$$E] of var int: resource, array [$$E] of var $$M: machine, array [$$M] of var int: upper_bound, ) ` | wrapper → ` cumulatives_helper ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
 | <a id="d0321"></a>D0321 / 83 | ` predicate cumulatives( array [$$E] of var int: start, array [$$E] of var int: duration, array [$$E] of var int: resource, array [$$E] of var $$M: machine, array [$$M] of var int: lower_bound, ) ` | wrapper → ` cumulatives_helper ` | planned | [checker-030](#family-030) | compiler lowering; emitted definitions |
@@ -9452,16 +9469,16 @@ Include/resource entry only; see the selection index.
 | <a id="d2836"></a>D2836 / 47 | ` predicate gecode_cumulative_flex_optional( array[int] of var int: s, array[int] of var int: d, array[int] of var int: e, array[int] of int: r, var int: b, array[int] of var bool: present, ) ` | S outside profile; G direct | planned | [checker-025](#family-025) | none |
 | <a id="d2837"></a>D2837 / 55 | ` predicate gecode_cumulatives_flex( array[int] of var int: s, array[int] of var int: d, array[int] of var int: e, array[int] of var int: r, array[int] of var int: m, array[int] of int: b, bool: upper, ) ` | S outside profile; G direct | planned | [checker-025](#family-025) | none |
 | <a id="d2838"></a>D2838 / 65 | ` predicate fzn_cumulative( array[int] of var int: s, array[int] of var int: d, array[int] of var int: r, var int: b, ) ` | wrapper → ` array1d `, ` bool2int `, ` fix `, ` forall `, ` gecode_cumulative_flex `, ` gecode_cumulative_flex_optional `, ` gecode_cumulatives `, ` gecode_cumulatives_flex `, ` gecode_schedule_cumulative_optional `, ` gecode_schedule_unary `, ` gecode_unary_flex `, ` index_set `, ` is_fixed `, ` lb `, ` length `, ` max `, ` min `, ` sort `, ` sum `, ` then `, ` ub ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
-| <a id="d2839"></a>D2839 / 169 | ` predicate gecode_schedule_unary( array[int] of var int: s, array[int] of int: d, ) ` | S outside profile; G direct | planned | [checker-024](#family-024) | none |
-| <a id="d2840"></a>D2840 / 173 | ` predicate gecode_schedule_cumulative_optional( array[int] of var int: s, array[int] of int: d, array[int] of int: r, array[int] of var bool: present, var int: b, ) ` | S outside profile; G direct | planned | [checker-024](#family-024) | none |
-| <a id="d2841"></a>D2841 / 182 | ` predicate gecode_cumulatives( array[int] of var int: s, array[int] of var int: d, array[int] of var int: r, var int: b, ) ` | S outside profile; G direct | planned | [checker-024](#family-024) | none |
+| <a id="d2839"></a>D2839 / 169 | ` predicate gecode_schedule_unary( array[int] of var int: s, array[int] of int: d, ) ` | S outside profile; G direct | C (qualified) | [checker-024](#family-024) | none |
+| <a id="d2840"></a>D2840 / 173 | ` predicate gecode_schedule_cumulative_optional( array[int] of var int: s, array[int] of int: d, array[int] of int: r, array[int] of var bool: present, var int: b, ) ` | S outside profile; G direct | C (qualified) | [checker-024](#family-024) | none |
+| <a id="d2841"></a>D2841 / 182 | ` predicate gecode_cumulatives( array[int] of var int: s, array[int] of var int: d, array[int] of var int: r, var int: b, ) ` | S outside profile; G direct | C (qualified) | [checker-024](#family-024) | none |
 
 <a id="file-785"></a>
 ### [G/fzn_cumulative_opt.mzn](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/mznlib/fzn_cumulative_opt.mzn)
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2842"></a>D2842 / 37 | ` predicate gecode_schedule_cumulative_optional( array[int] of var int: start, array[int] of int: duration, array[int] of int: usage, array[int] of var bool: m, var int: capacity, ) ` | S outside profile; G direct | planned | [checker-024](#family-024) | none |
+| <a id="d2842"></a>D2842 / 37 | ` predicate gecode_schedule_cumulative_optional( array[int] of var int: start, array[int] of int: duration, array[int] of int: usage, array[int] of var bool: m, var int: capacity, ) ` | S outside profile; G direct | C (qualified) | [checker-024](#family-024) | none |
 | <a id="d2843"></a>D2843 / 45 | ` predicate gecode_cumulative_flex_optional( array[int] of var int: start, array[int] of var int: duration, array[int] of var int: end, array[int] of int: usage, var int: capacity, array[int] of var bool: present, ) ` | S outside profile; G direct | planned | [checker-025](#family-025) | none |
 | <a id="d2844"></a>D2844 / 54 | ` predicate fzn_cumulative_opt( array[int] of var opt int: s, array[int] of var int: d, array[int] of var int: r, var int: b, ) ` | wrapper → ` absent `, ` array1d `, ` deopt `, ` fix `, ` forall `, ` fzn_cumulative_opt_decomp `, ` gecode_cumulative_flex_optional `, ` gecode_schedule_cumulative_optional `, ` index_set `, ` is_fixed `, ` occurs `, ` ub ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
@@ -9471,7 +9488,7 @@ Include/resource entry only; see the selection index.
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
 | <a id="d2845"></a>D2845 / 3 | ` predicate fzn_cumulatives( array[int] of var int: s, array[int] of var int: d, array[int] of var int: r, array[int] of var int: m, array[int] of var int: b, bool: upper, int: min_m, ) ` | wrapper → ` fix `, ` fzn_cumulatives_decomp `, ` gecode_cumulatives_flex `, ` index_set `, ` is_fixed ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
-| <a id="d2846"></a>D2846 / 31 | ` predicate gecode_cumulatives( array[int] of var int: s, array[int] of var int: d, array[int] of var int: r, array[int] of var int: m, array[int] of int: b, bool: upper, ) ` | S outside profile; G direct | planned | [checker-024](#family-024) | none |
+| <a id="d2846"></a>D2846 / 31 | ` predicate gecode_cumulatives( array[int] of var int: s, array[int] of var int: d, array[int] of var int: r, array[int] of var int: m, array[int] of int: b, bool: upper, ) ` | S outside profile; G direct | C (qualified) | [checker-024](#family-024) | none |
 | <a id="d2847"></a>D2847 / 40 | ` predicate gecode_cumulatives_flex( array[int] of var int: s, array[int] of var int: d, array[int] of var int: e, array[int] of var int: r, array[int] of var int: m, array[int] of int: b, bool: upper, ) ` | S outside profile; G direct | planned | [checker-025](#family-025) | none |
 
 <a id="file-787"></a>
@@ -9508,7 +9525,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2853"></a>D2853 / 1 | ` predicate gecode_schedule_unary(array[int] of var int: x, array[int] of int: p) ` | S outside profile; G direct | planned | [checker-024](#family-024) | none |
+| <a id="d2853"></a>D2853 / 1 | ` predicate gecode_schedule_unary(array[int] of var int: x, array[int] of int: p) ` | S outside profile; G direct | C (qualified) | [checker-024](#family-024) | none |
 | <a id="d2854"></a>D2854 / 3 | ` predicate fzn_disjunctive_strict(array[int] of var int: s, array[int] of var int: d) ` | wrapper → ` array1d `, ` assert `, ` fix `, ` forall `, ` gecode_schedule_unary `, ` index_set `, ` is_fixed ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
 <a id="file-792"></a>
@@ -9516,7 +9533,7 @@ Include/resource entry only; see the selection index.
 
 | Row / line | Exact source signature | Route / semantic calls or definitions | Now | Owner | Useful output |
 | --- | --- | --- | --- | --- | --- |
-| <a id="d2855"></a>D2855 / 35 | ` predicate gecode_schedule_unary_optional( array[int] of var int: x, array[int] of int: p, array[int] of var bool: m, ) ` | S outside profile; G direct | planned | [checker-024](#family-024) | none |
+| <a id="d2855"></a>D2855 / 35 | ` predicate gecode_schedule_unary_optional( array[int] of var int: x, array[int] of int: p, array[int] of var bool: m, ) ` | S outside profile; G direct | C (qualified) | [checker-024](#family-024) | none |
 | <a id="d2856"></a>D2856 / 41 | ` predicate gecode_unary_flex_optional( array[int] of var int: start, array[int] of var int: duration, array[int] of var int: end, array[int] of var bool: present, ) ` | S outside profile; G direct | planned | [checker-025](#family-025) | none |
 | <a id="d2857"></a>D2857 / 48 | ` predicate fzn_disjunctive_strict_opt( array[int] of var opt int: s, array[int] of var int: d, ) ` | wrapper → ` absent `, ` array1d `, ` deopt `, ` fix `, ` forall `, ` gecode_schedule_unary_optional `, ` gecode_unary_flex_optional `, ` index_set `, ` is_fixed `, ` occurs ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 
@@ -9906,9 +9923,9 @@ Include/resource entry only; see the selection index.
 | <a id="d2966"></a>D2966 / 153 | ` predicate gecode_circuit_cost(array[int] of int: c, array[int] of var int: x, var int: z) ` | S outside profile; G direct | C (qualified) | [checker-023](#family-023) | argument 3 (selected matrix cost sum) |
 | <a id="d2967"></a>D2967 / 162 | ` predicate circuit_cost_array(array[int] of int: c, array[int] of var int: x, array[int] of var int: y, var int: z) ` | wrapper → ` gecode_circuit_cost_array `, ` index_set `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d2968"></a>D2968 / 171 | ` predicate circuit_cost(array[int] of int: c, array[int] of var int: x, var int: z) ` | wrapper → ` gecode_circuit_cost `, ` index_set `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
-| <a id="d2969"></a>D2969 / 176 | ` predicate gecode_schedule_unary(array[int] of var int: x, array[int] of int: p) ` | S outside profile; G direct | planned | [checker-024](#family-024) | none |
-| <a id="d2970"></a>D2970 / 177 | ` predicate gecode_schedule_unary_optional(array[int] of var int: x, array[int] of int: p, array[int] of var bool: m) ` | S outside profile; G direct | planned | [checker-024](#family-024) | none |
-| <a id="d2971"></a>D2971 / 180 | ` predicate gecode_schedule_cumulative_optional(array[int] of var int: start, array[int] of int: duration, array[int] of int: usage, array[int] of var bool: m, var int: capacity) ` | S outside profile; G direct | planned | [checker-024](#family-024) | none |
+| <a id="d2969"></a>D2969 / 176 | ` predicate gecode_schedule_unary(array[int] of var int: x, array[int] of int: p) ` | S outside profile; G direct | C (qualified) | [checker-024](#family-024) | none |
+| <a id="d2970"></a>D2970 / 177 | ` predicate gecode_schedule_unary_optional(array[int] of var int: x, array[int] of int: p, array[int] of var bool: m) ` | S outside profile; G direct | C (qualified) | [checker-024](#family-024) | none |
+| <a id="d2971"></a>D2971 / 180 | ` predicate gecode_schedule_cumulative_optional(array[int] of var int: start, array[int] of int: duration, array[int] of int: usage, array[int] of var bool: m, var int: capacity) ` | S outside profile; G direct | C (qualified) | [checker-024](#family-024) | none |
 | <a id="d2972"></a>D2972 / 192 | ` predicate gecode_inter_distance(array[$$X] of var int: x, var int: distance) ` | wrapper → ` abs `, ` array1d `, ` forall `, ` gecode_inter_distance_fzn `, ` index_set `, ` mzn_in_root_context ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d2973"></a>D2973 / 207 | ` predicate gecode_all_different_offset( array[$$X] of int: offset, array[$$X] of var int: x, ) ` | wrapper → ` all_different `, ` array1d `, ` assert `, ` gecode_all_different_offset_fzn `, ` index_set `, ` mzn_in_root_context ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |
 | <a id="d2974"></a>D2974 / 228 | ` predicate gecode_sort_permutation( array[$$X] of var $$V: x, array[$$Y] of var $$V: y, array[$$X] of var $$Y: permutation, ) ` | wrapper → ` array1d `, ` assert `, ` enum2int `, ` gecode_sort_permutation `, ` index_set `, ` length `, ` min ` | planned | [checker-031](#family-031) | compiler lowering; emitted definitions |

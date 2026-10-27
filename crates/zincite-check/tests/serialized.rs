@@ -2060,3 +2060,104 @@ fn parser_free_circuits_validate_contracts_and_definition_targets() {
     bad["model"]["slots"][0]["default"] = json!({"kind":"integer","value":"7"});
     assert!(PreparedModel::from_json(&bad.to_string()).is_err());
 }
+
+#[test]
+fn parser_free_scheduling_checks_shapes_roles_and_exact_payloads() {
+    let integer = |value: &str| json!({"Literal":{"kind":"integer","value":value}});
+    let mut artifact = executable();
+    artifact["model"]["constraints"][0]["reference"]["predicate"] =
+        json!("gecode_schedule_cumulative_optional");
+    artifact["model"]["constraints"][0]["predicate"] = json!({"Scheduling":{"OptionalCumulative":{
+        "tasks":{"starts":[integer("9007199254740993"),{"Variable":0}],"durations":[integer("3"),integer("0")]},
+        "usages":[integer("2"),integer("1")],
+        "present":[{"Literal":{"kind":"boolean","value":true}},{"Literal":{"kind":"boolean","value":true}}],
+        "capacity":integer("2")
+    }}});
+    let model = PreparedModel::from_json(&artifact.to_string()).unwrap();
+    let input = Assignment {
+        entries: vec![AssignmentEntry {
+            name: "x".into(),
+            value: AssignmentValue::Scalar(Value::Integer(9_007_199_254_740_994)),
+            location: None,
+        }],
+    };
+    let report = model.check(&input).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    let json = serde_json::to_value(&report).unwrap();
+    assert_eq!(
+        json["violations"][0]["details"]["finding"]["faults"][0]["time"],
+        "9007199254740994"
+    );
+    assert_eq!(
+        json["violations"][0]["details"]["finding"]["faults"][0]["usage"],
+        "3"
+    );
+    assert_eq!(
+        json,
+        serde_json::to_value(
+            PreparedModel::from_json(&model.to_json().unwrap())
+                .unwrap()
+                .check(&input)
+                .unwrap()
+        )
+        .unwrap()
+    );
+    for (path, value) in [
+        ("/tasks/durations", json!([])),
+        ("/tasks/durations/0", json!({"Variable":0})),
+        ("/tasks/durations/0", integer("-1")),
+        ("/tasks/starts/0", json!({"Variable":99})),
+        (
+            "/tasks/starts/0",
+            json!({"Literal":{"kind":"boolean","value":true}}),
+        ),
+        ("/usages/0", integer("-1")),
+        ("/present/0", integer("1")),
+        (
+            "/capacity",
+            json!({"Literal":{"kind":"boolean","value":false}}),
+        ),
+    ] {
+        let mut bad = artifact.clone();
+        *bad["model"]["constraints"][0]["predicate"]["Scheduling"]["OptionalCumulative"]
+            .pointer_mut(path)
+            .unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&bad.to_string()).is_err(),
+            "{path}"
+        );
+    }
+    for name in [
+        "gecode_schedule_unary_optional",
+        "cumulatives",
+        "gecode_schedule_cumulative_optional_reif",
+    ] {
+        let mut bad = artifact.clone();
+        bad["model"]["constraints"][0]["reference"]["predicate"] = json!(name);
+        assert!(
+            PreparedModel::from_json(&bad.to_string()).is_err(),
+            "{name}"
+        );
+    }
+    artifact["model"]["constraints"][0]["reference"]["predicate"] = json!("fzn_cumulatives");
+    artifact["model"]["constraints"][0]["predicate"] = json!({"Scheduling":{"Cumulatives":{
+        "tasks":{"starts":[{"Variable":0}],"durations":[integer("1")]},
+        "usages":[integer("-1")],"machines":[integer("0")],"capacities":[integer("-1")],"upper":true
+    }}});
+    let model = PreparedModel::from_json(&artifact.to_string()).unwrap();
+    assert_eq!(model.check(&input).unwrap().status, Status::Valid);
+    for (path, value) in [
+        ("/capacities/0", json!({"Variable":0})),
+        ("/upper", json!({"Literal":{"kind":"boolean","value":true}})),
+        ("/machines", json!([])),
+    ] {
+        let mut bad = artifact.clone();
+        *bad["model"]["constraints"][0]["predicate"]["Scheduling"]["Cumulatives"]
+            .pointer_mut(path)
+            .unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&bad.to_string()).is_err(),
+            "{path}"
+        );
+    }
+}

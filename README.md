@@ -85,8 +85,9 @@ Export a prepared model to versioned JSON and load it for checking without
 parsing the FlatZinc again. See the [checker guide](crates/zincite-check/README.md)
 for local installation, working commands, structured reports and exact coverage.
 Supported linear equality, full reification and set definitions derive auxiliaries
-from primary decisions. A strict disjunctive global reports conflicting job pairs
-with fixed nonnegative durations.
+from primary decisions. Strict disjunctive checks accept nonnegative variable or
+fixed durations. Legacy optional unary and cumulative checks report resource
+conflicts without choosing schedule values.
 Parser-free WebAssembly bindings load the same prepared artifacts and check typed
 assignment JSON. The [Wasm example](examples/checker-wasm/README.md) includes
 Node.js and browser builds and an executable comparison with native reports.

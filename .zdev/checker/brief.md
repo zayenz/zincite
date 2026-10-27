@@ -318,6 +318,13 @@ points. Keep integers exact and checked at the existing i64 boundary; respect
 explicit Gecode integer/set-universe constants where those are part of an
 extension's semantics rather than replacing them with i64 limits.
 
+Legacy four-argument `cumulatives` checks concrete candidate values. Its result
+must not depend on declared start ranges or Gecode's posting and propagation
+effects. Document its concrete scheduling relation and the difference from
+upstream's domain-dependent behavior in the checker guide. This explicit
+choice also applies to its registered aliases; it does not add propagation or
+search to the checker.
+
 Floats are in scope. Use finite binary64 values with configurable absolute and
 relative comparison tolerances, including a zero-tolerance strict setting.
 Document the comparison formula, defaults, strict inequalities, domain checks,

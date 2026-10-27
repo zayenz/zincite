@@ -105,12 +105,12 @@ edits and job feedback using these bindings and the saved compiled model.
 
 ## Execute the native/Wasm comparison
 
-Build the bindings above, then export twelve artifacts with the native CLI. This
+Build the bindings above, then export thirteen artifacts with the native CLI. This
 setup uses both saved compiled workshop models and a tiny handwritten FlatZinc
 integer/set model, the saved float-core control, a direct selection control,
 a direct set control, a float-function control, a direct counting control,
 a direct ordering/channel control, a direct table control, a direct automaton control
-and a direct circuit/cost control.
+a direct circuit/cost control and a legacy scheduling control.
 This setup does not run MiniZinc:
 
 ```sh
@@ -157,7 +157,8 @@ target/debug/zincite-check --export "$checker_run/ordering.json" examples/checke
 target/debug/zincite-check --export "$checker_run/tables.json" examples/checker-compilation/tables.fzn
 target/debug/zincite-check --export "$checker_run/automata.json" examples/checker-compilation/automata.fzn
 target/debug/zincite-check --export "$checker_run/circuits.json" examples/checker-compilation/circuits.fzn
-node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" "$checker_run/automata.json" "$checker_run/circuits.json" examples/checker-wasm/candidates.json target/debug/zincite-check
+target/debug/zincite-check --export "$checker_run/legacy.json" examples/checker-compilation/legacy-scheduling.fzn
+node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" "$checker_run/automata.json" "$checker_run/circuits.json" "$checker_run/legacy.json" examples/checker-wasm/candidates.json target/debug/zincite-check
 ```
 
 `smoke.cjs` reads only built bindings, prepared artifacts and typed assignment
@@ -166,7 +167,7 @@ compares every observable report with the native CLI's `--load` path. The CLI
 receives literal `.dzn` assignments made from the same typed values in a temporary
 directory. The consumer removes those temporary assignments when finished.
 
-The fifty named cases cover valid, invalid, incomplete and invalid-with-incomplete
+The fifty-four named cases cover valid, invalid, incomplete and invalid-with-incomplete
 reports, application metadata, Boolean and array input, set definitions and domain
 failures, strict resource conflicts, and the distinct integers 9007199254740992
 and 9007199254740993 as both integers and set endpoints. The exact-value model
@@ -223,3 +224,9 @@ kinds and a known rejection with missing symbols. The smoke checks exact
 state/symbol strings, numeric positions, word references, labels and application
 IDs, then repeats the 46 candidates after changing and removing assignments.
 The original 43 candidate records are unchanged.
+
+The legacy scheduling artifact checks variable-duration strict unary, optional
+zero-duration tasks, signed resource usage and both cumulatives overloads.
+Four edits compare exact times above `2^53`, typed conflicting pairs/resource
+faults, application metadata and independent completeness. The duration comes
+from a marked integer addition; scheduling itself derives no values.

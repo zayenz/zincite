@@ -1259,5 +1259,114 @@
         },
         "status": "incomplete",
         "complete": false
+    },
+    {
+        "name": "legacy-valid",
+        "model": "legacy",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "s",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740995"
+                        }
+                    }
+                },
+                {
+                    "name": "length",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "2"
+                        }
+                    }
+                },
+                {
+                    "name": "present",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "valid",
+        "complete": true
+    },
+    {
+        "name": "legacy-conflict",
+        "model": "legacy",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "s",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740994"
+                        }
+                    }
+                },
+                {
+                    "name": "length",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "2"
+                        }
+                    }
+                },
+                {
+                    "name": "present",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "legacy-incomplete-invalid",
+        "model": "legacy",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "length",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "4"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": false
+    },
+    {
+        "name": "legacy-incomplete",
+        "model": "legacy",
+        "assignment": {
+            "entries": []
+        },
+        "status": "incomplete",
+        "complete": false
     }
 ]

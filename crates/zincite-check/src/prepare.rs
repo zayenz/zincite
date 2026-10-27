@@ -285,6 +285,8 @@ impl Source<'_> {
             automaton.signature()
         } else if let Some(table) = TableName::from_name(name) {
             table.signature()
+        } else if let Some(schedule) = SchedulingName::from_name(name, parameters.len()) {
+            schedule.signature()
         } else if let Some(circuit) = CircuitName::from_name(name) {
             circuit.signature()
         } else if let Some(ordering) = OrderingName::from_name(name) {
@@ -762,7 +764,7 @@ struct Lowerer<'a> {
     names: HashMap<String, usize>,
     resolved: Vec<Option<Binding>>,
     model: PreparedModel,
-    predicates: HashMap<String, Vec<TypeSpec>>,
+    predicates: HashMap<(String, usize), Vec<TypeSpec>>,
 }
 
 impl<'a> Lowerer<'a> {
@@ -795,7 +797,15 @@ impl<'a> Lowerer<'a> {
             if node.kind() == NodeKind::PredicateDeclaration {
                 let name = source.name(node)?;
                 let signature = source.predicate_declaration(node, &name)?;
-                if predicates.insert(name.clone(), signature).is_some() {
+                let allows_overloads = matches!(
+                    SchedulingName::from_name(&name, signature.len()),
+                    Some(SchedulingName::Cumulative | SchedulingName::Cumulatives)
+                );
+                if (!allows_overloads && predicates.keys().any(|(declared, _)| declared == &name))
+                    || predicates
+                        .insert((name.clone(), signature.len()), signature)
+                        .is_some()
+                {
                     return Err(
                         source.error(node, format!("duplicate predicate declaration '{name}'"))
                     );
@@ -1171,6 +1181,7 @@ impl<'a> Lowerer<'a> {
         let table = TableName::from_name(&name);
         let automaton = AutomatonName::from_name(&name);
         let circuit = CircuitName::from_name(&name);
+        let schedule = SchedulingName::from_name(&name, args.len());
         let ordering = OrderingName::from_name(&name);
         let float = FloatName::from_name(&name);
         let selection = SelectionName::from_name(&name);
@@ -1179,6 +1190,8 @@ impl<'a> Lowerer<'a> {
             automaton.signature().len()
         } else if let Some(table) = table {
             table.signature().len()
+        } else if let Some(schedule) = schedule {
+            schedule.signature().len()
         } else if let Some(circuit) = circuit {
             circuit.signature().len()
         } else if let Some(ordering) = ordering {
@@ -1219,6 +1232,8 @@ impl<'a> Lowerer<'a> {
             self.automaton_predicate(call, automaton, &args)?
         } else if let Some(table) = table {
             self.table_predicate(call, table, &args)?
+        } else if let Some(schedule) = schedule {
+            self.scheduling_predicate(call, schedule, &args)?
         } else if let Some(circuit) = circuit {
             self.circuit_predicate(call, circuit, &args)?
         } else if let Some(ordering) = ordering {
@@ -2181,7 +2196,13 @@ impl<'a> Lowerer<'a> {
         name: &str,
         args: &[&SyntaxNode],
     ) -> Result<()> {
-        let Some(signature) = self.predicates.get(name).cloned() else {
+        let Some(signature) = self.predicates.get(&(name.to_owned(), args.len())).cloned() else {
+            if self.predicates.keys().any(|(declared, _)| declared == name) {
+                return Err(self.source.error(
+                    call,
+                    "call argument count does not match its predicate declaration",
+                ));
+            }
             return Ok(());
         };
         if args.len() != signature.len() {
@@ -2294,7 +2315,10 @@ impl<'a> Lowerer<'a> {
     }
 
     fn strict_disjunctive(&mut self, call: &SyntaxNode, args: &[&SyntaxNode]) -> Result<Predicate> {
-        if !self.predicates.contains_key("fzn_disjunctive_strict") {
+        if !self
+            .predicates
+            .contains_key(&("fzn_disjunctive_strict".into(), 2))
+        {
             return Err(self.source.error(
                 call,
                 "fzn_disjunctive_strict requires its bodyless declaration",
@@ -2307,15 +2331,79 @@ impl<'a> Lowerer<'a> {
                 .source
                 .error(call, "strict disjunctive arrays must have equal lengths"));
         }
-        if !durations.iter().all(
-            |operand| matches!(operand, Operand::Literal(Value::Integer(value)) if *value >= 0),
-        ) {
-            return Err(self.source.error(
-                args[1],
-                "strict disjunctive durations must be fixed nonnegative integers",
-            ));
+        if durations
+            .iter()
+            .all(|operand| matches!(operand, Operand::Literal(Value::Integer(_))))
+        {
+            if durations.iter().any(
+                |operand| matches!(operand, Operand::Literal(Value::Integer(value)) if *value < 0),
+            ) {
+                return Err(self
+                    .source
+                    .error(args[1], "strict disjunctive durations must be nonnegative"));
+            }
+            Ok(Predicate::DisjunctiveStrict { starts, durations })
+        } else {
+            Ok(Predicate::Scheduling(Scheduling::Strict(ScheduleTasks {
+                starts,
+                durations,
+            })))
         }
-        Ok(Predicate::DisjunctiveStrict { starts, durations })
+    }
+
+    fn scheduling_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: SchedulingName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        if name == SchedulingName::Strict {
+            return self.strict_disjunctive(call, args);
+        }
+        let tasks = ScheduleTasks {
+            starts: self.array(args[0], ValueType::Integer)?,
+            durations: self.array(args[1], ValueType::Integer)?,
+        };
+        let schedule = match name {
+            SchedulingName::Unary => Scheduling::Unary {
+                tasks,
+                present: None,
+            },
+            SchedulingName::OptionalUnary => Scheduling::Unary {
+                tasks,
+                present: Some(self.array(args[2], ValueType::Boolean)?),
+            },
+            SchedulingName::OptionalCumulative => Scheduling::OptionalCumulative {
+                tasks,
+                usages: self.array(args[2], ValueType::Integer)?,
+                present: self.array(args[3], ValueType::Boolean)?,
+                capacity: self.scalar(args[4], ValueType::Integer)?,
+            },
+            SchedulingName::Cumulative => Scheduling::Cumulative {
+                tasks,
+                usages: self.array(args[2], ValueType::Integer)?,
+                capacity: self.scalar(args[3], ValueType::Integer)?,
+            },
+            SchedulingName::Cumulatives => Scheduling::Cumulatives {
+                tasks,
+                usages: self.array(args[2], ValueType::Integer)?,
+                machines: self.array(args[3], ValueType::Integer)?,
+                capacities: self.array(args[4], ValueType::Integer)?,
+                upper: match self.scalar(args[5], ValueType::Boolean)? {
+                    Operand::Literal(Value::Boolean(value)) => value,
+                    _ => {
+                        return Err(self
+                            .source
+                            .error(args[5], "cumulatives upper flag must be fixed"));
+                    }
+                },
+            },
+            SchedulingName::Strict => unreachable!(),
+        };
+        schedule
+            .validate_shape()
+            .map_err(|message| self.source.error(call, message))?;
+        Ok(Predicate::Scheduling(schedule))
     }
 
     fn solve(&mut self, node: &SyntaxNode) -> Result<()> {

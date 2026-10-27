@@ -1,0 +1,13 @@
+predicate fzn_disjunctive_strict(array[int] of var int: start,array[int] of var int: duration);
+var int: s ::checker_value("second_start",[9007199254740994]);
+var int: length;
+var bool: present;
+var int: duration ::is_defined_var;
+constraint int_plus(length,0,duration)::defines_var(duration);
+constraint int_le(length,3)::checker_constraint("length_limit",[1]);
+constraint fzn_disjunctive_strict([9007199254740993,s],[duration,0])::checker_constraint("strict",[9007199254740993,9007199254740994])::mzn_constraint_name("Strict schedule");
+constraint gecode_schedule_unary_optional([9007199254740993,s],[2,0],[true,present])::checker_constraint("optional_unary",[1,2]);
+constraint gecode_schedule_cumulative_optional([9007199254740993,s],[2,0],[2,1],[true,present],2)::checker_constraint("optional_resource",[1,2]);
+constraint cumulatives([9007199254740993,s],[2,0],[2,-1],2)::checker_constraint("concrete_resource",[1,2]);
+constraint gecode_cumulatives([9007199254740993,s],[duration,0],[2,-1],[0,0],[2],true)::checker_constraint("machine_resource",[1,2]);
+solve satisfy;

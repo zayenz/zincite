@@ -4,8 +4,8 @@
 
 - Total: 33
 - Ready: 5
-- Blocked: 5
-- Done: 23
+- Blocked: 4
+- Done: 24
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -32,8 +32,8 @@
 | [checker-021](tasks/021-check-integer-and-boolean-tables-with-reification.md) | Check integer and Boolean tables with reification | done | checker-013, checker-014 |
 | [checker-022](tasks/022-check-deterministic-and-nondeterministic-regular-constraints.md) | Check deterministic and nondeterministic regular constraints | done | checker-017 |
 | [checker-023](tasks/023-check-circuits-and-circuit-cost-relations.md) | Check circuits and circuit-cost relations | done | checker-012 |
-| [checker-024](tasks/024-check-legacy-unary-and-cumulative-scheduling-predicates.md) | Check legacy unary and cumulative scheduling predicates | ready | checker-012, checker-014 |
-| [checker-025](tasks/025-check-the-latest-gecode-explicit-end-scheduling-interfaces.md) | Check the latest Gecode explicit-end scheduling interfaces | blocked | checker-024 |
+| [checker-024](tasks/024-check-legacy-unary-and-cumulative-scheduling-predicates.md) | Check legacy unary and cumulative scheduling predicates | done | checker-012, checker-014 |
+| [checker-025](tasks/025-check-the-latest-gecode-explicit-end-scheduling-interfaces.md) | Check the latest Gecode explicit-end scheduling interfaces | ready | checker-024 |
 | [checker-026](tasks/026-check-packing-and-rectangle-non-overlap-interfaces.md) | Check packing and rectangle non-overlap interfaces | ready | checker-012, checker-014 |
 | [checker-027](tasks/027-check-aggregate-ordered-and-weighted-set-globals.md) | Check aggregate, ordered and weighted set globals | ready | checker-017, checker-012 |
 | [checker-028](tasks/028-check-set-selection-channels-and-set-valued-globals.md) | Check set selection, channels and set-valued globals | blocked | checker-027, checker-020 |

@@ -749,7 +749,6 @@ fn malformed_set_calls_and_global_declarations_are_located() {
         "predicate mystery(array[int] of var int:start,array[int] of var int:duration);solve satisfy;".into(),
         format!("{STRICT_DECLARATION}constraint fzn_disjunctive_strict([1],[]);solve satisfy;"),
         format!("{STRICT_DECLARATION}constraint fzn_disjunctive_strict([1],[-1]);solve satisfy;"),
-        format!("{STRICT_DECLARATION}var 1..1:d;constraint fzn_disjunctive_strict([1],[d]);solve satisfy;"),
     ] {
         let errors = prepare("bad-sets.fzn", &source).unwrap_err();
         assert!(errors[0].location.is_some(), "{source}");
@@ -4661,4 +4660,245 @@ fn circuit_partial_findings_and_round_trips_keep_metadata_and_completeness() {
             );
         }
     }
+}
+
+#[test]
+fn legacy_scheduling_checks_zero_optional_signed_and_idle_resources() {
+    for (call, valid) in [
+        ("gecode_schedule_unary([0,1],[3,0])", false),
+        ("gecode_schedule_unary([0,3],[3,0])", true),
+        (
+            "gecode_schedule_unary_optional([0,1],[3,0],[true,false])",
+            true,
+        ),
+        (
+            "gecode_schedule_unary_optional([0,1],[3,0],[true,true])",
+            false,
+        ),
+        ("gecode_schedule_cumulative_optional([],[],[],[],-1)", false),
+        (
+            "gecode_schedule_cumulative_optional([0],[1],[9],[false],-1)",
+            false,
+        ),
+        (
+            "gecode_schedule_cumulative_optional([0,1],[3,0],[2,1],[true,true],2)",
+            false,
+        ),
+        (
+            "gecode_schedule_cumulative_optional([0,0,3],[3,0,0],[2,2,2],[true,true,true],2)",
+            true,
+        ),
+        (
+            "gecode_schedule_cumulative_optional([1,1],[0,0],[2,2],[true,true],2)",
+            true,
+        ),
+        ("cumulatives([],[],[],-1)", true),
+        ("cumulatives([0],[0],[9],-1)", true),
+        ("cumulatives([0],[-1],[9],-1)", true),
+        ("cumulatives([0],[1],[-2],-1)", true),
+        ("cumulatives([0],[1],[0],-1)", false),
+        ("cumulatives([0,0],[0,0],[1,1],-1)", true),
+        ("cumulatives([0,2],[1,1],[-1,-1],-1)", false),
+        ("cumulatives([0,0],[2,2],[5,-3],2)", true),
+        ("cumulatives([0,0],[2,2],[5,-2],2)", false),
+        ("cumulatives([0,2],[1,1],[-1,-1],[0,0],[-1],true)", true),
+        ("cumulatives([0,0],[1,1],[5,-3],[0,0],[2],false)", true),
+        ("cumulatives([0,0],[1,1],[5,-4],[0,0],[2],false)", false),
+        ("cumulatives([0],[0],[99],[0],[-1],true)", true),
+        ("cumulatives([0],[0],[99],[1],[2],true)", false),
+        ("cumulatives([0],[-1],[1],[0],[2],true)", false),
+        ("cumulatives([0,0],[1,1],[2,2],[0,1],[2,2],true)", true),
+        (
+            "cumulatives([-9223372036854775808,9223372036854775806],[1,1],[1,1],1)",
+            true,
+        ),
+    ] {
+        let source = format!("constraint {call};solve satisfy;");
+        let model = prepare("legacy.fzn", &source).unwrap();
+        let report = model.check(&Assignment::default()).unwrap();
+        assert_eq!(report.status == Status::Valid, valid, "{call}");
+        assert!(report.completeness.complete, "{call}");
+    }
+    for domain in ["0..0", "0..1"] {
+        let source = format!(
+            "var {domain}:a;var {domain}:b;constraint cumulatives([a,b],[0,0],[1,1],-1);solve satisfy;"
+        );
+        let model = prepare("concrete.fzn", &source).unwrap();
+        assert_eq!(
+            model.check(&assignment("a=0;b=0;")).unwrap().status,
+            Status::Valid
+        );
+    }
+    let singleton = prepare("singleton.fzn", &format!("{STRICT_DECLARATION}var 1..1:d;constraint fzn_disjunctive_strict([1],[d]);solve satisfy;")).unwrap();
+    assert_eq!(
+        singleton.check(&Assignment::default()).unwrap().status,
+        Status::Valid
+    );
+}
+
+#[test]
+fn legacy_scheduling_admits_exact_names_roles_and_checked_arithmetic() {
+    for prefix in ["", "gecode_", "fzn_"] {
+        for (base, parameters, arguments) in [
+            (
+                "gecode_schedule_unary",
+                "array[int] of var int:a,array[int] of int:b",
+                "[0],[1]",
+            ),
+            (
+                "gecode_schedule_unary_optional",
+                "array[int] of var int:a,array[int] of int:b,array[int] of var bool:c",
+                "[0],[1],[true]",
+            ),
+            (
+                "gecode_schedule_cumulative_optional",
+                "array[int] of var int:a,array[int] of int:b,array[int] of int:c,array[int] of var bool:d,var int:e",
+                "[0],[1],[1],[true],1",
+            ),
+            (
+                "cumulatives",
+                "array[int] of var int:a,array[int] of var int:b,array[int] of var int:c,var int:d",
+                "[0],[1],[1],1",
+            ),
+            (
+                "cumulatives",
+                "array[int] of var int:a,array[int] of var int:b,array[int] of var int:c,array[int] of var int:d,array[int] of int:e,bool:f",
+                "[0],[1],[1],[0],[1],true",
+            ),
+        ] {
+            let name = format!("{prefix}{base}");
+            let model = prepare(
+                "names.fzn",
+                &format!(
+                    "predicate {name}({parameters});constraint {name}({arguments});solve satisfy;"
+                ),
+            )
+            .unwrap();
+            assert_eq!(
+                model.check(&Assignment::default()).unwrap().status,
+                Status::Valid,
+                "{name}"
+            );
+        }
+    }
+    for source in [
+        "constraint schedule_unary([0],[1]);solve satisfy;",
+        "constraint gecode_schedule_unary([0],[-1]);solve satisfy;",
+        "constraint gecode_schedule_unary_optional([0],[-1],[false]);solve satisfy;",
+        "var 1..1:d;constraint gecode_schedule_unary([0],[d]);solve satisfy;",
+        "constraint gecode_schedule_cumulative_optional([0],[1],[-1],[false],1);solve satisfy;",
+        "constraint gecode_schedule_unary_optional([0],[1],[]);solve satisfy;",
+        "var bool:b;constraint cumulatives([],[],[],[],[],b);solve satisfy;",
+        "var 1..1:b;constraint cumulatives([0],[1],[1],[0],[b],true);solve satisfy;",
+        "constraint cumulatives([],[],[],[],[],[],true);solve satisfy;",
+        "constraint gecode_unary_flex([],[],[]);solve satisfy;",
+        "predicate gecode_schedule_unary(array[int] of var int:a,array[int] of var int:b);solve satisfy;",
+    ] {
+        assert!(prepare("bad-schedule.fzn", source).is_err(), "{source}");
+    }
+    for call in [
+        "gecode_schedule_unary([9223372036854775807],[1])",
+        "cumulatives([9223372036854775807,0],[1,1],[1,1],1)",
+        "cumulatives([0,0],[1,1],[9223372036854775807,1],9223372036854775807)",
+        "cumulatives([0,0],[1,1],[-9223372036854775808,-1],[0,0],[0],false)",
+    ] {
+        let model = prepare("overflow.fzn", &format!("constraint {call};solve satisfy;")).unwrap();
+        let error = model.check(&Assignment::default()).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Execution, "{call}");
+        assert!(error.diagnostics[0].location.is_some());
+    }
+}
+
+#[test]
+fn legacy_scheduling_round_trips_findings_completion_and_removed_assignments() {
+    let model = prepare(
+        "legacy-scheduling.fzn",
+        include_str!("../../../examples/checker-compilation/legacy-scheduling.fzn"),
+    )
+    .unwrap();
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for (candidate, status, complete) in [
+        (
+            "s=9007199254740995;length=2;present=true;",
+            Status::Valid,
+            true,
+        ),
+        (
+            "s=9007199254740994;length=2;present=true;",
+            Status::Invalid,
+            true,
+        ),
+        ("length=4;", Status::Invalid, false),
+        ("", Status::Incomplete, false),
+        (
+            "s=9007199254740995;length=2;present=false;",
+            Status::Valid,
+            true,
+        ),
+    ] {
+        let report = model.check(&assignment(candidate)).unwrap();
+        assert_eq!(report.status, status, "{candidate}");
+        assert_eq!(report.completeness.complete, complete, "{candidate}");
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(
+            json,
+            serde_json::to_value(loaded.check(&assignment(candidate)).unwrap()).unwrap()
+        );
+        if candidate.starts_with("s=9007199254740994") {
+            assert_eq!(report.violations.len(), 3);
+            assert_eq!(json["violations"][0]["details"]["kind"], "scheduling");
+            assert_eq!(
+                json["violations"][0]["details"]["finding"]["tasks"][0]["start"]["value"]["value"],
+                "9007199254740993"
+            );
+            assert_eq!(
+                json["violations"][0]["check"]["constraint"]["metadata"]["application"]["id"],
+                "strict"
+            );
+            assert_eq!(
+                json["violations"][0]["check"]["constraint"]["metadata"]["label"],
+                "Strict schedule"
+            );
+            assert_eq!(
+                json["violations"][2]["details"]["finding"]["faults"][0]["usage"],
+                "3"
+            );
+        }
+    }
+    let absent = prepare("absent.fzn", "var int:s;constraint gecode_schedule_unary_optional([s],[1],[false]);constraint gecode_schedule_cumulative_optional([s],[1],[1],[false],0);solve satisfy;").unwrap();
+    let report = absent.check(&Assignment::default()).unwrap();
+    assert!(
+        report
+            .completeness
+            .blocked_checks
+            .iter()
+            .all(|blocked| !matches!(blocked.check, CheckRef::Constraint { .. }))
+    );
+    assert!(!report.completeness.complete);
+}
+
+#[test]
+fn scheduling_known_preconditions_report_without_unrelated_values() {
+    let model = prepare("partial-schedule.fzn", "var int:s;var int:d;var bool:p;var int:m;constraint gecode_schedule_cumulative_optional([s],[1],[1],[p],-1);constraint cumulatives([s],[d],[1],[m],[2],true);solve satisfy;").unwrap();
+    let report = model.check(&assignment("d=-1;m=2;")).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(!report.completeness.complete);
+    assert_eq!(report.violations.len(), 2);
+    let json = serde_json::to_value(&report).unwrap();
+    assert_eq!(
+        json["violations"][0]["details"]["finding"]["faults"][0]["kind"],
+        "capacity"
+    );
+    assert_eq!(
+        json["violations"][1]["details"]["finding"]["faults"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    let model = prepare("no-guesses.fzn", "var int:s::is_defined_var;constraint gecode_schedule_unary([s],[1])::defines_var(s);solve satisfy;").unwrap();
+    assert_eq!(
+        model.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
 }

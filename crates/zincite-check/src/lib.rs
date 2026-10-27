@@ -4,6 +4,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+mod scheduling;
+#[cfg(feature = "prepare")]
+use scheduling::ScheduleTasks;
+use scheduling::{Scheduling, SchedulingName};
+pub use scheduling::{SchedulingFault, SchedulingFinding, SchedulingTask};
 mod circuits;
 use circuits::{Circuit, CircuitName};
 pub use circuits::{CircuitArgument, CircuitFault, CircuitFinding};
@@ -352,6 +357,9 @@ pub struct ArgumentValue {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViolationKind {
+    Scheduling {
+        finding: SchedulingFinding,
+    },
     Automaton {
         finding: AutomatonFinding,
     },
@@ -696,6 +704,7 @@ struct Variable {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Predicate {
+    Scheduling(Scheduling),
     Automaton(Automaton),
     Circuit(Circuit),
     Ordering(Ordering),
@@ -932,6 +941,7 @@ impl Predicate {
     fn operands(&self) -> Vec<&Operand> {
         match self {
             Self::Automaton(automaton) => automaton.word.iter().collect(),
+            Self::Scheduling(schedule) => schedule.operands(),
             Self::Circuit(circuit) => circuit.operands(),
             Self::Ordering(ordering) => ordering.operands(),
             Self::Counting(counting) => counting.operands(false),
@@ -1074,6 +1084,7 @@ impl Predicate {
 
     fn required_operands(&self, values: &[Option<Value>]) -> Vec<&Operand> {
         match self {
+            Self::Scheduling(schedule) => schedule.required_operands(values),
             Self::Circuit(circuit) => circuit.required_operands(values),
             Self::Ordering(ordering) => ordering.required_operands(values),
             Self::Counting(counting) => counting.operands(true),
@@ -1970,6 +1981,7 @@ impl PreparedModel {
                 .expect("blocked constraints are excluded before evaluation")
         };
         match &constraint.predicate {
+            Predicate::Scheduling(schedule) => self.evaluate_schedule(constraint, schedule, values),
             Predicate::Circuit(circuit) => self.evaluate_circuit(constraint, circuit, values),
             Predicate::Ordering(ordering) => self.evaluate_ordering(constraint, ordering, values),
             Predicate::Counting(counting) => self.evaluate_counting(constraint, counting, values),
@@ -2996,6 +3008,7 @@ fn definition_direction(
             Ok((occurrences.as_slice() == [2]).then_some(DefinitionDirection::SetIntersection))
         }
         Predicate::Automaton(_)
+        | Predicate::Scheduling(_)
         | Predicate::SetIn { .. }
         | Predicate::SetSubset { .. }
         | Predicate::DisjunctiveStrict { .. } => Ok(None),

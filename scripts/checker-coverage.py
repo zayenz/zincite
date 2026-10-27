@@ -24,6 +24,16 @@ CURRENT = {"fzn_disjunctive_strict"}
 CURRENT |= {
     prefix + name
     for prefix in ("", "gecode_", "fzn_")
+    for name in (
+        "cumulatives",
+        "gecode_schedule_unary",
+        "gecode_schedule_unary_optional",
+        "gecode_schedule_cumulative_optional",
+    )
+}
+CURRENT |= {
+    prefix + name
+    for prefix in ("", "gecode_", "fzn_")
     for name in ("gecode_circuit", "gecode_circuit_cost", "gecode_circuit_cost_array")
 }
 
@@ -882,6 +892,8 @@ def render_registry(
             )
         task = direct_owner(reg.name)
         now = ", ".join(code(a) for a in aliases if a in CURRENT) or "planned"
+        if reg.name == "cumulatives":
+            now += " (legacy arities 4/6; explicit-end arity 7 planned)"
         source = f"https://github.com/Gecode/gecode/blob/{GECODE_REV}/gecode/flatzinc/registry.cpp#L{reg.line}"
         rows.append(
             f'| <a id="r{number:03}"></a>[R{number:03}]({source}) | '
@@ -944,6 +956,13 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
     admitted |= {
         prefix + name
         for name in re.findall(r'"([a-z_0-9]+)"', circuit_names)
+        for prefix in ("", "gecode_", "fzn_")
+    }
+    scheduling = (ROOT / "crates/zincite-check/src/scheduling.rs").read_text()
+    scheduling_names = scheduling.split("match base {", 1)[1].split("_ =>", 1)[0]
+    admitted |= {
+        prefix + name
+        for name in re.findall(r'"([a-z_0-9]+)"', scheduling_names)
         for prefix in ("", "gecode_", "fzn_")
     }
     ordering = (ROOT / "crates/zincite-check/src/ordering.rs").read_text()
@@ -1043,6 +1062,28 @@ def render_include_index(
     return rows
 
 
+def signature_types(declaration: Declaration) -> list[str]:
+    parameters = declaration.signature.split("(", 1)[1].split(")", 1)[0]
+    return [
+        re.sub(r"\s+", "", parameter.split(":", 1)[0])
+        for parameter in parameters.split(",")
+        if parameter.strip()
+    ]
+
+
+def current_signature(declaration: Declaration) -> bool:
+    if declaration.name not in CURRENT:
+        return False
+    if declaration.name not in {"cumulatives", "gecode_cumulatives", "fzn_cumulatives"}:
+        return True
+    types = signature_types(declaration)
+    variable_array = "array[int]ofvarint"
+    return types in (
+        [variable_array] * 3 + ["varint"],
+        [variable_array] * 4 + ["array[int]ofint", "bool"],
+    )
+
+
 def render_declarations(
     files: dict[str, SourceFile],
     registrations: list[Registration],
@@ -1091,12 +1132,22 @@ def render_declarations(
                 task = 31 if key.startswith("G/") else 30
             else:
                 task = direct_owner(aliases.get(d.name, d.name))
+            if d.name in {
+                "cumulatives",
+                "gecode_cumulatives",
+                "fzn_cumulatives",
+            } and not current_signature(d):
+                types = signature_types(d)
+                if types == ["array[int]ofvarint"] * 5 + ["array[int]ofint", "bool"]:
+                    task = 25
+                elif len(types) == 7 and types[-2:] == ["bool", "int"]:
+                    task = 31 if key.startswith("G/") else 30
             route = declaration_route(d, files, declarations, ids, primitive)
             if not d.terminated:
                 route += "; source has no terminating semicolon"
             now = (
                 "C (qualified)"
-                if d.name in CURRENT and d.kind == "predicate" and d.body is None
+                if current_signature(d) and d.kind == "predicate" and d.body is None
                 else "planned"
             )
             if hook:

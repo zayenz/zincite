@@ -248,6 +248,11 @@ pub fn render_text(report: &CheckReport) -> String {
                     condition_text(condition)
                 );
             }
+            ViolationKind::Scheduling { finding } => {
+                for fault in &finding.faults {
+                    let _ = writeln!(text, "  {}", scheduling_text(fault));
+                }
+            }
             ViolationKind::Circuit { finding } => {
                 let _ = writeln!(text, "  {}", circuit_text(finding));
             }
@@ -1052,4 +1057,37 @@ fn circuit_text(finding: &crate::CircuitFinding) -> String {
         })
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+fn scheduling_text(fault: &crate::SchedulingFault) -> String {
+    use crate::SchedulingFault;
+    match fault {
+        SchedulingFault::Duration { position, value } => {
+            format!("task {position}: negative duration {value}")
+        }
+        SchedulingFault::Machine { position, value } => {
+            format!("task {position}: machine {value} outside the capacity array")
+        }
+        SchedulingFault::Capacity { value } => format!("negative cumulative capacity {value}"),
+        SchedulingFault::Conflict { first, second } => {
+            format!("conflicting positions: {first}, {second}")
+        }
+        SchedulingFault::TaskUsage {
+            position,
+            usage,
+            bound,
+        } => format!("task {position}: usage {usage} exceeds bound {bound}"),
+        SchedulingFault::Resource {
+            machine,
+            time,
+            usage,
+            bound,
+            upper,
+            tasks,
+        } => format!(
+            "resource{} at {time}: usage {usage} {} bound {bound}; positions {tasks:?}",
+            machine.map_or(String::new(), |machine| format!(" on machine {machine}")),
+            if *upper { "exceeds" } else { "below" },
+        ),
+    }
 }

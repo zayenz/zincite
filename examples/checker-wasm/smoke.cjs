@@ -5,11 +5,11 @@ const { tmpdir } = require("node:os");
 const { resolve, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-assert.equal(process.argv.length, 17,
-    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json CANDIDATES.json NATIVE_CHECKER");
-const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, candidates, native] = process.argv.slice(2).map(path => resolve(path));
+assert.equal(process.argv.length, 18,
+    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json LEGACY.json CANDIDATES.json NATIVE_CHECKER");
+const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, candidates, native] = process.argv.slice(2).map(path => resolve(path));
 const { PreparedModel } = require(glue);
-const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits };
+const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy };
 const defaults = {};
 const models = Object.fromEntries(Object.entries(paths).map(([name, path]) =>
     [name, new PreparedModel(readFileSync(path, "utf8"))]));
@@ -57,7 +57,7 @@ try {
     }
     assert.throws(() => models.floats.check('{"entries":[{"name":"x","value":{"kind":"scalar","value":{"kind":"float","value":1e999}}}]}'));
     for (const value of [NaN, Infinity, -1]) assert.throws(() => models.floats.setFloatTolerance(value, 0));
-    console.log(`Native/Wasm reports and errors agree across ${cases.length * 2} checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, global findings and input errors verified.`);
+    console.log(`Native/Wasm reports and errors agree across ${cases.length * 2} checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, legacy scheduling, global findings and input errors verified.`);
 } finally {
     for (const model of Object.values(models)) model.free();
     rmSync(directory, { recursive: true, force: true });
@@ -117,6 +117,25 @@ function decimal(value) {
 }
 
 function checkDetails(name, report) {
+    if (name === "legacy-conflict") {
+        assert.equal(report.violations.length, 3);
+        const strict = report.violations[0];
+        assert.equal(strict.details.kind, "scheduling");
+        assert.deepEqual(strict.details.finding.faults[0], { kind: "conflict", first: 1, second: 2 });
+        assert.equal(strict.details.finding.tasks[0].start.value.value, "9007199254740993");
+        assert.equal(strict.check.constraint.metadata.application.id, "strict");
+        assert.equal(strict.check.constraint.metadata.label, "Strict schedule");
+        const resource = report.violations[2].details.finding.faults[0];
+        assert.equal(resource.kind, "resource");
+        assert.equal(resource.time, "9007199254740994");
+        assert.equal(resource.usage, "3");
+    }
+    if (name === "legacy-incomplete-invalid") {
+        assert.equal(report.violations.length, 1);
+        assert.equal(report.violations[0].check.constraint.metadata.application.id, "length_limit");
+        assert(report.completeness.blocked_checks.length > 0);
+    }
+
     if (name === "circuits-conflict") {
         const wide = report.violations[0];
         assert.equal(wide.details.kind, "circuit");

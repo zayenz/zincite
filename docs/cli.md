@@ -77,8 +77,9 @@ execution errors go to stderr without partial stdout. The checker reads literal
 Boolean, integer and finite integer set assignments, checks every available domain
 and supported relation, and reports independent completeness. Supported linear,
 full-reification and set definitions derive outputs from known inputs before
-checking. The admitted relations include one strict disjunctive global with fixed
-nonnegative durations. Checking starts no compiler or solver.
+checking. Scheduling includes variable-duration strict disjunctive, optional
+unary/cumulative and legacy cumulatives checks. Checking starts no compiler or
+solver.
 The [checker guide](../crates/zincite-check/README.md)
 defines the admitted syntax, predicate coverage, metadata and exact integer JSON
 encoding, including set endpoints. These commands are available from the checkout,

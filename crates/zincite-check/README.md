@@ -55,7 +55,7 @@ decimal strings, including domain bounds, coefficients, defaults and entity
 payloads. Integer sets use `{ "kind": "integer_set", "value": { "ranges":
 [{ "lower": "1", "upper": "3" }] } }`; an empty set has `ranges: []`. Loading
 rejects reversed, unordered, overlapping or adjacent ranges. The format stays
-at version 1 with additive float values/settings/operations, set value/domain, set operation and strict global
+at version 1 with additive float values/settings/operations, set value/domain, set operation, strict global and legacy scheduling
 records and integer relation variants. The original `Linear` executable with its
 `equality` Boolean and `ReifiedLessEqual` executable keep their existing shapes. Loading rejects
 incompatible versions, bad references, wrong types and invalid definition
@@ -574,7 +574,7 @@ by both application models:
 | `set_card(s,n)` | Checked i64 cardinality equals `n` | Integer output `n` |
 | `set_union/intersect/diff/symdiff(s,t,r)` | Exact compact range algebra | Final set `r`, absent from inputs |
 | `gecode_set_rel_imp_fzn(s,code,t,b)` | Fixed native code 1–10; guard implies the coded relation | None |
-| `fzn_disjunctive_strict(start,duration)` | Every pair satisfies `start[i]+duration[i] <= start[j]` or the reverse | None; durations must be fixed nonnegative integers |
+| `fzn_disjunctive_strict(start,duration)` | Every pair satisfies `start[i]+duration[i] <= start[j]` or the reverse | None; durations must be nonnegative integers |
 | `int_abs(x,r)`, `int_negate(x,r)` | `r = abs(x)`, `r = -x` | Final argument `r` |
 | `int_plus(x,y,r)`, `int_minus(x,y,r)`, `int_times(x,y,r)` | `r = x+y`, `r = x-y`, `r = x*y` | Final argument `r` |
 | `int_div(x,y,r)`, `int_mod(x,y,r)` | Truncated quotient or modulus, with the dividend's sign | Final argument `r` |
@@ -641,7 +641,7 @@ profile or general preservation of editable domains and variables.
 
 All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
 `fzn_` spellings, for 108 integer relation names. The 55 Boolean base names also
-accept those exact prefixes, for 165 Boolean names and 779 admitted names overall.
+accept those exact prefixes, for 165 Boolean names and 791 admitted names overall.
 Prefixed scalar XOR uses three arguments; only bare `bool_xor` also admits the
 two-argument assertion. Matching declarations select one admitted arity and calls
 must use that arity; duplicate declarations diagnose.
@@ -718,7 +718,7 @@ that a satisfying completion exists.
 
 All mathematical integers use `i64`. Linear products and accumulation use
 checked arithmetic in array order. Completion also checks subtraction and exact
-division. Set cardinality and strict disjunctive endpoints also use checked i64
+division. Set cardinality, scheduling endpoints and resource sums also use checked i64
 results. Overflow, including intermediate overflow and `i64::MIN / -1`, is a
 located execution error. A zero output coefficient is an unsupported direction,
 so linear completion does not divide by zero. Integer division truncates toward
@@ -952,7 +952,7 @@ establish include/decomposition closure; checker-030/031 own profile repairs.
 
 The checker admits the six `gecode_table_int/bool` literals with plain, `_reif`
 and `_imp` forms, each with the literal empty, `gecode_` and `fzn_` prefixes.
-The family has 18 exact names; the checker admits 779 names overall. The prefix applies to the
+The family has 18 exact names; the checker admits 791 names overall. The prefix applies to the
 whole literal: `gecode_gecode_table_int` and `fzn_gecode_table_int` are direct
 names; `table_int` and `fzn_table_int` are not.
 
@@ -1018,7 +1018,7 @@ to checker-030/031. The runtime keeps its existing marker rules.
 
 The checker admits `gecode_regular`, `gecode_regular_set` and
 `gecode_regular_nfa_int_fzn`, each with the literal empty, `gecode_` and `fzn_`
-prefixes. The family has nine exact names; overall admission is 779. The prefix applies to
+prefixes. The family has nine exact names; overall admission is 791. The prefix applies to
 the whole literal, including `gecode_gecode_regular`; standard wrapper names and
 reified forms are not direct checker operations.
 
@@ -1098,7 +1098,7 @@ auxiliary-definition limits; this control needs no annotation or include repair.
 
 The checker admits `gecode_circuit`, `gecode_circuit_cost` and
 `gecode_circuit_cost_array`, each with the literal `gecode_` and `fzn_` registry
-prefixes, for nine exact names and 779 admitted names overall. The prefix applies
+prefixes, for nine exact names and 791 admitted names overall. The prefix applies
 to the complete name: `gecode_gecode_circuit` and `fzn_gecode_circuit` are valid;
 `fzn_circuit`, `circuit_cost` and reified variants use other compiler routes.
 Declarations check argument roles independently of formal parameter names.
@@ -1186,3 +1186,131 @@ that declaration; preparation diagnoses the missing marker. No output was
 rewritten to bypass this check. These observations document compiler-profile
 and definition-marker limits owned by checker-030/031; they do not establish
 full wrapper or include/decomposition closure.
+
+
+## Legacy scheduling
+
+The checker accepts these exact positional contracts. The three native names
+beginning `gecode_schedule_` and `cumulatives` also accept their literal
+`gecode_` and `fzn_` registry prefixes. For example,
+`gecode_gecode_schedule_unary` and `fzn_cumulatives` work;
+`schedule_unary`, `fzn_unary` and reified variants do not.
+
+| Operation | Argument roles and relation |
+| --- | --- |
+| `fzn_disjunctive_strict(s,d)` | Variable integer starts and durations; matching bodyless declaration required |
+| `gecode_schedule_unary(s,d)` | Variable integer starts; fixed nonnegative durations |
+| `gecode_schedule_unary_optional(s,d,p)` | Same fixed durations; variable Boolean presence |
+| `gecode_schedule_cumulative_optional(s,d,u,p,b)` | Fixed nonnegative durations/usages; variable Boolean presence and integer capacity |
+| `cumulatives(s,d,u,b)` | Variable integers; concrete upper-bound relation below |
+| `cumulatives(s,d,u,m,b,upper)` | Variable starts/durations/usages/machines; fixed integer capacity array and Boolean upper/lower flag |
+
+Task arrays must have equal lengths. Declarations validate fixed/variable roles,
+shapes and literal domain restrictions regardless of formal names. The four-
+and six-argument overloads can both be declared in one model. Scheduling selects
+no output: starts, durations, presence and machines come from assignments,
+fixed declarations or other supported definitions. Missing inputs produce
+ordinary incomplete reports. Absent optional tasks do not block their constraint
+on a missing start, although that variable's own domain check is still incomplete.
+
+Strict and native unary checks require nonnegative durations and, for each pair
+of present tasks, `s[i]+d[i] <= s[j]` or its reverse. A zero-duration task strictly
+inside another task conflicts; endpoint ties and simultaneous zero tasks pass.
+Optional unary durations must be valid constants even when the task is absent.
+
+Optional cumulative requires nonnegative capacity even for empty or entirely
+absent tasks. Fixed durations and usages must be nonnegative for every task,
+including absent tasks. Positive-duration present tasks consume their usage on
+`[s[i],s[i]+d[i])`. Each present zero-duration task separately adds its demand to
+tasks strictly spanning its start; tasks starting/ending there and other zero
+tasks at that time add nothing to that zero task's check. Thus `[3,0]` durations
+with starts `[0,1]`, usages `[2,1]` and capacity 2 fail when both tasks are present;
+starts `[0,0]` and `[0,3]` pass.
+
+Six-argument cumulatives uses zero-based machine indexes into the capacity
+array. The checker reports negative durations and out-of-range machines as
+separate caller-obligation faults; the native resource relation itself does not
+supply those obligations. Usages and capacities may be signed. For each machine,
+check `sum(usage) <= capacity` when `upper=true`, or `>= capacity` otherwise,
+only at times covered by at least one positive-duration task. Zero-duration
+tasks and idle intervals impose no resource bound. The legacy interface derives
+ends by checked addition of the supplied starts and durations.
+
+### Concrete four-argument relation
+
+This interface deliberately checks candidate values independently of declared
+start domains, fixedness and posting order. It does not emulate Gecode's
+branch selection or propagation. The same rule governs all three aliases.
+
+Empty task arrays pass. A singleton checks only `d[1] > 0 -> u[1] <= b`; it
+needs no start value. With two or more tasks, use the concrete integer horizon
+`min(s)..max(s+d)`, excluding its upper endpoint. At each time in that horizon,
+require `sum(u[i] where s[i] <= time < s[i]+d[i]) <= b`. Idle gaps count with
+usage zero. An empty horizon passes. Usages, capacity and durations may be
+signed; a nonpositive duration contributes no active interval. No additional
+nonnegativity condition is imposed by this concrete relation.
+
+For example, starts `[0,0]`, durations `[0,0]`, usages `[1,1]` and capacity `-1`
+pass regardless of whether the declared start ranges are `0..0` or `0..1`.
+Starts `[0,2]`, durations `[1,1]`, usages `[-1,-1]` and capacity `-1` fail at the
+idle time 1. The corresponding six-argument single-machine call passes because
+its resource relation checks active intervals only. Pinned Gecode's
+[handler](https://github.com/Gecode/gecode/blob/186551447db0f74639d65cb8de5af190f15ac2c2/gecode/flatzinc/registry.cpp#L1444)
+can select different constraints from declaration domains and earlier posting;
+its solver behavior is therefore not the compatibility contract for this call.
+
+All scheduling checks visit task event boundaries, never each time unit.
+Endpoint and resource-sum arithmetic is checked at the i64 boundary, including
+intermediate sums in task-array order. Failures are located execution errors.
+Known negative optional capacities, negative strict/multi-machine durations and
+invalid machines report even when unrelated values are missing.
+
+Fixed-duration strict calls keep their existing `DisjunctiveStrict` executable
+and `disjunctive_strict` report shape. Variable-duration strict and the newly
+supported native forms use an additive `Scheduling` executable and
+`scheduling` finding. Its typed `faults` distinguish duration, machine, capacity,
+conflicting pairs, singleton demand and resource bounds; task values and capacity
+arguments carry variable references when available. Missing task values are
+`null`. Resource faults identify time, machine when relevant, upper/lower bound,
+summed usage and one-based contributing positions. All mathematical integers
+are decimal strings. Application metadata and completeness use the existing
+report contracts.
+
+The [direct control](../../examples/checker-compilation/legacy-scheduling.fzn)
+combines a duration derived by integer addition with strict, optional and signed
+resource checks over integers above JavaScript's exact-number range. The
+[native/Wasm smoke](../../examples/checker-wasm/README.md) exercises feasible,
+conflicting, omitted and incomplete-invalid edits through the same artifact.
+Explicit-end arity seven, `*_flex` operations and the standard seven-argument
+`fzn_cumulatives` wrapper have separate contracts in checker-025/030/031.
+
+### Compile-only legacy scheduling controls
+
+The public strict and native scheduling controls start with `globals.mzn` and
+checker annotations. The native control intentionally declares both supported
+`gecode_cumulatives` overloads. Compile each against both pinned profiles:
+
+```sh
+checker_run=$(mktemp -d "$PWD/target/checker-scheduling.XXXXXX")
+for model in legacy-scheduling-controls legacy-scheduling-gecode-controls; do
+    minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file "$checker_run/standard-$model.paths" --output-fzn-to-file "$checker_run/standard-$model.fzn" "examples/checker-compilation/$model.mzn"
+    minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-paths-to-file "$checker_run/gecode-$model.paths" --output-fzn-to-file "$checker_run/gecode-$model.fzn" "examples/checker-compilation/$model.mzn"
+done
+```
+
+The native control emits the same optional unary/cumulative operations and both
+`gecode_cumulatives` overloads under both profiles. Starts keep `0..8` domains;
+presence stays Boolean. Array aliases, value IDs, all four constraint IDs,
+labels and paths survive. Starts `[0,3]` with presence true pass; `[0,1]` with
+presence true report both optional conflicts; the same starts with presence
+false pass. Omitting values gives an incomplete report, and an out-of-domain
+start still reports alongside blocked checks.
+
+The standard public strict control emits one variable-duration
+`fzn_disjunctive_strict` with the named start/duration arrays and metadata.
+The pinned Gecode override decomposes that variable-duration call into two
+integer-linear implications and a Boolean clause. It marks both implication
+guards as defined, but implication gives no unique guard value. Primary-only
+assignments therefore leave an incomplete report. Supplying those explicit
+witnesses permits a complete check; the runtime does not invent them. This
+compiler-profile completion gap belongs to checker-031.
