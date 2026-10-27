@@ -64,6 +64,71 @@ operations rather than accepting serialized execution caches. A slot's seed
 must come from a fixed or singleton declaration; other alias domains can still
 report violations against that value.
 
+## Prepare official compiler JSON
+
+`prepare_json(name, source)` accepts MiniZinc 2.10.1 FlatZinc-JSON version 1.0
+through the optional `prepare` feature. Both native entry points select it with
+`--input-format fzn-json`; text input uses `--input-format fzn` by default.
+The flag also applies to `--export`:
+
+```sh
+zincite-check --input-format fzn-json --format json examples/checker-compilation/model.fzn.json examples/checker-compilation/candidates/infeasible.dzn
+zincite check --input-format fzn-json --export /tmp/zincite-json-prepared.json examples/checker-compilation/model.fzn.json
+zincite-check --load /tmp/zincite-json-prepared.json examples/checker-compilation/candidates/feasible.dzn
+```
+
+Compiler JSON has `version`, `variables`, `arrays`, `constraints`, `output` and
+`solve` fields. It uses JSON numbers for mathematical integers. Preparation reads
+their original tokens as exact `i64` values; an integer never passes through
+binary64. Numeric literals in float roles become finite binary64 values under
+the existing float policy. Prepared artifacts and Wasm assignments continue to
+use decimal strings for integers. `--load` accepts only prepared artifacts and
+cannot be combined with `--input-format fzn-json`. The parser-free Wasm runtime
+loads the artifact exported by either source path.
+
+Typed variables accept domains, `rhs` values or aliases, and introduced/defined
+flags. `rhs` is specified in the interface text even though the published schema
+omits it. Arrays have no declared element type: references supply their types,
+fixed numeric literals take the type required by each use, and empty arrays work
+in every array role. Array aliases and forward references work; cycles, unknown
+references, incompatible types, fields, versions and semantic operations diagnose
+during preparation. String literal objects (`{"string":"text"}`) differ from
+identifier strings. Nested annotation calls use the existing metadata/search
+validation, including application payloads, paths, output and definition hints.
+
+Sets and domains use ordered, nonoverlapping, nonreversed range pairs. Integer
+sets and disjoint integer domains stay compact across the full `i64` range.
+Contiguous integer/float domains use the existing interval records; disjoint
+integer/float domains and restricted Boolean domains add `integer_ranges`,
+`float_ranges` and `boolean_values` records to prepared format version 1. Empty
+integer domains use the existing empty enumeration. Domain membership uses the
+same exact integer or tolerant float policy as text input; only exact singleton
+domains supply defaults. `computed_domain` excludes these convenience domains
+from checking and defaults too. Disjoint JSON domain findings describe ranges
+rather than enumerating every integer.
+
+The JSON preparation module validates shape and preserves raw numeric tokens
+and source spans, then feeds expressions and types into the existing lowerer.
+Both paths share operation admission, metadata checks, definitions and the
+executable checker. Locations identify original JSON values or objects, with
+byte offsets and line/column positions; text locations identify FlatZinc syntax.
+Compare mathematical findings and application fields across formats, allowing
+these representation-specific locations and equivalent domain descriptions.
+
+The saved `model.fzn.json`, `standard-controls.fzn.json` and
+`gecode-controls.fzn.json` are unedited compiler output. Their text counterparts
+check the same valid, invalid, incomplete and supplied-conflict candidates,
+including float/set operations, objectives and entity `9007199254740993`.
+`json-values.fzn.json` is an authored format control for exact large domains,
+`rhs`, aliases and contextual arrays. No compiler or solver runs during checking.
+
+To compile JSON, add `--fzn-format json` to the documented profile recipe and
+send both outputs to explicit scratch paths. For example:
+
+```sh
+minizinc --compile --solver crates/zincite-check/minizinc/standard.msc -O0 --keep-paths --no-half-reifications --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --no-output-ozn --fzn-format json --output-fzn-to-file target/checker-model.fzn.json --output-paths-to-file target/checker-model.paths examples/checker-compilation/model.mzn
+```
+
 ## Compile the application model offline
 
 The package includes `minizinc/checker_annotations.mzn`. It declares

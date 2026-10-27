@@ -84,7 +84,7 @@ mod wasm;
 #[cfg(feature = "prepare")]
 mod prepare;
 #[cfg(feature = "prepare")]
-pub use prepare::{parse_assignment, prepare};
+pub use prepare::{parse_assignment, prepare, prepare_json};
 #[cfg(feature = "prepare")]
 pub mod cli;
 
@@ -260,6 +260,15 @@ pub struct ConstraintRef {
 pub enum Domain {
     Float,
     FloatSet,
+    FloatRanges {
+        values: FloatSet,
+    },
+    IntegerRanges {
+        values: IntegerSet,
+    },
+    BooleanValues {
+        values: Vec<bool>,
+    },
     FloatInterval {
         lower: FiniteFloat,
         upper: FiniteFloat,
@@ -305,6 +314,12 @@ impl Domain {
             | (Self::Integer, Value::Integer(_))
             | (Self::Float, Value::Float(_))
             | (Self::FloatSet, Value::FloatSet(_)) => true,
+            (Self::FloatRanges { values }, Value::Float(value)) => values
+                .ranges()
+                .iter()
+                .any(|(lower, upper)| tolerance.contains(*value, *lower, *upper)),
+            (Self::IntegerRanges { values }, Value::Integer(value)) => values.contains(*value),
+            (Self::BooleanValues { values }, Value::Boolean(value)) => values.contains(value),
             (Self::FloatInterval { lower, upper }, Value::Float(value)) => {
                 tolerance.contains(*value, *lower, *upper)
             }
@@ -3140,6 +3155,14 @@ fn definition_direction(
 impl Domain {
     fn singleton(&self) -> Option<Value> {
         match self {
+            Self::FloatRanges { values } => match values.ranges() {
+                [(lower, upper)] if lower == upper => Some(Value::Float(*lower)),
+                _ => None,
+            },
+            Self::IntegerRanges { values } if values.cardinality() == Some(1) => {
+                values.minimum().map(Value::Integer)
+            }
+            Self::BooleanValues { values } if values.len() == 1 => Some(Value::Boolean(values[0])),
             Self::FloatInterval { lower, upper } if lower == upper => Some(Value::Float(*lower)),
             Self::Interval { lower, upper } if lower == upper => Some(Value::Integer(*lower)),
             Self::Enumeration { values } if values.len() == 1 => Some(Value::Integer(values[0])),

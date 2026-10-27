@@ -5,17 +5,28 @@ const { tmpdir } = require("node:os");
 const { resolve, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-assert([24, 25].includes(process.argv.length),
-    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json LEGACY.json FLEX.json PACKING.json SET_GLOBALS.json SET_CHANNELS.json ARITHMETIC.json STANDARD.json CANDIDATES.json NATIVE_CHECKER [GECODE.json]");
+assert([24, 25, 26].includes(process.argv.length),
+    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json LEGACY.json FLEX.json PACKING.json SET_GLOBALS.json SET_CHANNELS.json ARITHMETIC.json STANDARD.json CANDIDATES.json NATIVE_CHECKER [GECODE.json [COMPILER_PREPARED.json]]");
 const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, setChannels, arithmetic, standard, candidates, native] = process.argv.slice(2, 24).map(path => resolve(path));
 const { PreparedModel } = require(glue);
 const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, setChannels, arithmetic, standard };
 if (process.argv[24]) paths.gecode = resolve(process.argv[24]);
+if (process.argv[25]) paths.compiler = resolve(process.argv[25]);
 const defaults = {};
 const models = Object.fromEntries(Object.entries(paths).map(([name, path]) =>
     [name, new PreparedModel(readFileSync(path, "utf8"))]));
 for (const [name, model] of Object.entries(models)) defaults[name] = JSON.parse(model.floatTolerance());
 const cases = JSON.parse(readFileSync(candidates, "utf8")).filter(candidate => candidate.model !== "gecode" || paths.gecode);
+if (paths.compiler) cases.push(
+    { name: "compiler-json-valid", model: "compiler", assignment: { entries: [
+        { name: "x", value: { kind: "scalar", value: { kind: "integer", value: "9007199254740993" } } }
+    ] }, status: "valid", complete: true },
+    { name: "compiler-json-conflict", model: "compiler", assignment: { entries: [
+        { name: "x", value: { kind: "scalar", value: { kind: "integer", value: "0" } } },
+        { name: "result", value: { kind: "scalar", value: { kind: "float", value: 5 } } }
+    ] }, status: "invalid", complete: true },
+    { name: "compiler-json-incomplete", model: "compiler", assignment: { entries: [] }, status: "incomplete", complete: false }
+);
 const directory = mkdtempSync(join(tmpdir(), "zincite-wasm-"));
 
 try {
@@ -118,6 +129,14 @@ function decimal(value) {
 }
 
 function checkDetails(name, report) {
+    if (name === "compiler-json-valid") assert.equal(report.objective.argument.value.value, "9007199254740993");
+    if (name === "compiler-json-conflict") {
+        const domain = report.violations.find(violation => violation.check.domain?.kind === "integer_ranges");
+        assert.equal(domain.check.domain.values.ranges[1].lower, "9007199254740993");
+        const sum = report.violations.find(violation => violation.check.constraint?.predicate === "float_plus");
+        assert.deepEqual(sum.check.constraint.metadata.application.entities, ["9007199254740993"]);
+    }
+
     if (name === "gecode-conflict") {
         assert.equal(report.violations.length, 1);
         const metadata = report.violations[0].check.constraint.metadata;

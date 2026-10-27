@@ -123,13 +123,20 @@ impl PreparedModel {
                 return Err(invalid("a variable needs a domain"));
             }
             for domain in &variable.domains {
+                if let Domain::BooleanValues { values } = domain
+                    && values.windows(2).any(|pair| pair[0] || !pair[1])
+                {
+                    return Err(invalid(
+                        "Boolean domain values must be distinct and ordered",
+                    ));
+                }
                 let kind = match domain {
                     Domain::Float => ValueType::Float,
-                    Domain::FloatInterval { .. } => ValueType::Float,
+                    Domain::FloatInterval { .. } | Domain::FloatRanges { .. } => ValueType::Float,
                     Domain::FloatSet => {
                         return Err(invalid("assignable float sets are unsupported"));
                     }
-                    Domain::Boolean => ValueType::Boolean,
+                    Domain::Boolean | Domain::BooleanValues { .. } => ValueType::Boolean,
                     Domain::IntegerSet { .. } => ValueType::IntegerSet,
                     Domain::Fixed { value } => value.value_type(),
                     _ => ValueType::Integer,

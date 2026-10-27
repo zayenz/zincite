@@ -1839,3 +1839,32 @@ fn checker_dispatch_exports_and_loads_prepared_candidates() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn checker_dispatch_prepares_official_compiler_json() {
+    let model = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/examples/checker-compilation/model.fzn.json"
+    );
+    let assignment = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/examples/checker-compilation/candidates/feasible.dzn"
+    );
+    let output = run(
+        &[
+            "check",
+            "--input-format",
+            "fzn-json",
+            "--format",
+            "json",
+            model,
+            assignment,
+        ],
+        "",
+    );
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty());
+    let report = String::from_utf8(output.stdout).unwrap();
+    assert!(report.contains("\"status\": \"valid\""));
+    assert!(report.contains("\"complete\": true"));
+}

@@ -28,6 +28,7 @@ fn command(arguments: Vec<OsString>, invocation: &str) -> Result<(String, u8), S
     let mut paths = Vec::new();
     let mut mode = InputMode::Source;
     let mut json = false;
+    let mut compiler_json = false;
     let mut options = true;
     let mut float_absolute = None;
     let mut float_relative = None;
@@ -36,6 +37,13 @@ fn command(arguments: Vec<OsString>, invocation: &str) -> Result<(String, u8), S
         match argument.to_str() {
             Some("--") if options => options = false,
             Some("-h" | "--help") if options => return Ok((help(invocation), 0)),
+            Some("--input-format") if options => {
+                compiler_json = match arguments.next().as_deref().and_then(|value| value.to_str()) {
+                    Some("fzn-json") => true,
+                    Some("fzn") => false,
+                    _ => return Err("--input-format expects fzn or fzn-json".into()),
+                };
+            }
             Some("--load" | "--export") if options => {
                 if !matches!(mode, InputMode::Source) {
                     return Err(
@@ -92,12 +100,16 @@ fn command(arguments: Vec<OsString>, invocation: &str) -> Result<(String, u8), S
     let read = |path: &std::path::Path| {
         std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))
     };
+    if compiler_json && matches!(mode, InputMode::Load) {
+        return Err("--input-format fzn-json cannot be combined with --load".into());
+    }
     let model_source = read(&paths[0])?;
     let mut model = if matches!(mode, InputMode::Load) {
         PreparedModel::from_json(&model_source)
             .map_err(|error| format!("{}: {}", paths[0].display(), error.message))?
     } else {
-        prepare(&paths[0].to_string_lossy(), &model_source)
+        let prepare_input = if compiler_json { prepare_json } else { prepare };
+        prepare_input(&paths[0].to_string_lossy(), &model_source)
             .map_err(|errors| diagnostics(&errors))?
     };
     let saved = model.float_tolerance();
@@ -150,7 +162,7 @@ fn fail(message: &str) -> ExitCode {
 
 fn help(invocation: &str) -> String {
     format!(
-        "Usage: {invocation} [--format text|json] MODEL.fzn ASSIGNMENT.dzn\n       {invocation} --export MODEL.json MODEL.fzn\n       {invocation} --load [--format text|json] MODEL.json ASSIGNMENT.dzn\n\nCheck a candidate against the supported Boolean, integer, finite float and integer set FlatZinc subset.\nDerive supported linear-equality, full-reification and set outputs from supplied inputs.\nStrict disjunctive checks accept fixed nonnegative durations.\nMissing inputs or unsupported directions produce an incomplete report.\nNo compiler or solver runs. JSON mathematical integers are decimal strings.\nExport prepares the model and creates a new JSON file, refusing existing paths.\nLoad validates the executable JSON without parsing FlatZinc source.\n--float-absolute-tolerance NUMBER and --float-relative-tolerance NUMBER override one saved setting.\nDefaults: 1e-9 each; finite nonnegative settings required; 0/0 gives exact comparisons.\n\nExit status: 0 valid or exported, 1 invalid or incomplete, 2 input or execution error.\n"
+        "Usage: {invocation} [--format text|json] MODEL.fzn ASSIGNMENT.dzn\n       {invocation} --export MODEL.json MODEL.fzn\n       {invocation} --load [--format text|json] MODEL.json ASSIGNMENT.dzn\n\n--input-format fzn|fzn-json selects text (default) or official compiler JSON.\nIt also applies to --export; --load always takes a prepared artifact.\n\nCheck a candidate against the supported Boolean, integer, finite float and integer set FlatZinc subset.\nDerive supported linear-equality, full-reification and set outputs from supplied inputs.\nStrict disjunctive checks accept fixed nonnegative durations.\nMissing inputs or unsupported directions produce an incomplete report.\nNo compiler or solver runs. JSON mathematical integers are decimal strings.\nExport prepares the model and creates a new JSON file, refusing existing paths.\nLoad validates the executable JSON without parsing FlatZinc source.\n--float-absolute-tolerance NUMBER and --float-relative-tolerance NUMBER override one saved setting.\nDefaults: 1e-9 each; finite nonnegative settings required; 0/0 gives exact comparisons.\n\nExit status: 0 valid or exported, 1 invalid or incomplete, 2 input or execution error.\n"
     )
 }
 
@@ -1007,6 +1019,9 @@ fn domain_text(domain: &Domain) -> String {
         Domain::Float => "float".into(),
         Domain::FloatSet => "set of float".into(),
         Domain::FloatInterval { lower, upper } => format!("{lower}..{upper}"),
+        Domain::FloatRanges { values } => values.to_string(),
+        Domain::IntegerRanges { values } => values.to_string(),
+        Domain::BooleanValues { values } => format!("{values:?}"),
         Domain::Boolean => "bool".into(),
         Domain::IntegerSet { upper: Some(upper) } => format!("set of {upper}"),
         Domain::IntegerSet { upper: None } => "set of int".into(),

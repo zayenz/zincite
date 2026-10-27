@@ -21,7 +21,7 @@ crate-type = ["rlib", "cdylib"]
 libm = { version = "=0.2.16", default-features = false }
 zincite-syntax = { version = "0.3.0", path = "../zincite-syntax", optional = true }
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["float_roundtrip"] }
+serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "=0.2.129", optional = true }

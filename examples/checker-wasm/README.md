@@ -295,3 +295,20 @@ edit, a supplied output conflict, omitted inputs and known violations with
 incomplete input. Feedback carries both constraint and value IDs and exact
 entity `9007199254740993`. The earlier candidate records and artifacts are
 unchanged.
+
+
+Official compiler JSON uses the native preparation path before Wasm loading.
+The Gecode smoke invocation also accepts a final optional artifact exported
+from the authored JSON format control:
+
+```sh
+target/debug/zincite-check --input-format fzn-json --export "$checker_run/compiler.json" examples/checker-compilation/json-values.fzn.json
+```
+
+Append `"$checker_run/compiler.json"` after `"$checker_run/gecode.json"` in the
+invocation above. Three added edits check exact integers and compact disjoint
+domains, a supplied float result conflict with application payloads, and removed
+inputs. This runs 184 comparisons across twenty-one artifacts. Earlier invocations
+and candidate records keep their existing counts. The native API also accepts
+the saved unedited compiler JSON specimens in `examples/checker-compilation/`;
+both source formats export the same executable contract for Wasm.

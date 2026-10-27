@@ -2,6 +2,8 @@ use super::*;
 use zincite_syntax::{FileMode, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
 mod annotations;
+mod json;
+pub use json::prepare_json;
 
 type Result<T> = std::result::Result<T, Diagnostic>;
 
@@ -55,6 +57,7 @@ pub fn prepare(name: &str, source: &str) -> std::result::Result<PreparedModel, V
     let source = Source {
         name,
         parsed: &parsed,
+        json: None,
     };
     source.validate_syntax()?;
     Lowerer::new(&source)
@@ -71,6 +74,7 @@ pub fn parse_assignment(
     let source = Source {
         name,
         parsed: &parsed,
+        json: None,
     };
     source.validate_syntax()?;
     let mut entries = Vec::new();
@@ -108,11 +112,15 @@ pub fn parse_assignment(
 struct Source<'a> {
     name: &'a str,
     parsed: &'a ParsedFile,
+    json: Option<&'a json::JsonSource<'a>>,
 }
 
 impl Source<'_> {
     fn location(&self, node: &SyntaxNode) -> Location {
         let range = node.range();
+        if let Some(json) = self.json {
+            return json.location(range);
+        }
         let (line, column) = self.parsed.line_column(range.start);
         Location {
             source: self.name.into(),
@@ -138,13 +146,16 @@ impl Source<'_> {
             .map(|diagnostic| {
                 let (line, column) = self.parsed.line_column(diagnostic.range.start);
                 Diagnostic {
-                    location: Some(Location {
-                        source: self.name.into(),
-                        start: diagnostic.range.start,
-                        end: diagnostic.range.end,
-                        line,
-                        column,
-                    }),
+                    location: Some(self.json.map_or_else(
+                        || Location {
+                            source: self.name.into(),
+                            start: diagnostic.range.start,
+                            end: diagnostic.range.end,
+                            line,
+                            column,
+                        },
+                        |json| json.location(diagnostic.range.clone()),
+                    )),
                     message: diagnostic.message.clone(),
                 }
             })
@@ -223,6 +234,9 @@ impl Source<'_> {
     }
 
     fn float(&self, node: &SyntaxNode) -> Result<FiniteFloat> {
+        if let Some(raw) = self.json.and_then(|json| json.literal(node)) {
+            return json::float(raw).map_err(|message| self.error(node, message));
+        }
         let (negative, atom) = if node.kind() == NodeKind::UnaryExpression {
             if !self.tokens(node).map(|(_, text)| text).eq(["-"]) {
                 return Err(self.error(node, "expected a signed decimal float literal"));
@@ -283,6 +297,9 @@ impl Source<'_> {
     }
 
     fn typed_literal(&self, node: &SyntaxNode, kind: ValueType) -> Result<Value> {
+        if let Some(raw) = self.json.and_then(|json| json.literal(node)) {
+            return json::literal(raw, kind).map_err(|message| self.error(node, message));
+        }
         if kind == ValueType::FloatSet {
             self.float_set(node).map(Value::FloatSet)
         } else {
@@ -461,6 +478,9 @@ impl Source<'_> {
     }
 
     fn integer(&self, node: &SyntaxNode) -> Result<i64> {
+        if let Some(raw) = self.json.and_then(|json| json.literal(node)) {
+            return json::integer(raw).map_err(|message| self.error(node, message));
+        }
         let (negative, atom) = if node.kind() == NodeKind::UnaryExpression {
             let negative = match self.tokens(node).next() {
                 Some((TokenKind::Minus, _)) => true,
@@ -771,13 +791,21 @@ enum AnnotationContext {
 impl<'a> Source<'a> {
     fn declaration(&self, node: &'a SyntaxNode) -> Result<Declaration<'a>> {
         let children: Vec<_> = node.child_nodes().collect();
-        let ty = self.type_spec(children[0], false)?;
+        let ty = if let Some(ty) = self
+            .json
+            .and_then(|json| json.types.get(&node.range().start))
+        {
+            ty.clone()
+        } else {
+            self.type_spec(children[0], false)?
+        };
         let annotations: Vec<_> = children
             .iter()
             .copied()
             .filter(|node| node.kind() == NodeKind::Annotation)
             .collect();
-        if !ty.is_var
+        if self.json.is_none()
+            && !ty.is_var
             && (!annotations.is_empty()
                 || !matches!(
                     ty.domain,
@@ -829,6 +857,7 @@ struct Lowerer<'a> {
     declarations: Vec<Declaration<'a>>,
     names: HashMap<String, usize>,
     resolved: Vec<Option<Binding>>,
+    resolving: HashSet<usize>,
     model: PreparedModel,
     predicates: HashMap<(String, usize), Vec<TypeSpec>>,
 }
@@ -856,7 +885,7 @@ impl<'a> Lowerer<'a> {
                 }
                 _ => return Err(source.error(node, "unsupported FlatZinc item")),
             };
-            if next < phase || phase == ItemPhase::Solve {
+            if source.json.is_none() && (next < phase || phase == ItemPhase::Solve) {
                 return Err(source.error(node, "FlatZinc items must follow predicate, parameter, variable, constraint, solve order"));
             }
             phase = next;
@@ -897,6 +926,16 @@ impl<'a> Lowerer<'a> {
             }
             declarations.push(declaration);
         }
+        if source.json.is_some() {
+            let array = TypeSpec {
+                kind: ValueType::Integer,
+                domain: Domain::Integer,
+                is_var: true,
+                length: None,
+                is_array: true,
+            };
+            predicates.insert(("fzn_disjunctive_strict".into(), 2), vec![array; 2]);
+        }
         let resolved = vec![None; declarations.len()];
         Ok(Self {
             source,
@@ -904,6 +943,7 @@ impl<'a> Lowerer<'a> {
             declarations,
             names,
             resolved,
+            resolving: HashSet::new(),
             model: PreparedModel {
                 slots: Vec::new(),
                 bindings: HashMap::new(),
@@ -954,11 +994,17 @@ impl<'a> Lowerer<'a> {
         if let Some(binding) = &self.resolved[index] {
             return Ok(binding.clone());
         }
+        if !self.resolving.insert(index) {
+            return Err(self.source.error(
+                self.declarations[index].node,
+                "cyclic declaration reference",
+            ));
+        }
         let mut ty = self.declarations[index].ty.clone();
         let annotations = self.declarations[index].annotations.clone();
         let context = AnnotationContext::Value {
             is_array: ty.is_array,
-            is_var: ty.is_var,
+            is_var: ty.is_var || self.source.json.is_some(),
             length: ty.length,
         };
         self.declarations[index].metadata = self.metadata(&annotations, context)?;
@@ -996,6 +1042,7 @@ impl<'a> Lowerer<'a> {
             .bindings
             .insert(self.declarations[index].name.clone(), binding.clone());
         self.resolved[index] = Some(binding.clone());
+        self.resolving.remove(&index);
         Ok(binding)
     }
 
@@ -1008,7 +1055,12 @@ impl<'a> Lowerer<'a> {
                     "parameters require literal initialization",
                 )
             })?;
-            let values = if ty.is_array {
+            let values = if ty.is_array
+                && self.source.json.is_some()
+                && initializer.kind() == NodeKind::Expression
+            {
+                self.array(initializer, ty.kind)?
+            } else if ty.is_array {
                 if initializer.kind() != NodeKind::ArrayLiteral {
                     return Err(self.source.error(
                         initializer,
@@ -1152,6 +1204,9 @@ impl<'a> Lowerer<'a> {
             self.source
                 .error(node, format!("unknown reference '{name}'"))
         })?;
+        if self.source.json.is_some() {
+            return self.resolve(index);
+        }
         self.resolved[index].clone().ok_or_else(|| {
             self.source.error(
                 node,
@@ -1222,6 +1277,14 @@ impl<'a> Lowerer<'a> {
     }
 
     fn operand_literal(&mut self, node: &SyntaxNode, kind: ValueType) -> Result<Value> {
+        if self
+            .source
+            .json
+            .and_then(|json| json.literal(node))
+            .is_some()
+        {
+            return self.source.typed_literal(node, kind);
+        }
         if kind == ValueType::IntegerSet {
             match node.kind() {
                 NodeKind::RangeExpression => {
@@ -1260,6 +1323,12 @@ impl<'a> Lowerer<'a> {
                 .error(node, "expected a literal array or declared array reference"));
         }
         let binding = self.reference(node)?;
+        if self.source.json.is_some() && binding.is_array && binding.kind != kind {
+            let index = self.names[&self.source.name(node)?];
+            if let Some(initializer) = self.declarations[index].initializer {
+                return self.array(initializer, kind);
+            }
+        }
         if !binding.is_array || binding.kind != kind {
             return Err(self
                 .source

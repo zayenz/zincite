@@ -4,8 +4,8 @@
 
 - Total: 33
 - Ready: 1
-- Blocked: 1
-- Done: 31
+- Blocked: 0
+- Done: 32
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -40,5 +40,5 @@
 | [checker-029](tasks/029-check-gecode-number-theory-products-and-distance-extensions.md) | Check Gecode number theory, products and distance extensions | done | checker-012, checker-013 |
 | [checker-030](tasks/030-compile-the-complete-standard-library-to-supported-checker-o.md) | Compile the complete standard library to supported checker operations | done | checker-012, checker-013, checker-014, checker-015, checker-018, checker-016, checker-017 |
 | [checker-031](tasks/031-compile-against-the-complete-pinned-gecode-minizinc-library.md) | Compile against the complete pinned Gecode MiniZinc library | done | checker-030, checker-019, checker-020, checker-021, checker-022, checker-023, checker-025, checker-026, checker-028, checker-029, checker-018 |
-| [checker-032](tasks/032-accept-the-standard-flatzinc-json-representation.md) | Accept the standard FlatZinc-JSON representation | ready | checker-030 |
-| [checker-033](tasks/033-verify-full-library-coverage-and-update-public-workflows.md) | Verify full library coverage and update public workflows | blocked | checker-031, checker-032 |
+| [checker-032](tasks/032-accept-the-standard-flatzinc-json-representation.md) | Accept the standard FlatZinc-JSON representation | done | checker-030 |
+| [checker-033](tasks/033-verify-full-library-coverage-and-update-public-workflows.md) | Verify full library coverage and update public workflows | ready | checker-031, checker-032 |

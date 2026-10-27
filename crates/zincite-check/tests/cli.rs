@@ -1033,3 +1033,67 @@ fn arithmetic_extension_cli_renders_the_same_loaded_typed_findings() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn official_json_input_checks_exports_and_rejects_load_confusion() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-check-fzn-json-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let artifact = directory.join("prepared.json");
+    let model = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/checker-compilation/model.fzn.json"
+    );
+    let data = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../examples/checker-compilation/candidates/infeasible.dzn"
+    );
+    let run = |arguments: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+            .args(arguments)
+            .output()
+            .unwrap()
+    };
+    let source = run(&[
+        "--input-format",
+        "fzn-json",
+        "--format",
+        "json",
+        model,
+        data,
+    ]);
+    assert_eq!(source.status.code(), Some(1));
+    assert!(source.stderr.is_empty());
+    let output = run(&[
+        "--input-format",
+        "fzn-json",
+        "--export",
+        artifact.to_str().unwrap(),
+        model,
+    ]);
+    assert!(output.status.success(), "{output:?}");
+    let loaded = run(&[
+        "--load",
+        "--format",
+        "json",
+        artifact.to_str().unwrap(),
+        data,
+    ]);
+    assert_eq!(source.stdout, loaded.stdout);
+    for arguments in [
+        vec!["--load", "--input-format", "fzn-json", model, data],
+        vec!["--input-format", "json", model, data],
+        vec!["--load", model, data],
+        vec![
+            "--input-format",
+            "fzn-json",
+            artifact.to_str().unwrap(),
+            data,
+        ],
+    ] {
+        let error = run(&arguments);
+        assert_eq!(error.status.code(), Some(2));
+        assert!(error.stdout.is_empty());
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

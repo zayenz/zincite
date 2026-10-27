@@ -1,0 +1,31 @@
+{
+      "version":"1.0",
+      "variables":{
+        "alias":{"type":"int","rhs":"x","introduced":true},
+        "x":{"type":"int","domain":[[-9223372036854775808,-1],[9007199254740993,9223372036854775807]]},
+        "f":{"type":"float","rhs":2},
+        "flag":{"type":"bool","domain":[[false,false]]},
+        "s":{"type":"set of int","domain":[[-4,-2],[9007199254740993,9007199254740994]],"rhs":{"set":[[-4,-2],[9007199254740993,9007199254740994]]}},
+        "empty_domain":{"type":"int","domain":[],"ann":["computed_domain"],"rhs":7},
+        "result":{"type":"float","defined":true}
+      },
+      "arrays":{
+        "empty":{"a":[]},
+        "empty_alias":{"a":"empty"},
+        "numbers":{"a":[1,1]},
+        "mixed":{"a":["f",1]},
+        "set_values":{"a":[{"set":[[-4,-2],[9007199254740993,9007199254740994]]}]},
+        "float_sets":{"a":[{"set":[[1,2]]},{"set":[[3.0,4.0]]}]},
+        "alias_array":{"a":"mixed"}
+      },
+      "constraints":[
+        {"id":"int_eq","args":["alias",9007199254740993]},
+        {"id":"float_lin_eq","args":["numbers","alias_array",3]},
+        {"id":"float_lin_eq","args":["empty","empty_alias",0]},
+        {"id":"array_bool_or","args":["empty",false]},
+        {"id":"set_eq","args":["s",{"set":[[-4,-2],[9007199254740993,9007199254740994]]}]},
+        {"id":"float_plus","args":["f",1,"result"],"defines":"result","ann":[{"id":"checker_constraint","args":[{"string":"sum \"λ\"\\tail"},[9007199254740993]]}]}
+      ],
+      "output":["alias","mixed"],
+      "solve":{"method":"maximize","objective":"alias","ann":[{"id":"seq_search","args":[[{"id":"int_search","args":[["x"],"input_order","indomain_min","complete"]}]]}]}
+    }

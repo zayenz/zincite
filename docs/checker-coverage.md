@@ -691,8 +691,16 @@ An installed older library or the current one-file checker override does not
 satisfy this profile.
 
 <a id="family-032"></a>
-**checker-032 — official FlatZinc-JSON.** Admit the official schema through the
-same preparation/type/metadata contracts. It is distinct from prepared-model JSON.
+**checker-032 — official FlatZinc-JSON.** `prepare_json` and native
+`--input-format fzn-json` admit version 1.0 through the existing lowerer and
+executable. Raw JSON slices supply exact integer tokens and original locations.
+Typed declarations support `rhs`, compact range domains, aliases, output and
+definition metadata; untyped arrays accept contextual fixed literals and empty
+roles. Annotation objects use the existing metadata/search checks. Both compiler
+profiles agree with their text reports for valid, multi-violation, incomplete
+and supplied-conflict candidates. The [input guide](../crates/zincite-check/README.md#prepare-official-compiler-json)
+records domain descriptions and representation-specific locations. Export still
+produces the validated prepared artifact used by parser-free Wasm.
 
 <a id="family-033"></a>
 **checker-033 — full acceptance.** Check every indexed row, every selected include
@@ -739,7 +747,7 @@ its `_reif`, float and set fallbacks are absent on these legacy paths.
 | Metadata | checker-011: application `checker_value`/`checker_constraint`, `mzn_path`, `mzn_constraint_name`, introduced/defined flags and source fallback; preserve typed IDs/payloads | Separate constraint and copied value applications; exact integer entity payloads; labels, operand paths and locations; introduced flags; `computed_domain` excludes its convenience domain from violations/defaults |
 | Search/propagation | checker-011/031: search, restart strategy, variable/value selection, consistency strength and Gecode propagation choices are metadata when they preserve the relation. Unknown semantic annotations diagnose | Standard/Gecode variable/value strategies, searches, restarts, warm starts and propagation choices validate without changing feasibility; unknown semantics/hooks diagnose |
 | Output selection | checker-011: `output_var`, `output_array`, output sections and introduced flags are metadata; rendering/protocol/search/optimality execution is outside checking | Scalar markers and integer-set dimensions with matching flat cardinality, including non-1-based/multidimensional/empty descriptions; output sections diagnose outside MiniZinc output items |
-| Official JSON | checker-032: top-level `version`, `variables`, `arrays`, `constraints`, `output`, `solve`; typed variables, interval domains/sets, literal/reference arrays, annotation call objects and `defines`. Read integer tokens exactly rather than through binary64 | Not accepted |
+| Official JSON | checker-032: top-level `version`, `variables`, `arrays`, `constraints`, `output`, `solve`; typed variables, interval domains/sets, literal/reference arrays, annotation call objects and `defines`. Read integer tokens exactly rather than through binary64 | Version 1.0 through `prepare_json` and `--input-format fzn-json`; `rhs`/forward aliases, contextual numeric/empty arrays, compact range domains/sets, metadata and goals; located rejection of invalid shapes/types/references/operations |
 | Prepared JSON | Existing versioned executable artifact with validated references, shapes, metadata and family operands; floats use finite JSON numbers; i64 values/payloads use exact decimal strings | Accepted through `PreparedModel::from_json`; separate from official FlatZinc-JSON |
 | Integers/sets | Each family: checked i64 for values and intermediate arithmetic; compact sorted disjoint integer ranges; explicit division/modulus/overflow errors and domain findings | Working for current operations; no scalar arithmetic wraparound |
 | Gecode universes | checker-017/027/028/029: respect explicit extension universes and offsets. `Int::Limits::max=INT_MAX-1`, min its negation; `Set::Limits::max=(Int::Limits::max/2)-1`, min its negation, cardinality `max-min+1` | Generic set operations use finite i64 sets; native complement checks the pinned Gecode universe; other extension families are planned |
