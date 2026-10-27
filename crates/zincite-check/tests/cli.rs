@@ -770,3 +770,65 @@ fn circuit_cli_source_export_load_and_typed_text_agree() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn packing_cli_source_load_and_typed_text_agree() {
+    let directory =
+        std::env::temp_dir().join(format!("zincite-packing-cli-{}", std::process::id()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let source = directory.join("packing.fzn");
+    let saved = directory.join("packing.json");
+    let candidate = directory.join("candidate.dzn");
+    std::fs::write(
+        &source,
+        include_str!("../../../examples/checker-compilation/packing.fzn"),
+    )
+    .unwrap();
+    let export = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+        .arg("--export")
+        .arg(&saved)
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(
+        export.status.success(),
+        "{}",
+        String::from_utf8_lossy(&export.stderr)
+    );
+    std::fs::write(
+        &candidate,
+        "bin=9007199254740993;other=0;x=9007199254740994;width=2;present=true;loads=[9,8];",
+    )
+    .unwrap();
+    let run = |path: &std::path::Path, load: bool, format: &str| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_zincite-check"));
+        if load {
+            command.arg("--load");
+        }
+        command
+            .args(["--format", format])
+            .arg(path)
+            .arg(&candidate)
+            .output()
+            .unwrap()
+    };
+    let report = run(&source, false, "json");
+    let loaded = run(&saved, true, "json");
+    assert_eq!(report.status.code(), Some(1));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&report.stdout).unwrap(),
+        serde_json::from_slice::<serde_json::Value>(&loaded.stdout).unwrap()
+    );
+    let text = String::from_utf8(run(&saved, true, "text").stdout).unwrap();
+    for expected in [
+        "item 2 has invalid bin 0",
+        "load 1 for bin 9007199254740993",
+        "expected 3 from items [1]",
+        "rectangles 1 and 2 overlap",
+        "Exact bin loads",
+        "loads",
+    ] {
+        assert!(text.contains(expected), "{text}");
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

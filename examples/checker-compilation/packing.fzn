@@ -1,0 +1,15 @@
+var int: bin ::checker_value("item",[9007199254740993]);
+var int: other;
+var 0..9: load_a ::is_defined_var;
+var 0..9: load_b ::is_defined_var;
+array[1..2] of var int: loads=[load_a,load_b];
+var int: x;
+var int: width;
+var bool: present;
+var int: right ::is_defined_var;
+constraint gecode_bin_packing_load(loads,[bin,other],[3,0],9007199254740993)::defines_var(loads)::checker_constraint("loads",[1,2])::mzn_constraint_name("Exact bin loads");
+constraint int_plus(9007199254740993,width,right)::defines_var(right)::checker_constraint("right_equation",[1]);
+constraint gecode_nooverlap_fzn([9007199254740993,x],[width,0],[0,1],[2,0])::checker_constraint("mandatory",[1,2]);
+constraint fzn_gecode_nooverlap_optional([9007199254740993,x],[2,0],[0,1],[2,0],[true,present])::checker_constraint("optional",[1,2]);
+constraint gecode_gecode_nooverlap_flex_optional([9007199254740993,x],[width,0],[right,x],[0,1],[2,0],[2,1],[true,present])::checker_constraint("flex",[1,2]);
+solve satisfy;

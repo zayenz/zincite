@@ -55,8 +55,8 @@ decimal strings, including domain bounds, coefficients, defaults and entity
 payloads. Integer sets use `{ "kind": "integer_set", "value": { "ranges":
 [{ "lower": "1", "upper": "3" }] } }`; an empty set has `ranges: []`. Loading
 rejects reversed, unordered, overlapping or adjacent ranges. The format stays
-at version 1 with additive float values/settings/operations, set value/domain, set operation, strict global and scheduling
-records and integer relation variants. The original `Linear` executable with its
+at version 1 with additive float values/settings/operations, set value/domain, set operation, strict global, scheduling,
+bin-packing and rectangle records and integer relation variants. The original `Linear` executable with its
 `equality` Boolean and `ReifiedLessEqual` executable keep their existing shapes. Loading rejects
 incompatible versions, bad references, wrong types and invalid definition
 annotations before exposing a checkable model. It rebuilds aliases, definition directions and dependencies from validated
@@ -641,7 +641,7 @@ profile or general preservation of editable domains and variables.
 
 All 36 scalar/linear comparison forms accept exactly the bare, `gecode_` and
 `fzn_` spellings, for 108 integer relation names. The 55 Boolean base names also
-accept those exact prefixes, for 165 Boolean names and 806 admitted names overall.
+accept those exact prefixes, for 165 Boolean names and 821 admitted names overall.
 Prefixed scalar XOR uses three arguments; only bare `bool_xor` also admits the
 two-argument assertion. Matching declarations select one admitted arity and calls
 must use that arity; duplicate declarations diagnose.
@@ -718,8 +718,8 @@ that a satisfying completion exists.
 
 All mathematical integers use `i64`. Linear products and accumulation use
 checked arithmetic in array order. Completion also checks subtraction and exact
-division. Set cardinality, scheduling endpoints and resource sums also use checked i64
-results. Overflow, including intermediate overflow and `i64::MIN / -1`, is a
+division. Set cardinality, scheduling/rectangle endpoints, resource sums, bin
+label intervals and bin loads also use checked i64 results. Overflow, including intermediate overflow and `i64::MIN / -1`, is a
 located execution error. A zero output coefficient is an unsupported direction,
 so linear completion does not divide by zero. Integer division truncates toward
 zero; modulus has the dividend's sign, with `MIN mod -1 = 0`. A zero divisor
@@ -952,7 +952,7 @@ establish include/decomposition closure; checker-030/031 own profile repairs.
 
 The checker admits the six `gecode_table_int/bool` literals with plain, `_reif`
 and `_imp` forms, each with the literal empty, `gecode_` and `fzn_` prefixes.
-The family has 18 exact names; the checker admits 806 names overall. The prefix applies to the
+The family has 18 exact names; the checker admits 821 names overall. The prefix applies to the
 whole literal: `gecode_gecode_table_int` and `fzn_gecode_table_int` are direct
 names; `table_int` and `fzn_table_int` are not.
 
@@ -1018,7 +1018,7 @@ to checker-030/031. The runtime keeps its existing marker rules.
 
 The checker admits `gecode_regular`, `gecode_regular_set` and
 `gecode_regular_nfa_int_fzn`, each with the literal empty, `gecode_` and `fzn_`
-prefixes. The family has nine exact names; overall admission is 806. The prefix applies to
+prefixes. The family has nine exact names; overall admission is 821. The prefix applies to
 the whole literal, including `gecode_gecode_regular`; standard wrapper names and
 reified forms are not direct checker operations.
 
@@ -1098,7 +1098,7 @@ auxiliary-definition limits; this control needs no annotation or include repair.
 
 The checker admits `gecode_circuit`, `gecode_circuit_cost` and
 `gecode_circuit_cost_array`, each with the literal `gecode_` and `fzn_` registry
-prefixes, for nine exact names and 806 admitted names overall. The prefix applies
+prefixes, for nine exact names and 821 admitted names overall. The prefix applies
 to the complete name: `gecode_gecode_circuit` and `fzn_gecode_circuit` are valid;
 `fzn_circuit`, `circuit_cost` and reified variants use other compiler routes.
 Declarations check argument roles independently of formal parameter names.
@@ -1321,7 +1321,7 @@ compiler-profile completion gap belongs to checker-031.
 The five native flex operations accept these exact argument roles. Each also
 accepts its literal `gecode_` and `fzn_` registry prefixes: for example,
 `gecode_gecode_unary_flex` and `fzn_gecode_cumulative_flex_optional`.
-This adds 15 names, for 806 admitted names overall. Bare `unary_flex` and
+This adds 15 names, for 821 admitted names overall. Bare `unary_flex` and
 reified/implication spellings are unsupported.
 
 | Operation | Argument roles |
@@ -1424,3 +1424,92 @@ usage 1 plus the spanning task's usage 2 at time 1. Those four findings coexist;
 the end equation and signed machine relation pass. Both CLI forms agree through
 source checking and export/load. Supplying `ends=[0,1]` for those same starts
 instead fails only the end equation: resource checks use the supplied intervals.
+
+
+## Bin packing and rectangles
+
+The checker accepts these five native names and their literal `gecode_` and
+`fzn_` prefixes, for fifteen new names and 821 names overall:
+
+| Native name | Positional arguments | Deterministic output |
+| --- | --- | --- |
+| `gecode_bin_packing_load` | variable integer loads, variable integer bins, fixed nonnegative integer weights, fixed integer minimum bin label | marked scalar or complete load array |
+| `gecode_nooverlap`, `gecode_nooverlap_fzn` | variable integer x, width, y, height arrays | none |
+| `gecode_nooverlap_optional` | variable integer x, fixed nonnegative width, variable integer y, fixed nonnegative height, variable Boolean presence arrays | none |
+| `gecode_nooverlap_flex_optional` | variable integer x, width, right, y, height, top and variable Boolean presence arrays | none |
+
+Declarations match these argument roles regardless of formal parameter names.
+The public `gecode_nooverlap` wrapper has optional coordinates and a different
+signature; it belongs to compiler lowering. Bare `bin_packing`,
+`bin_packing_load`, `bin_packing_capa` and `diffn` are also library wrappers,
+with compiler-profile closure assigned to checker-030/031.
+
+Bin and weight arrays have equal lengths. The load array independently fixes the
+number of bins: position 1 represents the minimum label, position 2 the next
+label, and so on. Every item's bin must lie in that interval, including items
+with zero weight. Empty item arrays produce zero loads. An empty load array
+admits no items. The nonempty label interval and each weight sum use checked i64
+arithmetic; allocation depends on the load count, never the label offset.
+A bad bin reports its item position and still allows checking loads for the
+represented bins. Marked loads derive from known bins; repeated output aliases
+need equal calculated values, and a load that also occurs as a bin input cannot
+define itself. Supplied loads are checked without replacement. Domain failures
+on calculated loads do not suppress downstream constraints. No inverse operation
+chooses bins from loads.
+
+All rectangle arrays have equal lengths. Widths and heights must be nonnegative,
+including absent entries; negative fixed optional sizes are malformed model
+parameters. An absent rectangle needs no coordinates for this relation. Every
+present pair must satisfy
+`right[i] <= x[j] || right[j] <= x[i] || top[i] <= y[j] || top[j] <= y[i]`.
+Touching boundaries pass. Zero-sized objects participate: an interior point or
+line can conflict, while coincident points separate. This is strict `diffn`
+behavior; the zero-size exemptions of `diffn_nonstrict` are different.
+
+Mandatory and fixed optional forms calculate right/top with checked addition.
+The flex form uses the supplied right/top coordinates, including contradictory
+or reversed tuples. It adds neither coordinate equalities nor endpoint-order
+checks. Callers express `x + width = right` and `y + height = top` separately;
+marked arithmetic equations can derive those outputs. This concrete convention
+keeps explicit endpoints stable across candidate edits. Gecode instead rewrites
+assigned sizes to its fixed-size relation and can discard supplied endpoints;
+its posting/propagation behavior is not the checker convention. Rectangles
+choose no coordinates, sizes or presence values.
+
+Typed `bin_packing` findings contain every item, load and known bin/load fault.
+Load records give the bin label, supplied value, calculated value and contributing
+item positions. Typed `rectangles` findings give argument references, all known
+dimension faults and conflicting pairs in position order. Mathematical integers
+use exact decimal strings. Known precondition faults can accompany incomplete
+reports; malformed arrays and artifacts fail admission, and arithmetic overflow
+produces a located execution error. Existing report shapes and artifact version
+1 are unchanged. The [direct control](../../examples/checker-compilation/packing.fzn)
+exercises load completion, optional rectangles and a separate endpoint equation
+with values above 2^53.
+
+### Compile-only packing controls
+
+Compile [public wrappers](../../examples/checker-compilation/packing-controls.mzn)
+under both pinned profiles, and [native interfaces](../../examples/checker-compilation/packing-gecode-controls.mzn)
+under pinned Gecode, without solving:
+
+```sh
+checker_run=$(mktemp -d "$PWD/target/checker-packing.XXXXXX")
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir crates/zincite-check/minizinc --no-output-ozn --output-fzn-to-file "$checker_run/standard.fzn" examples/checker-compilation/packing-controls.mzn
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-fzn-to-file "$checker_run/gecode.fzn" examples/checker-compilation/packing-controls.mzn
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib -I crates/zincite-check/minizinc --no-output-ozn --output-fzn-to-file "$checker_run/native.fzn" examples/checker-compilation/packing-gecode-controls.mzn
+```
+
+The public Gecode control emits native load calls with minimum label `-2` and
+`gecode_nooverlap_fzn` for strict `diffn`. MiniZinc normalizes the source load
+index set to a one-based generated array, drops its `is_defined_var` and
+`defines_var` markers, and merges the identical capacity relations, losing one
+source label. The standard profile emits linear load equalities, integer
+reifiers, Boolean conversions and a separation clause. Its load markers also
+disappear; marked auxiliary reifiers and conversions survive. These inspected
+models accept supplied load values but do not complete the unmarked loads.
+Applications must use the emitted FlatZinc array names. The native control emits
+all four declared interfaces, preserves labels and payloads, and keeps a marked
+linear right-end equation; its load array has the same missing-marker gap.
+These metadata/definition gaps belong to checker-030/031. Runtime admission does
+not relax definition requirements to conceal them.

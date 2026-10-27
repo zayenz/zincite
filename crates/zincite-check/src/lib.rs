@@ -4,6 +4,14 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 
+mod packing;
+#[cfg(feature = "prepare")]
+use packing::bin_packing_signature;
+use packing::{BinPacking, is_bin_packing_name};
+pub use packing::{BinPackingFault, BinPackingFinding, PackingItem, PackingLoad};
+mod rectangles;
+pub use rectangles::{RectangleArguments, RectangleDimension, RectangleFault, RectanglesFinding};
+use rectangles::{RectangleName, Rectangles};
 mod scheduling;
 #[cfg(feature = "prepare")]
 use scheduling::ScheduleTasks;
@@ -357,6 +365,12 @@ pub struct ArgumentValue {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ViolationKind {
+    BinPacking {
+        finding: BinPackingFinding,
+    },
+    Rectangles {
+        finding: RectanglesFinding,
+    },
     Scheduling {
         finding: SchedulingFinding,
     },
@@ -704,6 +718,8 @@ struct Variable {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Predicate {
+    BinPacking(BinPacking),
+    Rectangles(Rectangles),
     Scheduling(Scheduling),
     Automaton(Automaton),
     Circuit(Circuit),
@@ -941,6 +957,8 @@ impl Predicate {
     fn operands(&self) -> Vec<&Operand> {
         match self {
             Self::Automaton(automaton) => automaton.word.iter().collect(),
+            Self::BinPacking(packing) => packing.operands(),
+            Self::Rectangles(rectangles) => rectangles.operands(),
             Self::Scheduling(schedule) => schedule.operands(),
             Self::Circuit(circuit) => circuit.operands(),
             Self::Ordering(ordering) => ordering.operands(),
@@ -1084,6 +1102,8 @@ impl Predicate {
 
     fn required_operands(&self, values: &[Option<Value>]) -> Vec<&Operand> {
         match self {
+            Self::BinPacking(packing) => packing.required_operands(values),
+            Self::Rectangles(rectangles) => rectangles.required_operands(values),
             Self::Scheduling(schedule) => schedule.required_operands(values),
             Self::Circuit(circuit) => circuit.required_operands(values),
             Self::Ordering(ordering) => ordering.required_operands(values),
@@ -1156,6 +1176,7 @@ impl Constraint {
 
 #[derive(Clone, Copy, Debug)]
 enum DefinitionDirection {
+    BinPacking,
     Table,
     Circuit,
     Ordering,
@@ -1395,6 +1416,9 @@ impl PreparedModel {
     ) -> Result<Option<Value>, CheckError> {
         let constraint = &self.constraints[definition.constraint];
         match (&constraint.predicate, definition.direction) {
+            (Predicate::BinPacking(packing), DefinitionDirection::BinPacking) => {
+                packing.derive(definition.output, values, constraint)
+            }
             (Predicate::Table(table), DefinitionDirection::Table) => {
                 Ok(table.membership(values).map(Value::Boolean))
             }
@@ -1981,6 +2005,10 @@ impl PreparedModel {
                 .expect("blocked constraints are excluded before evaluation")
         };
         match &constraint.predicate {
+            Predicate::BinPacking(packing) => self.evaluate_packing(constraint, packing, values),
+            Predicate::Rectangles(rectangles) => {
+                self.evaluate_rectangles(constraint, rectangles, values)
+            }
             Predicate::Scheduling(schedule) => self.evaluate_schedule(constraint, schedule, values),
             Predicate::Circuit(circuit) => self.evaluate_circuit(constraint, circuit, values),
             Predicate::Ordering(ordering) => self.evaluate_ordering(constraint, ordering, values),
@@ -2653,6 +2681,9 @@ impl PreparedModel {
         }
         if array_target {
             let outputs: Vec<(Vec<&Operand>, ValueType)> = match &constraint.predicate {
+                Predicate::BinPacking(packing) => {
+                    vec![(packing.loads.iter().collect(), ValueType::Integer)]
+                }
                 Predicate::Counting(Counting::Cardinality {
                     counts: counting::CardinalityCounts::Exact(counts),
                     ..
@@ -2776,6 +2807,9 @@ fn definition_direction(
         return Err(absent());
     }
     match &constraint.predicate {
+        Predicate::BinPacking(packing) => Ok(packing
+            .can_define(output)
+            .then_some(DefinitionDirection::BinPacking)),
         Predicate::Table(table) => Ok(table
             .can_define(output)
             .then_some(DefinitionDirection::Table)),
@@ -3008,6 +3042,7 @@ fn definition_direction(
             Ok((occurrences.as_slice() == [2]).then_some(DefinitionDirection::SetIntersection))
         }
         Predicate::Automaton(_)
+        | Predicate::Rectangles(_)
         | Predicate::Scheduling(_)
         | Predicate::SetIn { .. }
         | Predicate::SetSubset { .. }

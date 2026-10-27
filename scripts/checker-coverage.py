@@ -25,6 +25,17 @@ CURRENT |= {
     prefix + name
     for prefix in ("", "gecode_", "fzn_")
     for name in (
+        "gecode_bin_packing_load",
+        "gecode_nooverlap",
+        "gecode_nooverlap_fzn",
+        "gecode_nooverlap_optional",
+        "gecode_nooverlap_flex_optional",
+    )
+}
+CURRENT |= {
+    prefix + name
+    for prefix in ("", "gecode_", "fzn_")
+    for name in (
         "cumulatives",
         "gecode_schedule_unary",
         "gecode_schedule_unary_optional",
@@ -812,7 +823,9 @@ def output_rule(name: str, task: int, *, wrapper: bool = False) -> str:
         if name == "gecode_circuit_cost":
             return "argument 3 (selected matrix cost sum)"
         return "none"
-    if task in {26, 27, 28}:
+    if task == 26:
+        return "argument 1 (loads)" if name == "gecode_bin_packing_load" else "none"
+    if task in {27, 28}:
         return f"[unique outputs](#family-{task:03})"
     return "compiler lowering; emitted definitions"
 
@@ -977,6 +990,15 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
         for name in re.findall(r'"([a-z_0-9]+)"', scheduling_names)
         for prefix in ("", "gecode_", "fzn_")
     }
+    rectangles = (ROOT / "crates/zincite-check/src/rectangles.rs").read_text()
+    rectangle_names = rectangles.split("match base {", 1)[1].split("_ =>", 1)[0]
+    packing = (ROOT / "crates/zincite-check/src/packing.rs").read_text()
+    packing_names = packing.split(".contains(", 1)[1].split(")", 1)[0]
+    admitted |= {
+        prefix + name
+        for name in re.findall(r'"([a-z_0-9]+)"', rectangle_names + packing_names)
+        for prefix in ("", "gecode_", "fzn_")
+    }
     ordering = (ROOT / "crates/zincite-check/src/ordering.rs").read_text()
     ordering_names = ordering.split("match base {", 1)[1].split("_ =>", 1)[0]
     admitted |= {
@@ -1098,6 +1120,15 @@ def current_signature(declaration: Declaration) -> bool:
         + [fixed_array, "varint", "array[int]ofvarbool"],
         "gecode_cumulatives_flex": native_multi,
     }
+    packing = {
+        "gecode_bin_packing_load": [variable_array] * 2 + [fixed_array, "int"],
+        "gecode_nooverlap": [variable_array] * 4,
+        "gecode_nooverlap_fzn": [variable_array] * 4,
+        "gecode_nooverlap_optional": [variable_array, fixed_array] * 2
+        + ["array[int]ofvarbool"],
+        "gecode_nooverlap_flex_optional": [variable_array] * 6
+        + ["array[int]ofvarbool"],
+    }
     for base in (
         declaration.name,
         declaration.name.removeprefix("gecode_"),
@@ -1105,6 +1136,8 @@ def current_signature(declaration: Declaration) -> bool:
     ):
         if base in flex:
             return types == flex[base]
+        if base in packing:
+            return types == packing[base]
     if declaration.name not in {"cumulatives", "gecode_cumulatives", "fzn_cumulatives"}:
         return True
     return types in (

@@ -217,6 +217,35 @@ impl PreparedModel {
                     self.validate_table(constraint, table)?;
                     &constraint.reference.predicate
                 }
+                Predicate::BinPacking(packing) => {
+                    if !is_bin_packing_name(&constraint.reference.predicate) {
+                        return Err(invalid(
+                            "bin packing predicate name does not match its executable contract",
+                        ));
+                    }
+                    packing.validate().map_err(invalid)?;
+                    for operand in packing.operands() {
+                        self.validate_operand(operand, ValueType::Integer)?;
+                    }
+                    &constraint.reference.predicate
+                }
+                Predicate::Rectangles(rectangles) => {
+                    if RectangleName::from_name(&constraint.reference.predicate)
+                        != Some(rectangles.name)
+                    {
+                        return Err(invalid(
+                            "rectangle predicate name does not match its executable contract",
+                        ));
+                    }
+                    rectangles.validate().map_err(invalid)?;
+                    for operand in rectangles.integer_operands() {
+                        self.validate_operand(operand, ValueType::Integer)?;
+                    }
+                    for operand in rectangles.present.iter().flatten() {
+                        self.validate_operand(operand, ValueType::Boolean)?;
+                    }
+                    &constraint.reference.predicate
+                }
                 Predicate::Scheduling(schedule) => {
                     if SchedulingName::from_name(&constraint.reference.predicate, schedule.arity())
                         != Some(schedule.name())

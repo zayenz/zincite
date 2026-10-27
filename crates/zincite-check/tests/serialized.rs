@@ -2240,3 +2240,135 @@ fn parser_free_explicit_scheduling_validates_endpoints_and_native_roles() {
         [0] = json!({"Variable":0});
     assert!(PreparedModel::from_json(&artifact.to_string()).is_err());
 }
+
+#[test]
+fn parser_free_packing_and_rectangles_validate_contracts_and_exact_reports() {
+    let integer = |value: &str| json!({"Literal":{"kind":"integer","value":value}});
+    let mut packing = executable();
+    packing["model"]["constraints"][0]["reference"]["predicate"] = json!("gecode_bin_packing_load");
+    packing["model"]["constraints"][0]["predicate"] = json!({"BinPacking": {
+        "loads":[integer("0"),integer("0")], "bins":[{"Variable":0},integer("0")],
+        "weights":["3","0"], "minimum":"9007199254740993"
+    }});
+    let mut rectangles = executable();
+    rectangles["model"]["constraints"][0]["reference"]["predicate"] =
+        json!("gecode_nooverlap_flex_optional");
+    rectangles["model"]["constraints"][0]["predicate"] = json!({"Rectangles": {
+        "name":"FlexOptional", "x":[integer("9007199254740992"),{"Variable":0}],
+        "width":[integer("2"),integer("0")], "right":[integer("9007199254740994"),{"Variable":0}],
+        "y":[integer("0"),integer("1")], "height":[integer("2"),integer("0")], "top":[integer("2"),integer("1")],
+        "present":[{"Literal":{"kind":"boolean","value":true}},{"Literal":{"kind":"boolean","value":true}}]
+    }});
+    let input = Assignment {
+        entries: vec![AssignmentEntry {
+            name: "x".into(),
+            value: AssignmentValue::Scalar(Value::Integer(9_007_199_254_740_993)),
+            location: None,
+        }],
+    };
+    for artifact in [&packing, &rectangles] {
+        let model = PreparedModel::from_json(&artifact.to_string()).unwrap();
+        let report = serde_json::to_value(model.check(&input).unwrap()).unwrap();
+        assert_eq!(report["status"], "invalid");
+        let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+        assert_eq!(
+            report,
+            serde_json::to_value(loaded.check(&input).unwrap()).unwrap()
+        );
+    }
+    let report = serde_json::to_value(
+        PreparedModel::from_json(&packing.to_string())
+            .unwrap()
+            .check(&input)
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        report["violations"][0]["details"]["finding"]["faults"],
+        json!([{"kind":"bin","position":2,"value":"0"},{"kind":"load","position":1}])
+    );
+    assert_eq!(
+        report["violations"][0]["details"]["finding"]["loads"][0]["calculated"],
+        "3"
+    );
+    for (path, value) in [
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("gecode_nooverlap"),
+        ),
+        (
+            "/model/constraints/0/predicate/BinPacking/weights",
+            json!(["3"]),
+        ),
+        (
+            "/model/constraints/0/predicate/BinPacking/weights/0",
+            json!("-1"),
+        ),
+        (
+            "/model/constraints/0/predicate/BinPacking/weights/0",
+            json!({"Variable":0}),
+        ),
+        (
+            "/model/constraints/0/predicate/BinPacking/minimum",
+            json!("9223372036854775807"),
+        ),
+        (
+            "/model/constraints/0/predicate/BinPacking/loads/0",
+            json!({"Variable":99}),
+        ),
+        (
+            "/model/constraints/0/predicate/BinPacking/bins/0",
+            json!({"Literal":{"kind":"boolean","value":true}}),
+        ),
+        (
+            "/model/constraints/0/reference/metadata/defines",
+            json!("missing"),
+        ),
+    ] {
+        let mut bad = packing.clone();
+        *bad.pointer_mut(path).unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&bad.to_string()).is_err(),
+            "{path}"
+        );
+    }
+    for (path, value) in [
+        (
+            "/model/constraints/0/reference/predicate",
+            json!("gecode_nooverlap_optional"),
+        ),
+        (
+            "/model/constraints/0/predicate/Rectangles/right",
+            json!(null),
+        ),
+        (
+            "/model/constraints/0/predicate/Rectangles/height",
+            json!([]),
+        ),
+        (
+            "/model/constraints/0/predicate/Rectangles/present/0",
+            integer("1"),
+        ),
+        (
+            "/model/constraints/0/predicate/Rectangles/x/0",
+            json!({"Variable":99}),
+        ),
+    ] {
+        let mut bad = rectangles.clone();
+        *bad.pointer_mut(path).unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&bad.to_string()).is_err(),
+            "{path}"
+        );
+    }
+    rectangles["model"]["constraints"][0]["reference"]["predicate"] =
+        json!("gecode_nooverlap_optional");
+    let native = &mut rectangles["model"]["constraints"][0]["predicate"]["Rectangles"];
+    native["name"] = json!("Optional");
+    native["right"] = json!(null);
+    native["top"] = json!(null);
+    assert!(PreparedModel::from_json(&rectangles.to_string()).is_ok());
+    rectangles["model"]["constraints"][0]["predicate"]["Rectangles"]["width"][0] =
+        json!({"Variable":0});
+    assert!(PreparedModel::from_json(&rectangles.to_string()).is_err());
+}

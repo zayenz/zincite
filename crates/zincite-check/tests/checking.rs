@@ -5185,3 +5185,264 @@ fn explicit_scheduling_round_trips_completion_and_partial_findings() {
         Status::Incomplete
     );
 }
+
+#[test]
+fn packing_aliases_offsets_shapes_and_completion() {
+    for prefix in ["", "gecode_", "fzn_"] {
+        for minimum in [-2, 0, 3] {
+            let name = format!("{prefix}gecode_bin_packing_load");
+            let source = format!(
+                "predicate {name}(array[int] of var int: a,array[int] of var int: b,array[int] of int: c,int: d);var int:load_a::is_defined_var;var int:load_b::is_defined_var;array[1..2] of var int: loads=[load_a,load_b];var int:b;constraint {name}(loads,[b],[3],{minimum})::defines_var(loads);solve minimize load_a;"
+            );
+            let model = prepare("packing.fzn", &source).unwrap();
+            let report = model.check(&assignment(&format!("b={minimum};"))).unwrap();
+            assert_eq!(report.status, Status::Valid);
+            assert_eq!(report.objective.unwrap().argument.value, Value::Integer(3));
+            let report = model
+                .check(&assignment(&format!("b={};loads=[9,8];", minimum + 1)))
+                .unwrap();
+            let json = serde_json::to_value(report).unwrap();
+            assert_eq!(
+                json["violations"][0]["details"]["finding"]["faults"],
+                serde_json::json!([{ "kind":"load", "position":1 },{ "kind":"load", "position":2 }])
+            );
+            assert_eq!(
+                model.check(&Assignment::default()).unwrap().status,
+                Status::Incomplete
+            );
+        }
+    }
+    for source in [
+        "constraint gecode_bin_packing_load([0],[1],[1,2],0);solve satisfy;",
+        "constraint gecode_bin_packing_load([0],[0],[-1],0);solve satisfy;",
+        "var int:w;constraint gecode_bin_packing_load([0],[0],[w],0);solve satisfy;",
+        "var int:m;constraint gecode_bin_packing_load([0],[0],[1],m);solve satisfy;",
+        "constraint gecode_bin_packing_load([0,0],[],[],9223372036854775807);solve satisfy;",
+        "predicate gecode_bin_packing_load(array[int] of var int:a,array[int] of int:b,array[int] of int:c,int:d);solve satisfy;",
+        "var int:a::is_defined_var;var int:b::is_defined_var;array[1..2] of var int:l=[a,b];constraint gecode_bin_packing_load([a],[0],[1],0)::defines_var(l);solve satisfy;",
+    ] {
+        assert!(prepare("bad.fzn", source).is_err(), "{source}");
+    }
+    for (source, status) in [
+        (
+            "constraint gecode_bin_packing_load([0,0],[],[],-2);solve satisfy;",
+            Status::Valid,
+        ),
+        (
+            "constraint gecode_bin_packing_load([],[],[],9223372036854775807);solve satisfy;",
+            Status::Valid,
+        ),
+        (
+            "constraint gecode_bin_packing_load([],[0,1],[0,0],0);solve satisfy;",
+            Status::Invalid,
+        ),
+        (
+            "var int:l::is_defined_var;constraint gecode_bin_packing_load([l,l],[0,1],[3,3],0)::defines_var(l);solve minimize l;",
+            Status::Valid,
+        ),
+        (
+            "var int:l::is_defined_var;constraint gecode_bin_packing_load([l,l],[0],[3],0)::defines_var(l);solve satisfy;",
+            Status::Incomplete,
+        ),
+        (
+            "var int:l::is_defined_var;constraint gecode_bin_packing_load([l],[l],[0],0)::defines_var(l);solve satisfy;",
+            Status::Incomplete,
+        ),
+        (
+            "var 0..1:l::is_defined_var;constraint gecode_bin_packing_load([l],[0],[3],0)::defines_var(l);constraint int_le(l,2);solve satisfy;",
+            Status::Invalid,
+        ),
+    ] {
+        assert_eq!(
+            prepare("loads.fzn", source)
+                .unwrap()
+                .check(&Assignment::default())
+                .unwrap()
+                .status,
+            status,
+            "{source}"
+        );
+    }
+    let invalid = prepare("bad-bin.fzn", "var int:missing;constraint gecode_bin_packing_load([0,0],[0,2,missing],[3,0,1],0);solve satisfy;").unwrap();
+    let report = invalid.check(&Assignment::default()).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(!report.completeness.complete);
+    let report = invalid.check(&assignment("missing=0;")).unwrap();
+    let json = serde_json::to_value(report).unwrap();
+    assert_eq!(
+        json["violations"][0]["details"]["finding"]["faults"],
+        serde_json::json!([{ "kind":"bin", "position":2,"value":"2" },{ "kind":"load", "position":1 }])
+    );
+    assert_eq!(
+        json["violations"][0]["details"]["finding"]["loads"][0]["items"],
+        serde_json::json!([1, 3])
+    );
+    let downstream = prepare("downstream.fzn", "var 0..1:l::is_defined_var;constraint gecode_bin_packing_load([l],[0],[3],0)::defines_var(l);constraint int_le(l,2);solve satisfy;").unwrap().check(&Assignment::default()).unwrap();
+    assert_eq!(downstream.violations.len(), 2);
+    assert!(downstream.completeness.complete);
+    let overflow = prepare(
+        "overflow.fzn",
+        "constraint gecode_bin_packing_load([0],[0,0],[9223372036854775807,1],0);solve satisfy;",
+    )
+    .unwrap()
+    .check(&Assignment::default())
+    .unwrap_err();
+    assert_eq!(overflow.kind, ErrorKind::Execution);
+    assert!(overflow.diagnostics[0].location.is_some());
+}
+
+#[test]
+fn rectangle_aliases_strict_zero_sizes_presence_and_explicit_ends() {
+    for prefix in ["", "gecode_", "fzn_"] {
+        for (base, signature, args) in [
+            (
+                "gecode_nooverlap",
+                "array[int] of var int:a,array[int] of var int:b,array[int] of var int:c,array[int] of var int:d",
+                "[0,1],[2,0],[0,1],[2,0]",
+            ),
+            (
+                "gecode_nooverlap_fzn",
+                "array[int] of var int:a,array[int] of var int:b,array[int] of var int:c,array[int] of var int:d",
+                "[0,1],[2,0],[0,1],[2,0]",
+            ),
+            (
+                "gecode_nooverlap_optional",
+                "array[int] of var int:a,array[int] of int:b,array[int] of var int:c,array[int] of int:d,array[int] of var bool:e",
+                "[0,1],[2,0],[0,1],[2,0],[true,true]",
+            ),
+            (
+                "gecode_nooverlap_flex_optional",
+                "array[int] of var int:a,array[int] of var int:b,array[int] of var int:c,array[int] of var int:d,array[int] of var int:e,array[int] of var int:f,array[int] of var bool:g",
+                "[0,1],[2,0],[2,1],[0,1],[2,0],[2,1],[true,true]",
+            ),
+        ] {
+            let name = format!("{prefix}{base}");
+            let source =
+                format!("predicate {name}({signature});constraint {name}({args});solve satisfy;");
+            let report = prepare("rectangles.fzn", &source)
+                .unwrap()
+                .check(&Assignment::default())
+                .unwrap();
+            assert_eq!(report.status, Status::Invalid, "{name}");
+            let json = serde_json::to_value(report).unwrap();
+            assert_eq!(
+                json["violations"][0]["details"]["finding"]["faults"],
+                serde_json::json!([{ "kind":"conflict", "first":1,"second":2 }])
+            );
+        }
+    }
+    for (args, status) in [
+        ("[0,2],[2,0],[0,1],[2,0]", Status::Valid),
+        ("[0,1],[2,0],[0,1],[2,1]", Status::Invalid),
+        ("[0,0],[0,0],[0,0],[0,0]", Status::Valid),
+        ("[0,1,1],[2,1,1],[0,1,1],[2,1,1]", Status::Invalid),
+        ("[],[],[],[]", Status::Valid),
+    ] {
+        let source = format!("constraint gecode_nooverlap_fzn({args});solve satisfy;");
+        let report = prepare("r.fzn", &source)
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap();
+        assert_eq!(report.status, status);
+        if args.starts_with("[0,1,1]") {
+            let json = serde_json::to_value(report).unwrap();
+            assert_eq!(
+                json["violations"][0]["details"]["finding"]["faults"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                3
+            );
+        }
+    }
+    let absent = prepare("absent.fzn","var int:x;var int:y;var int:r;var int:t;var int:w;constraint gecode_nooverlap_flex_optional([x],[w],[r],[y],[0],[t],[false]);solve satisfy;").unwrap();
+    let report = absent.check(&assignment("w=0;")).unwrap();
+    assert!(
+        report
+            .completeness
+            .blocked_checks
+            .iter()
+            .all(|check| !matches!(check.check, CheckRef::Constraint { .. }))
+    );
+    let json = serde_json::to_value(absent.check(&assignment("w=-1;")).unwrap()).unwrap();
+    assert_eq!(
+        json["violations"][0]["details"]["finding"]["faults"][0],
+        serde_json::json!({"kind":"dimension","position":1,"dimension":"width","value":"-1"})
+    );
+    for source in [
+        "constraint gecode_nooverlap_fzn([0],[],[0],[1]);solve satisfy;",
+        "constraint gecode_nooverlap_optional([0],[-1],[0],[1],[false]);solve satisfy;",
+        "var int:w;constraint gecode_nooverlap_optional([0],[w],[0],[1],[true]);solve satisfy;",
+        "predicate gecode_nooverlap(array[int] of var opt int:x,array[int] of var int:w,array[int] of var opt int:y,array[int] of var int:h);solve satisfy;",
+    ] {
+        assert!(prepare("bad.fzn", source).is_err(), "{source}");
+    }
+    let explicit=prepare("explicit.fzn","constraint gecode_nooverlap_flex_optional([0,1],[2,0],[-1,1],[0,1],[2,0],[2,1],[true,true]);constraint int_plus(0,2,-1);solve satisfy;").unwrap();
+    let report = explicit.check(&Assignment::default()).unwrap();
+    assert_eq!(report.violations.len(), 1);
+    assert!(matches!(
+        report.violations[0].details,
+        ViolationKind::IntegerArithmetic { .. }
+    ));
+    let overflow = prepare(
+        "overflow.fzn",
+        "constraint gecode_nooverlap_fzn([9223372036854775807],[1],[0],[0]);solve satisfy;",
+    )
+    .unwrap()
+    .check(&Assignment::default())
+    .unwrap_err();
+    assert_eq!(overflow.kind, ErrorKind::Execution);
+    assert!(overflow.diagnostics[0].location.is_some());
+}
+
+#[test]
+fn packing_and_rectangle_reports_round_trip_and_recompute_edits() {
+    let model = prepare(
+        "packing.fzn",
+        include_str!("../../../examples/checker-compilation/packing.fzn"),
+    )
+    .unwrap();
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for (candidate, status, complete) in [
+        (
+            "bin=9007199254740993;other=9007199254740994;x=9007199254740995;width=2;present=true;",
+            Status::Valid,
+            true,
+        ),
+        (
+            "bin=9007199254740993;other=9007199254740994;x=9007199254740994;width=2;present=true;loads=[9,8];",
+            Status::Invalid,
+            true,
+        ),
+        (
+            "bin=9007199254740993;other=9007199254740994;x=9007199254740994;width=2;present=false;right=9007199254740993;",
+            Status::Invalid,
+            true,
+        ),
+        ("other=0;width=-1;", Status::Invalid, false),
+        ("", Status::Incomplete, false),
+    ] {
+        let input = assignment(candidate);
+        let report = model.check(&input).unwrap();
+        assert_eq!(report.status, status, "{candidate}");
+        assert_eq!(report.completeness.complete, complete);
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(
+            json,
+            serde_json::to_value(loaded.check(&input).unwrap()).unwrap()
+        );
+        if candidate.contains("loads=") {
+            let packing = &json["violations"][0];
+            assert_eq!(packing["details"]["finding"]["minimum"], "9007199254740993");
+            assert_eq!(
+                packing["details"]["finding"]["items"][0]["bin"]["variable"]["name"],
+                "bin"
+            );
+            assert_eq!(
+                packing["check"]["constraint"]["metadata"]["application"]["id"],
+                "loads"
+            );
+            assert_eq!(report.violations.len(), 4);
+        }
+    }
+}

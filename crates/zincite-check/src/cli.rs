@@ -248,6 +248,49 @@ pub fn render_text(report: &CheckReport) -> String {
                     condition_text(condition)
                 );
             }
+            ViolationKind::BinPacking { finding } => {
+                for fault in &finding.faults {
+                    match fault {
+                        crate::BinPackingFault::Bin { position, value } => {
+                            let _ = writeln!(text, "  item {position} has invalid bin {value}");
+                        }
+                        crate::BinPackingFault::Load { position } => {
+                            let load = &finding.loads[position - 1];
+                            let _ = writeln!(
+                                text,
+                                "  load {position} for bin {} is {}, expected {} from items {:?}",
+                                load.bin,
+                                argument_text(load.supplied.as_ref().unwrap()),
+                                load.calculated.unwrap(),
+                                load.items
+                            );
+                        }
+                    }
+                }
+            }
+            ViolationKind::Rectangles { finding } => {
+                for fault in &finding.faults {
+                    match fault {
+                        crate::RectangleFault::Dimension {
+                            position,
+                            dimension,
+                            value,
+                        } => {
+                            let dimension = match dimension {
+                                crate::RectangleDimension::Width => "width",
+                                crate::RectangleDimension::Height => "height",
+                            };
+                            let _ = writeln!(
+                                text,
+                                "  rectangle {position} has negative {dimension} {value}"
+                            );
+                        }
+                        crate::RectangleFault::Conflict { first, second } => {
+                            let _ = writeln!(text, "  rectangles {first} and {second} overlap");
+                        }
+                    }
+                }
+            }
             ViolationKind::Scheduling { finding } => {
                 for fault in &finding.faults {
                     let _ = writeln!(text, "  {}", scheduling_text(fault));

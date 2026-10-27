@@ -281,7 +281,11 @@ impl Source<'_> {
             ));
         }
         let parameters: Vec<_> = children[0].child_nodes().collect();
-        let expected = if let Some(automaton) = AutomatonName::from_name(name) {
+        let expected = if is_bin_packing_name(name) {
+            bin_packing_signature()
+        } else if let Some(rectangles) = RectangleName::from_name(name) {
+            rectangles.signature()
+        } else if let Some(automaton) = AutomatonName::from_name(name) {
             automaton.signature()
         } else if let Some(table) = TableName::from_name(name) {
             table.signature()
@@ -1186,11 +1190,17 @@ impl<'a> Lowerer<'a> {
         let automaton = AutomatonName::from_name(&name);
         let circuit = CircuitName::from_name(&name);
         let schedule = SchedulingName::from_name(&name, args.len());
+        let packing = is_bin_packing_name(&name);
+        let rectangles = RectangleName::from_name(&name);
         let ordering = OrderingName::from_name(&name);
         let float = FloatName::from_name(&name);
         let selection = SelectionName::from_name(&name);
         let set = SetName::from_name(&name);
-        let arity = if let Some(automaton) = automaton {
+        let arity = if packing {
+            4
+        } else if let Some(rectangles) = rectangles {
+            rectangles.arity()
+        } else if let Some(automaton) = automaton {
             automaton.signature().len()
         } else if let Some(table) = table {
             table.signature().len()
@@ -1232,7 +1242,11 @@ impl<'a> Lowerer<'a> {
                 .source
                 .error(call, format!("'{name}' expects {arity} arguments")));
         }
-        let predicate = if let Some(automaton) = automaton {
+        let predicate = if packing {
+            self.bin_packing_predicate(call, &args)?
+        } else if let Some(rectangles) = rectangles {
+            self.rectangles_predicate(call, rectangles, &args)?
+        } else if let Some(automaton) = automaton {
             self.automaton_predicate(call, automaton, &args)?
         } else if let Some(table) = table {
             self.table_predicate(call, table, &args)?
@@ -2354,6 +2368,72 @@ impl<'a> Lowerer<'a> {
                 ends: None,
             })))
         }
+    }
+
+    fn bin_packing_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        let weights = self
+            .fixed_array(args[2], ValueType::Integer)?
+            .iter()
+            .map(Value::integer)
+            .collect();
+        let minimum = match self.scalar(args[3], ValueType::Integer)? {
+            Operand::Literal(Value::Integer(value)) => value,
+            _ => {
+                return Err(self
+                    .source
+                    .error(args[3], "minimum bin label must be fixed"));
+            }
+        };
+        let packing = BinPacking {
+            loads: self.array(args[0], ValueType::Integer)?,
+            bins: self.array(args[1], ValueType::Integer)?,
+            weights,
+            minimum,
+        };
+        packing
+            .validate()
+            .map_err(|message| self.source.error(call, message))?;
+        Ok(Predicate::BinPacking(packing))
+    }
+
+    fn rectangles_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: RectangleName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        let flex = name == RectangleName::FlexOptional;
+        let y = if flex { 3 } else { 2 };
+        let rectangles = Rectangles {
+            name,
+            x: self.array(args[0], ValueType::Integer)?,
+            width: self.array(args[1], ValueType::Integer)?,
+            right: if flex {
+                Some(self.array(args[2], ValueType::Integer)?)
+            } else {
+                None
+            },
+            y: self.array(args[y], ValueType::Integer)?,
+            height: self.array(args[y + 1], ValueType::Integer)?,
+            top: if flex {
+                Some(self.array(args[5], ValueType::Integer)?)
+            } else {
+                None
+            },
+            present: if matches!(name, RectangleName::Optional | RectangleName::FlexOptional) {
+                Some(self.array(args[args.len() - 1], ValueType::Boolean)?)
+            } else {
+                None
+            },
+        };
+        rectangles
+            .validate()
+            .map_err(|message| self.source.error(call, message))?;
+        Ok(Predicate::Rectangles(rectangles))
     }
 
     fn scheduling_predicate(

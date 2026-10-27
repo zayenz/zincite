@@ -1527,5 +1527,250 @@
         },
         "status": "incomplete",
         "complete": false
+    },
+    {
+        "name": "packing-valid",
+        "model": "packing",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "bin",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                },
+                {
+                    "name": "other",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740994"
+                        }
+                    }
+                },
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740995"
+                        }
+                    }
+                },
+                {
+                    "name": "width",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "2"
+                        }
+                    }
+                },
+                {
+                    "name": "present",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "valid",
+        "complete": true
+    },
+    {
+        "name": "packing-conflict",
+        "model": "packing",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "bin",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                },
+                {
+                    "name": "other",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740994"
+                        }
+                    }
+                },
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740994"
+                        }
+                    }
+                },
+                {
+                    "name": "width",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "2"
+                        }
+                    }
+                },
+                {
+                    "name": "present",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                },
+                {
+                    "name": "loads",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "integer",
+                                "value": "9"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "8"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "packing-end-conflict",
+        "model": "packing",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "bin",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                },
+                {
+                    "name": "other",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740994"
+                        }
+                    }
+                },
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740994"
+                        }
+                    }
+                },
+                {
+                    "name": "width",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "2"
+                        }
+                    }
+                },
+                {
+                    "name": "present",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": true
+                        }
+                    }
+                },
+                {
+                    "name": "right",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "packing-incomplete-invalid",
+        "model": "packing",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "other",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                },
+                {
+                    "name": "width",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "-1"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": false
+    },
+    {
+        "name": "packing-incomplete",
+        "model": "packing",
+        "assignment": {
+            "entries": []
+        },
+        "status": "incomplete",
+        "complete": false
     }
 ]
