@@ -1734,3 +1734,85 @@ The [direct FlatZinc specimen](../../examples/checker-compilation/set-channels.f
 provides complete marked array outputs, repeated edits, supplied conflicts and
 incomplete selection feedback, including a range image above 2^53. Native and
 parser-free Wasm checks use it without invoking MiniZinc or a solver.
+
+## Number theory, products and distances
+
+The checker admits these literal Gecode registry roots and each once-applied
+`gecode_` or `fzn_` prefix, for 60 exact spellings. Formal parameter names do not
+affect admission. The existing integer power forms keep their documented rules.
+
+| Roots | Concrete relation | Supported marked output |
+| --- | --- | --- |
+| `gecode_gcd_int` and `_reif` / `_imp` | Nonnegative gcd of operand magnitudes; `gcd(0,0)=0` | Argument 3, or full reifier Boolean |
+| `gecode_divides_int` and `_reif` / `_imp` | Divisor has an integer multiple equal to the dividend; zero divides only zero | Full reifier Boolean |
+| `gecode_product_int` and `_reif` / `_imp` | Exact signed product; empty product is one | Argument 2, or full reifier Boolean |
+| `gecode_product_mod_fixed_fzn` / `gecode_product_mod_var_fzn` and `_reif` / `_imp` | Positive modulus and canonical Euclidean product residue in `0..modulus-1` | Argument 3, or full reifier Boolean |
+| `gecode_int_nroot(x,n,y)` | `y=floor(root(x,n))`; negative `x` requires odd `n` | Argument 3 |
+| `gecode_inter_distance` / `gecode_inter_distance_fzn` | Separation is nonnegative and every positional pair is at least that far apart | None |
+| `gecode_minimum_distance_fzn` / `gecode_minimum_distance_required_fzn` | Exact matrix minimum over all selected position pairs, plus inclusive pair requirements when supplied | Argument 4 |
+
+Completion requires the existing `is_defined_var` / `defines_var` markers and
+alias checks. Full reification derives only its last Boolean; implications supply
+no output. The checker never chooses factors, radicands, divisors or sites.
+Supplied outputs are checked without replacement. Every check starts with fresh
+values, and derived values outside their domains still feed downstream checks.
+
+Fixed moduli and root degrees must be in `1..2147483646`, including under a false
+implication guard. A nonpositive variable modulus instead makes the proposition
+false: false full reification passes, and an inactive implication imposes no
+restriction. Negative factors use Euclidean residues; an empty modular product
+is `1 mod modulus`. Modular accumulation handles large factors without forming
+their full product. Other required arithmetic outside i64 produces a located
+execution error, as does an even root of a negative radicand. Integer root search
+uses no floating-point approximation and no loop proportional to the degree.
+For example, the floor cube root of `-9` is `-3`, while that of `-8` is `-2`.
+
+Inter-distance accepts empty and singleton arrays but still requires nonnegative
+separation. Repeated values and aliases participate as distinct positions.
+Matrix minimum distance requires at least two selected positions and a positive
+fixed site count. Sites are zero-based labels into a fixed row-major square
+matrix. Matrix entries and pair requirements are in `0..2147483646`; both
+matrices must be symmetric with zero diagonals. The optional requirements matrix
+has one row per selected position, rather than per site. No triangle inequality
+or distinctness condition applies. The number of position pairs must fit the
+same Gecode integer limit. Invalid labels produce range findings before matrix
+lookup. Valid known sites determine the minimum even when a pair requirement
+fails; invalid labels supply no minimum.
+
+`ViolationKind::NumberTheory` carries named argument roles, one-based factor
+positions, available values or unresolved references, the calculated result when
+defined, relation truth and condition. `ViolationKind::Distance` carries selected
+positions and typed negative-separation, range, pair-bound and minimum conflicts.
+One distance finding can include several pair failures and a wrong supplied
+minimum. JSON integers use decimal strings throughout.
+
+The [direct FlatZinc specimen](../../examples/checker-compilation/arithmetic-extensions.fzn)
+supports repeated native/Wasm edits, products above 2^53, supplied conflicts,
+invalid labels and unresolved results for nonpositive moduli. The
+[compile-only Gecode control](../../examples/checker-compilation/arithmetic-extensions-gecode-controls.mzn)
+uses the pinned sources from the coverage inventory:
+
+```sh
+minizinc --compile --solver org.gecode.gecode -O0 --keep-paths --no-output-ozn \
+  --stdlib-dir target/checker-upstream/minizinc-2.10.1/share/minizinc \
+  --globals-dir target/checker-upstream/gecode-main/gecode/flatzinc/mznlib \
+  -I crates/zincite-check/minizinc \
+  --output-fzn-to-file target/arithmetic-extensions.fzn \
+  --output-paths-to-file target/arithmetic-extensions.paths \
+  examples/checker-compilation/arithmetic-extensions-gecode-controls.mzn
+```
+
+MiniZinc 2.10.1 emits its eight native predicates with labels and source paths,
+plus all seven explicit definition marker pairs. Source preparation, export and
+validated loading check directly calculated candidates through both CLI forms.
+For `left_value=-9;right_value=6;residue_modulus=5;chosen_sites=[0,1];`,
+the derived results are gcd `3`, product `-54`, both residues `1`, floor root `-3`, minimum `7` and divisibility
+`true`. Equal selected sites fail both the pair requirement and inter-distance;
+the derived minimum is still zero. No solver runs. This control does not settle
+the compiler-profile annotation and decomposition gaps documented above for
+checker-030/031.
+
+The control passes Zincite formatting. Default linting reports the pinned
+`gecode.mzn:140` parameter `S` naming warning and 44 analysis limitations.
+These diagnostics describe upstream source and incomplete static analysis;
+the pinned library files are unchanged.

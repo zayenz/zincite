@@ -291,6 +291,10 @@ impl Source<'_> {
             table.signature()
         } else if let Some(schedule) = SchedulingName::from_name(name, parameters.len()) {
             schedule.signature()
+        } else if let Some(arithmetic) = NumberTheoryName::from_name(name) {
+            arithmetic.signature()
+        } else if let Some(distance) = DistanceName::from_name(name) {
+            distance.signature()
         } else if let Some(circuit) = CircuitName::from_name(name) {
             circuit.signature()
         } else if let Some(ordering) = OrderingName::from_name(name) {
@@ -1195,6 +1199,8 @@ impl<'a> Lowerer<'a> {
         let counting = CountingName::from_name(&name);
         let table = TableName::from_name(&name);
         let automaton = AutomatonName::from_name(&name);
+        let arithmetic = NumberTheoryName::from_name(&name);
+        let distance = DistanceName::from_name(&name);
         let circuit = CircuitName::from_name(&name);
         let schedule = SchedulingName::from_name(&name, args.len());
         let packing = is_bin_packing_name(&name);
@@ -1215,6 +1221,10 @@ impl<'a> Lowerer<'a> {
             table.signature().len()
         } else if let Some(schedule) = schedule {
             schedule.signature().len()
+        } else if let Some(arithmetic) = arithmetic {
+            arithmetic.signature().len()
+        } else if let Some(distance) = distance {
+            distance.signature().len()
         } else if let Some(circuit) = circuit {
             circuit.signature().len()
         } else if let Some(ordering) = ordering {
@@ -1265,6 +1275,10 @@ impl<'a> Lowerer<'a> {
             self.table_predicate(call, table, &args)?
         } else if let Some(schedule) = schedule {
             self.scheduling_predicate(call, schedule, &args)?
+        } else if let Some(arithmetic) = arithmetic {
+            self.number_theory_predicate(call, arithmetic, &args)?
+        } else if let Some(distance) = distance {
+            self.distance_predicate(call, distance, &args)?
         } else if let Some(circuit) = circuit {
             self.circuit_predicate(call, circuit, &args)?
         } else if let Some(ordering) = ordering {
@@ -1387,6 +1401,99 @@ impl<'a> Lowerer<'a> {
             .validate_shape()
             .map_err(|message| self.source.error(call, message))?;
         Ok(Predicate::Table(table))
+    }
+
+    fn number_theory_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: NumberTheoryName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        let condition = match name.mode {
+            RelationMode::Plain => RelationCondition::Plain,
+            RelationMode::Reified => RelationCondition::Reified {
+                result: self.scalar(args[args.len() - 1], ValueType::Boolean)?,
+            },
+            RelationMode::Implied => RelationCondition::Implied {
+                guard: self.scalar(args[args.len() - 1], ValueType::Boolean)?,
+            },
+        };
+        use NumberTheoryOperation::*;
+        let arithmetic = match name.operation {
+            Gcd => NumberTheory::Gcd {
+                left: self.scalar(args[0], ValueType::Integer)?,
+                right: self.scalar(args[1], ValueType::Integer)?,
+                result: self.scalar(args[2], ValueType::Integer)?,
+                condition,
+            },
+            Divides => NumberTheory::Divides {
+                divisor: self.scalar(args[0], ValueType::Integer)?,
+                dividend: self.scalar(args[1], ValueType::Integer)?,
+                condition,
+            },
+            Product => NumberTheory::Product {
+                factors: self.array(args[0], ValueType::Integer)?,
+                result: self.scalar(args[1], ValueType::Integer)?,
+                condition,
+            },
+            FixedModularProduct | VariableModularProduct => NumberTheory::ModularProduct {
+                factors: self.array(args[0], ValueType::Integer)?,
+                modulus: if name.operation == FixedModularProduct {
+                    Modulus::Fixed(self.constant_integer(args[1])?)
+                } else {
+                    Modulus::Variable(self.scalar(args[1], ValueType::Integer)?)
+                },
+                result: self.scalar(args[2], ValueType::Integer)?,
+                condition,
+            },
+            Nroot => NumberTheory::Nroot {
+                radicand: self.scalar(args[0], ValueType::Integer)?,
+                degree: self.constant_integer(args[1])?,
+                result: self.scalar(args[2], ValueType::Integer)?,
+            },
+        };
+        arithmetic
+            .validate()
+            .map_err(|message| self.source.error(call, message))?;
+        Ok(Predicate::NumberTheory(arithmetic))
+    }
+
+    fn distance_predicate(
+        &mut self,
+        call: &SyntaxNode,
+        name: DistanceName,
+        args: &[&SyntaxNode],
+    ) -> Result<Predicate> {
+        let distance = match name {
+            DistanceName::Inter => Distance::Inter {
+                positions: self.array(args[0], ValueType::Integer)?,
+                distance: self.scalar(args[1], ValueType::Integer)?,
+            },
+            DistanceName::Minimum | DistanceName::Required => Distance::Minimum {
+                sites: self.array(args[0], ValueType::Integer)?,
+                size: self.constant_integer(args[1])?,
+                distances: self
+                    .fixed_array(args[2], ValueType::Integer)?
+                    .iter()
+                    .map(Value::integer)
+                    .collect(),
+                result: self.scalar(args[3], ValueType::Integer)?,
+                requirements: if name == DistanceName::Required {
+                    Some(
+                        self.fixed_array(args[4], ValueType::Integer)?
+                            .iter()
+                            .map(Value::integer)
+                            .collect(),
+                    )
+                } else {
+                    None
+                },
+            },
+        };
+        distance
+            .validate()
+            .map_err(|message| self.source.error(call, message))?;
+        Ok(Predicate::Distance(distance))
     }
 
     fn circuit_predicate(

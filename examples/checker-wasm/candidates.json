@@ -2416,5 +2416,328 @@
         },
         "status": "incomplete",
         "complete": false
+    },
+    {
+        "name": "arithmetic-valid",
+        "model": "arithmetic",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "-9"
+                        }
+                    }
+                },
+                {
+                    "name": "y",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "6"
+                        }
+                    }
+                },
+                {
+                    "name": "modulus",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "5"
+                        }
+                    }
+                },
+                {
+                    "name": "sites",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "integer",
+                                "value": "0"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "1"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        "status": "valid",
+        "complete": true
+    },
+    {
+        "name": "arithmetic-conflicts",
+        "model": "arithmetic",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "9007199254740993"
+                        }
+                    }
+                },
+                {
+                    "name": "y",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "1"
+                        }
+                    }
+                },
+                {
+                    "name": "modulus",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "5"
+                        }
+                    }
+                },
+                {
+                    "name": "sites",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "integer",
+                                "value": "0"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "1"
+                            }
+                        ]
+                    }
+                },
+                {
+                    "name": "product",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                },
+                {
+                    "name": "root",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                },
+                {
+                    "name": "minimum",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "8"
+                        }
+                    }
+                },
+                {
+                    "name": "truth",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "boolean",
+                            "value": false
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "arithmetic-required",
+        "model": "arithmetic",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "-9"
+                        }
+                    }
+                },
+                {
+                    "name": "y",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "6"
+                        }
+                    }
+                },
+                {
+                    "name": "modulus",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "5"
+                        }
+                    }
+                },
+                {
+                    "name": "sites",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "integer",
+                                "value": "1"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "1"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": true
+    },
+    {
+        "name": "arithmetic-range",
+        "model": "arithmetic",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "-9"
+                        }
+                    }
+                },
+                {
+                    "name": "y",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "6"
+                        }
+                    }
+                },
+                {
+                    "name": "modulus",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "5"
+                        }
+                    }
+                },
+                {
+                    "name": "site_a",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "2"
+                        }
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": false
+    },
+    {
+        "name": "arithmetic-modulus",
+        "model": "arithmetic",
+        "assignment": {
+            "entries": [
+                {
+                    "name": "x",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "-9"
+                        }
+                    }
+                },
+                {
+                    "name": "y",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "6"
+                        }
+                    }
+                },
+                {
+                    "name": "modulus",
+                    "value": {
+                        "kind": "scalar",
+                        "value": {
+                            "kind": "integer",
+                            "value": "0"
+                        }
+                    }
+                },
+                {
+                    "name": "sites",
+                    "value": {
+                        "kind": "array",
+                        "value": [
+                            {
+                                "kind": "integer",
+                                "value": "0"
+                            },
+                            {
+                                "kind": "integer",
+                                "value": "1"
+                            }
+                        ]
+                    }
+                }
+            ]
+        },
+        "status": "invalid",
+        "complete": false
+    },
+    {
+        "name": "arithmetic-omitted",
+        "model": "arithmetic",
+        "assignment": {
+            "entries": []
+        },
+        "status": "incomplete",
+        "complete": false
     }
 ]

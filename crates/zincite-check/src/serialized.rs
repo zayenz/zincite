@@ -263,6 +263,37 @@ impl PreparedModel {
                     }
                     &constraint.reference.predicate
                 }
+                Predicate::NumberTheory(arithmetic) => {
+                    if NumberTheoryName::from_name(&constraint.reference.predicate)
+                        != Some(arithmetic.name())
+                    {
+                        return Err(invalid(
+                            "number theory predicate name does not match its operation or mode",
+                        ));
+                    }
+                    arithmetic.validate().map_err(invalid)?;
+                    for operand in arithmetic.integer_operands() {
+                        self.validate_operand(operand, ValueType::Integer)?;
+                    }
+                    if let Some(operand) = arithmetic.condition().operand() {
+                        self.validate_operand(operand, ValueType::Boolean)?;
+                    }
+                    &constraint.reference.predicate
+                }
+                Predicate::Distance(distance) => {
+                    if DistanceName::from_name(&constraint.reference.predicate)
+                        != Some(distance.name())
+                    {
+                        return Err(invalid(
+                            "distance predicate name does not match its executable contract",
+                        ));
+                    }
+                    distance.validate().map_err(invalid)?;
+                    for operand in distance.operands() {
+                        self.validate_operand(operand, ValueType::Integer)?;
+                    }
+                    &constraint.reference.predicate
+                }
                 Predicate::Circuit(circuit) => {
                     if CircuitName::from_name(&constraint.reference.predicate)
                         != Some(circuit.name())

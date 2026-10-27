@@ -17,6 +17,16 @@ mod scheduling;
 use scheduling::ScheduleTasks;
 use scheduling::{Scheduling, SchedulingName};
 pub use scheduling::{SchedulingFault, SchedulingFinding, SchedulingTask};
+mod number_theory;
+#[cfg(feature = "prepare")]
+use number_theory::Modulus;
+use number_theory::{NumberTheory, NumberTheoryName};
+pub use number_theory::{
+    NumberTheoryArgument, NumberTheoryFinding, NumberTheoryOperation, NumberTheoryRole,
+};
+mod distance;
+use distance::{Distance, DistanceName};
+pub use distance::{DistanceArgument, DistanceFault, DistanceFinding};
 mod circuits;
 use circuits::{Circuit, CircuitName};
 pub use circuits::{CircuitArgument, CircuitFault, CircuitFinding};
@@ -394,6 +404,12 @@ pub enum ViolationKind {
         membership: bool,
         condition: RelationConditionValue,
     },
+    NumberTheory {
+        finding: NumberTheoryFinding,
+    },
+    Distance {
+        finding: DistanceFinding,
+    },
     Circuit {
         finding: CircuitFinding,
     },
@@ -738,6 +754,8 @@ enum Predicate {
     Rectangles(Rectangles),
     Scheduling(Scheduling),
     Automaton(Automaton),
+    NumberTheory(NumberTheory),
+    Distance(Distance),
     Circuit(Circuit),
     Ordering(Ordering),
     SetGlobal(SetGlobal),
@@ -978,6 +996,8 @@ impl Predicate {
             Self::BinPacking(packing) => packing.operands(),
             Self::Rectangles(rectangles) => rectangles.operands(),
             Self::Scheduling(schedule) => schedule.operands(),
+            Self::NumberTheory(arithmetic) => arithmetic.operands(),
+            Self::Distance(distance) => distance.operands(),
             Self::Circuit(circuit) => circuit.operands(),
             Self::Ordering(ordering) => ordering.operands(),
             Self::SetGlobal(global) => global.operands(),
@@ -1125,6 +1145,8 @@ impl Predicate {
             Self::BinPacking(packing) => packing.required_operands(values),
             Self::Rectangles(rectangles) => rectangles.required_operands(values),
             Self::Scheduling(schedule) => schedule.required_operands(values),
+            Self::NumberTheory(arithmetic) => arithmetic.required_operands(values),
+            Self::Distance(distance) => distance.required_operands(values),
             Self::Circuit(circuit) => circuit.required_operands(values),
             Self::Ordering(ordering) => ordering.required_operands(values),
             Self::SetGlobal(global) => global.required_operands(values),
@@ -1152,6 +1174,7 @@ impl Predicate {
 
     fn inactive_implication(&self, values: &[Option<Value>]) -> bool {
         match self {
+            Self::NumberTheory(arithmetic) => arithmetic.condition().inactive(values),
             Self::SetGlobal(global) => global.inactive(values),
             Self::Table(table) => table.condition.inactive(values),
             Self::Counting(Counting::Count { condition, .. }) => condition.inactive(values),
@@ -1203,6 +1226,8 @@ enum DefinitionDirection {
     SetGlobal,
     BinPacking,
     Table,
+    NumberTheory,
+    Distance,
     Circuit,
     Ordering,
     Counting,
@@ -1446,6 +1471,12 @@ impl PreparedModel {
             }
             (Predicate::Table(table), DefinitionDirection::Table) => {
                 Ok(table.membership(values).map(Value::Boolean))
+            }
+            (Predicate::NumberTheory(arithmetic), DefinitionDirection::NumberTheory) => {
+                arithmetic.derive(values, constraint)
+            }
+            (Predicate::Distance(distance), DefinitionDirection::Distance) => {
+                Ok(distance.derive(values))
             }
             (Predicate::Circuit(circuit), DefinitionDirection::Circuit) => {
                 circuit.derive(definition.output, values, constraint)
@@ -2041,6 +2072,10 @@ impl PreparedModel {
                 self.evaluate_rectangles(constraint, rectangles, values)
             }
             Predicate::Scheduling(schedule) => self.evaluate_schedule(constraint, schedule, values),
+            Predicate::NumberTheory(arithmetic) => {
+                self.evaluate_number_theory(constraint, arithmetic, values)
+            }
+            Predicate::Distance(distance) => self.evaluate_distance(constraint, distance, values),
             Predicate::Circuit(circuit) => self.evaluate_circuit(constraint, circuit, values),
             Predicate::Ordering(ordering) => self.evaluate_ordering(constraint, ordering, values),
             Predicate::SetGlobal(global) => self.evaluate_set_global(constraint, global, values),
@@ -2853,6 +2888,12 @@ fn definition_direction(
         Predicate::Table(table) => Ok(table
             .can_define(output)
             .then_some(DefinitionDirection::Table)),
+        Predicate::NumberTheory(arithmetic) => Ok(arithmetic
+            .can_define(output)
+            .then_some(DefinitionDirection::NumberTheory)),
+        Predicate::Distance(distance) => Ok(distance
+            .can_define(output)
+            .then_some(DefinitionDirection::Distance)),
         Predicate::Circuit(circuit) => Ok(circuit
             .can_define(output)
             .then_some(DefinitionDirection::Circuit)),

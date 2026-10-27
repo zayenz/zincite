@@ -6314,3 +6314,327 @@ fn set_channel_reports_round_trip_after_edits_and_removed_inputs() {
         }
     }
 }
+
+#[test]
+fn number_theory_and_distance_signatures_and_mathematical_cases() {
+    // All 60 registry spellings use positional types, independent of formal names.
+    let roots = [
+        (
+            "gecode_inter_distance",
+            "array[int] of var int:a,var int:b",
+            "[1,4],3",
+        ),
+        (
+            "gecode_inter_distance_fzn",
+            "array[int] of var int:a,var int:b",
+            "[],0",
+        ),
+        (
+            "gecode_gcd_int",
+            "var int:a,var int:b,var int:c",
+            "-12,18,6",
+        ),
+        (
+            "gecode_gcd_int_reif",
+            "var int:a,var int:b,var int:c,var bool:d",
+            "0,0,0,true",
+        ),
+        (
+            "gecode_gcd_int_imp",
+            "var int:a,var int:b,var int:c,var bool:d",
+            "0,2,1,false",
+        ),
+        ("gecode_divides_int", "var int:a,var int:b", "0,0"),
+        (
+            "gecode_divides_int_reif",
+            "var int:a,var int:b,var bool:c",
+            "0,2,false",
+        ),
+        (
+            "gecode_divides_int_imp",
+            "var int:a,var int:b,var bool:c",
+            "0,2,false",
+        ),
+        (
+            "gecode_product_int",
+            "array[int] of var int:a,var int:b",
+            "[],1",
+        ),
+        (
+            "gecode_product_int_reif",
+            "array[int] of var int:a,var int:b,var bool:c",
+            "[-2,3],-6,true",
+        ),
+        (
+            "gecode_product_int_imp",
+            "array[int] of var int:a,var int:b,var bool:c",
+            "[9223372036854775807,2],0,false",
+        ),
+        (
+            "gecode_product_mod_fixed_fzn",
+            "array[int] of var int:a,int:b,var int:c",
+            "[-2,3],5,4",
+        ),
+        (
+            "gecode_product_mod_fixed_fzn_reif",
+            "array[int] of var int:a,int:b,var int:c,var bool:d",
+            "[],1,0,true",
+        ),
+        (
+            "gecode_product_mod_fixed_fzn_imp",
+            "array[int] of var int:a,int:b,var int:c,var bool:d",
+            "[],5,0,false",
+        ),
+        (
+            "gecode_product_mod_var_fzn",
+            "array[int] of var int:a,var int:b,var int:c",
+            "[-2,3],5,4",
+        ),
+        (
+            "gecode_product_mod_var_fzn_reif",
+            "array[int] of var int:a,var int:b,var int:c,var bool:d",
+            "[],0,1,false",
+        ),
+        (
+            "gecode_product_mod_var_fzn_imp",
+            "array[int] of var int:a,var int:b,var int:c,var bool:d",
+            "[],-1,0,false",
+        ),
+        (
+            "gecode_minimum_distance_fzn",
+            "array[int] of var int:a,int:b,array[int] of int:c,var int:d",
+            "[0,1],2,[0,7,7,0],7",
+        ),
+        (
+            "gecode_minimum_distance_required_fzn",
+            "array[int] of var int:a,int:b,array[int] of int:c,var int:d,array[int] of int:e",
+            "[1,0],2,[0,7,7,0],7,[0,7,7,0]",
+        ),
+        ("gecode_int_nroot", "var int:a,int:b,var int:c", "-9,3,-3"),
+    ];
+    for prefix in ["", "gecode_", "fzn_"] {
+        for (root, parameters, args) in roots {
+            let source = format!(
+                "predicate {prefix}{root}({parameters});constraint {prefix}{root}({args});solve satisfy;"
+            );
+            let model = prepare("registered.fzn", &source).unwrap();
+            assert_eq!(
+                model.check(&Assignment::default()).unwrap().status,
+                Status::Valid,
+                "{source}"
+            );
+        }
+    }
+    for (call, valid) in [
+        ("gecode_gcd_int(-9223372036854775808,2,2)", true),
+        ("gecode_gcd_int(0,-8,-8)", false),
+        ("gecode_divides_int(-1,-9223372036854775808)", true),
+        ("gecode_divides_int(-3,12)", true),
+        ("gecode_divides_int(0,1)", false),
+        ("gecode_product_int([-2,-3],6)", true),
+        ("gecode_product_int([9223372036854775807,2,0],0)", true),
+        (
+            "gecode_product_mod_var_fzn([9223372036854775807,9223372036854775807],9223372036854775807,0)",
+            true,
+        ),
+        ("gecode_product_mod_var_fzn_reif([-2,3],5,-1,false)", true),
+        ("gecode_product_mod_var_fzn_reif([],0,0,true)", false),
+        ("gecode_int_nroot(9,2,3)", true),
+        ("gecode_int_nroot(8,3,2)", true),
+        ("gecode_int_nroot(9,3,2)", true),
+        ("gecode_int_nroot(-8,3,-2)", true),
+        ("gecode_int_nroot(-9,3,-2)", false),
+        (
+            "gecode_int_nroot(-9223372036854775808,1,-9223372036854775808)",
+            true,
+        ),
+        ("gecode_int_nroot(-9223372036854775808,3,-2097152)", true),
+        ("gecode_int_nroot(9223372036854775807,2,3037000499)", true),
+        ("gecode_int_nroot(9223372036854775807,2147483646,1)", true),
+        ("gecode_int_nroot(-2,2147483645,-2)", true),
+        ("gecode_inter_distance([], -1)", false),
+        ("gecode_inter_distance([7], 0)", true),
+        ("gecode_inter_distance([7,7], 1)", false),
+        ("gecode_inter_distance([7,7], 0)", true),
+        ("gecode_minimum_distance_fzn([0,0],1,[0],0)", true),
+        (
+            "gecode_minimum_distance_fzn([0,1,2],3,[0,5,1,5,0,8,1,8,0],1)",
+            true,
+        ),
+        (
+            "gecode_minimum_distance_required_fzn([2,0,1],3,[0,5,1,5,0,8,1,8,0],1,[0,1,8,1,0,5,8,5,0])",
+            true,
+        ),
+        (
+            "gecode_minimum_distance_required_fzn([2,0,1],3,[0,5,1,5,0,8,1,8,0],1,[0,2,8,2,0,5,8,5,0])",
+            false,
+        ),
+    ] {
+        let source = format!("constraint {call};solve satisfy;");
+        let report = prepare("math.fzn", &source)
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap();
+        assert_eq!(
+            report.status,
+            if valid {
+                Status::Valid
+            } else {
+                Status::Invalid
+            },
+            "{call}"
+        );
+        assert!(report.completeness.complete);
+    }
+    for call in [
+        "gecode_gcd_int(-9223372036854775808,0,0)",
+        "gecode_product_int([9223372036854775807,2],0)",
+        "gecode_int_nroot(-1,2,0)",
+        "gecode_inter_distance([-9223372036854775808,9223372036854775807],0)",
+    ] {
+        let model = prepare("overflow.fzn", &format!("constraint {call};solve satisfy;")).unwrap();
+        let error = model.check(&Assignment::default()).unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Execution);
+        assert_eq!(
+            error.diagnostics[0].location.as_ref().unwrap().source,
+            "overflow.fzn"
+        );
+    }
+}
+
+#[test]
+fn arithmetic_extension_completion_reports_conflicts_and_restarts_after_edits() {
+    let source = include_str!("../../../examples/checker-compilation/arithmetic-extensions.fzn");
+    let model = prepare("extensions.fzn", source).unwrap();
+    let valid = assignment("x=-9;y=6;modulus=5;sites=[0,1];");
+    assert_eq!(model.check(&valid).unwrap().status, Status::Valid);
+    let report = model
+        .check(&assignment(
+            "x=9007199254740993;y=1;modulus=5;sites=[0,1];product=0;root=0;minimum=8;truth=false;",
+        ))
+        .unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(report.completeness.complete);
+    assert!(
+        report
+            .violations
+            .iter()
+            .any(|v| matches!(v.details, ViolationKind::NumberTheory { .. }))
+    );
+    assert!(
+        report
+            .violations
+            .iter()
+            .any(|v| matches!(v.details, ViolationKind::Distance { .. }))
+    );
+    let text = zincite_check::cli::render_text(&report);
+    assert!(text.contains("9007199254740993") && text.contains("minimum distance is 7"));
+    let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+    for candidate in [
+        &valid,
+        &assignment("x=-9;y=6;modulus=0;sites=[1,1];"),
+        &Assignment::default(),
+    ] {
+        let before = model.check(candidate).unwrap();
+        let after = loaded.check(candidate).unwrap();
+        assert_eq!(
+            serde_json::to_value(&before).unwrap(),
+            serde_json::to_value(&after).unwrap()
+        );
+        assert_eq!(
+            zincite_check::cli::render_text(&before),
+            zincite_check::cli::render_text(&after)
+        );
+    }
+    assert_eq!(model.check(&valid).unwrap().status, Status::Valid);
+
+    // Pair requirements can fail while the exact minimum supplies downstream values.
+    let source = "var int:a;var int:b;var 2..2:m::is_defined_var;var int:next::is_defined_var;constraint gecode_minimum_distance_required_fzn([a,b],2,[0,7,7,0],m,[0,8,8,0])::defines_var(m);constraint int_plus(m,1,next)::defines_var(next);constraint int_eq(next,0);solve satisfy;";
+    let model = prepare("distance.fzn", source).unwrap();
+    let report = model.check(&assignment("a=0;b=1;")).unwrap();
+    assert!(report.completeness.complete);
+    assert_eq!(report.violations.len(), 3);
+    let ViolationKind::Distance {
+        finding:
+            zincite_check::DistanceFinding::Minimum {
+                expected,
+                result,
+                faults,
+                ..
+            },
+    } = &report.violations[1].details
+    else {
+        panic!("distance finding")
+    };
+    assert_eq!(*expected, Some(7));
+    assert_eq!(result.value.as_ref().unwrap().value, Value::Integer(7));
+    assert!(matches!(
+        faults[0],
+        zincite_check::DistanceFault::PairSeparation { required: 8, .. }
+    ));
+    let report = model.check(&assignment("a=2;")).unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(!report.completeness.complete);
+    let finding = serde_json::to_value(&report.violations[0]).unwrap();
+    assert_eq!(
+        finding["details"]["finding"]["sites"][1]["unresolved"]["name"],
+        "b"
+    );
+
+    // Marking an inverse direction never chooses a factor, divisor, root input or site.
+    for call in [
+        "gecode_product_int([x,2],6)",
+        "gecode_gcd_int(x,6,3)",
+        "gecode_int_nroot(x,3,2)",
+        "gecode_minimum_distance_fzn([x,0],2,[0,7,7,0],7)",
+        "gecode_divides_int(x,6)",
+        "gecode_inter_distance([x,0],2)",
+        "gecode_product_int_imp([2],x,true)",
+    ] {
+        let source =
+            format!("var int:x::is_defined_var;constraint {call}::defines_var(x);solve satisfy;");
+        let report = prepare("inverse.fzn", &source)
+            .unwrap()
+            .check(&Assignment::default())
+            .unwrap();
+        assert_eq!(report.status, Status::Incomplete, "{call}");
+    }
+}
+
+#[test]
+fn arithmetic_extension_source_rejects_malformed_contracts() {
+    for call in [
+        "gecode_gcd_int(1,2)",
+        "gcd_int(1,2,1)",
+        "gecode_gecode_gecode_gcd_int(1,2,1)",
+        "gecode_product_int([true],1)",
+        "gecode_product_mod_fixed_fzn_imp([],0,0,false)",
+        "gecode_product_mod_fixed_fzn([],2147483647,0)",
+        "gecode_product_mod_fixed_fzn([],x,0)",
+        "gecode_int_nroot(1,0,1)",
+        "gecode_int_nroot(1,2147483647,1)",
+        "gecode_int_nroot(1,x,1)",
+        "gecode_minimum_distance_fzn([],1,[0],0)",
+        "gecode_minimum_distance_fzn([0,0],0,[],0)",
+        "gecode_minimum_distance_fzn([0,0],2,[0],0)",
+        "gecode_minimum_distance_fzn([0,0],2,[0,1,2,0],0)",
+        "gecode_minimum_distance_fzn([0,0],1,[1],0)",
+        "gecode_minimum_distance_fzn([0,0],2,[0,-1,-1,0],0)",
+        "gecode_minimum_distance_fzn([0,0],2,[0,2147483647,2147483647,0],0)",
+        "gecode_minimum_distance_required_fzn([0,0],1,[0],0,[0])",
+        "gecode_minimum_distance_required_fzn([0,0],1,[0],0,[0,1,2,0])",
+        "gecode_minimum_distance_required_fzn([0,0],1,[0],0,[1,0,0,0])",
+        "gecode_minimum_distance_required_fzn([0,0],1,[0],0,[0,-1,-1,0])",
+    ] {
+        let error = prepare(
+            "bad.fzn",
+            &format!("var int:x;\nconstraint {call};solve satisfy;"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            error[0].location.as_ref().unwrap().source,
+            "bad.fzn",
+            "{call}"
+        );
+    }
+}

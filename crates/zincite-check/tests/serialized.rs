@@ -2658,3 +2658,178 @@ fn loaded_set_channel_array_targets_match_complete_slots_and_types() {
         assert!(PreparedModel::from_json(&bad.to_string()).is_err());
     }
 }
+
+#[test]
+fn loaded_arithmetic_extensions_validate_types_parameters_modes_and_matrices() {
+    let integer = |value: &str| json!({"Literal":{"kind":"integer","value":value}});
+    let boolean = |value| json!({"Literal":{"kind":"boolean","value":value}});
+    let operations = [
+        (
+            "gecode_gcd_int",
+            json!({"NumberTheory":{"Gcd":{"left":integer("-12"),"right":integer("18"),"result":integer("6"),"condition":"Plain"}}}),
+        ),
+        (
+            "gecode_divides_int_reif",
+            json!({"NumberTheory":{"Divides":{"divisor":integer("0"),"dividend":integer("1"),"condition":{"Reified":{"result":boolean(false)}}}}}),
+        ),
+        (
+            "gecode_product_int_imp",
+            json!({"NumberTheory":{"Product":{"factors":[integer("9223372036854775807"),integer("2")],"result":integer("0"),"condition":{"Implied":{"guard":boolean(false)}}}}}),
+        ),
+        (
+            "gecode_product_mod_fixed_fzn",
+            json!({"NumberTheory":{"ModularProduct":{"factors":[integer("-2"),integer("3")],"modulus":{"Fixed":"5"},"result":integer("4"),"condition":"Plain"}}}),
+        ),
+        (
+            "gecode_product_mod_var_fzn_reif",
+            json!({"NumberTheory":{"ModularProduct":{"factors":[{"Variable":0}],"modulus":{"Variable":integer("0")},"result":integer("1"),"condition":{"Reified":{"result":boolean(false)}}}}}),
+        ),
+        (
+            "gecode_int_nroot",
+            json!({"NumberTheory":{"Nroot":{"radicand":integer("-9"),"degree":"3","result":integer("-3")}}}),
+        ),
+        (
+            "gecode_inter_distance_fzn",
+            json!({"Distance":{"Inter":{"positions":[integer("1"),integer("3")],"distance":integer("2")}}}),
+        ),
+        (
+            "gecode_minimum_distance_fzn",
+            json!({"Distance":{"Minimum":{"sites":[integer("0"),integer("1")],"size":"2","distances":["0","7","7","0"],"result":integer("7"),"requirements":null}}}),
+        ),
+        (
+            "gecode_minimum_distance_required_fzn",
+            json!({"Distance":{"Minimum":{"sites":[integer("0"),integer("1")],"size":"2","distances":["0","7","7","0"],"result":integer("7"),"requirements":["0","7","7","0"]}}}),
+        ),
+    ];
+    for (root, operation) in &operations {
+        for prefix in ["", "gecode_", "fzn_"] {
+            let mut artifact = executable();
+            artifact["model"]["constraints"][0]["reference"]["predicate"] =
+                json!(format!("{prefix}{root}"));
+            artifact["model"]["constraints"][0]["predicate"] = operation.clone();
+            let model = PreparedModel::from_json(&artifact.to_string()).unwrap();
+            let before = model.check(&Assignment::default()).unwrap();
+            assert!(before.violations.is_empty(), "{root}");
+            let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+            assert_eq!(
+                serde_json::to_value(before).unwrap(),
+                serde_json::to_value(loaded.check(&Assignment::default()).unwrap()).unwrap()
+            );
+        }
+    }
+    for (index, path, value) in [
+        (0, "/reference/predicate", json!("gcd_int")),
+        (0, "/reference/predicate", json!("gecode_gcd_int_reif")),
+        (0, "/predicate/NumberTheory/Gcd/left", boolean(true)),
+        (
+            0,
+            "/predicate/NumberTheory/Gcd/left",
+            json!({"Variable":99}),
+        ),
+        (
+            0,
+            "/predicate/NumberTheory/Gcd/condition",
+            json!({"Reified":{"result":integer("1")}}),
+        ),
+        (
+            3,
+            "/predicate/NumberTheory/ModularProduct/modulus/Fixed",
+            json!("0"),
+        ),
+        (
+            3,
+            "/predicate/NumberTheory/ModularProduct/modulus/Fixed",
+            json!("2147483647"),
+        ),
+        (
+            3,
+            "/predicate/NumberTheory/ModularProduct/modulus",
+            json!({"Variable":integer("5")}),
+        ),
+        (5, "/predicate/NumberTheory/Nroot/degree", json!("0")),
+        (
+            5,
+            "/predicate/NumberTheory/Nroot/degree",
+            json!("2147483647"),
+        ),
+        (5, "/predicate/NumberTheory/Nroot/degree", json!(3)),
+        (6, "/predicate/Distance/Inter/distance", boolean(false)),
+        (7, "/predicate/Distance/Minimum/size", json!("0")),
+        (7, "/predicate/Distance/Minimum/size", json!("2147483647")),
+        (7, "/predicate/Distance/Minimum/distances", json!(["0"])),
+        (
+            7,
+            "/predicate/Distance/Minimum/distances",
+            json!(["1", "7", "7", "0"]),
+        ),
+        (
+            7,
+            "/predicate/Distance/Minimum/distances",
+            json!(["0", "7", "8", "0"]),
+        ),
+        (
+            7,
+            "/predicate/Distance/Minimum/distances",
+            json!(["0", "-1", "-1", "0"]),
+        ),
+        (
+            7,
+            "/predicate/Distance/Minimum/distances",
+            json!(["0", "2147483647", "2147483647", "0"]),
+        ),
+        (
+            7,
+            "/predicate/Distance/Minimum/sites",
+            json!([integer("0")]),
+        ),
+        (
+            7,
+            "/predicate/Distance/Minimum/sites/0",
+            json!({"Variable":99}),
+        ),
+        (8, "/predicate/Distance/Minimum/requirements", json!(["0"])),
+        (
+            8,
+            "/predicate/Distance/Minimum/requirements",
+            json!(["0", "1", "2", "0"]),
+        ),
+        (
+            8,
+            "/predicate/Distance/Minimum/requirements",
+            json!(["1", "0", "0", "0"]),
+        ),
+        (
+            8,
+            "/predicate/Distance/Minimum/requirements",
+            json!(["0", "-1", "-1", "0"]),
+        ),
+        (8, "/predicate/Distance/Minimum/requirements", Json::Null),
+    ] {
+        let mut artifact = executable();
+        artifact["model"]["constraints"][0]["reference"]["predicate"] = json!(operations[index].0);
+        artifact["model"]["constraints"][0]["predicate"] = operations[index].1.clone();
+        *artifact["model"]["constraints"][0]
+            .pointer_mut(path)
+            .unwrap() = value;
+        assert!(
+            PreparedModel::from_json(&artifact.to_string()).is_err(),
+            "{index}: {path}"
+        );
+    }
+    // A false variable-modulus proposition needs no factors or output value.
+    let mut artifact = executable();
+    artifact["model"]["constraints"][0]["reference"]["predicate"] =
+        json!("gecode_product_mod_var_fzn");
+    artifact["model"]["constraints"][0]["predicate"] = json!({"NumberTheory":{"ModularProduct":{"factors":[{"Variable":0}],"modulus":{"Variable":integer("0")},"result":{"Variable":0},"condition":"Plain"}}});
+    let report = PreparedModel::from_json(&artifact.to_string())
+        .unwrap()
+        .check(&Assignment::default())
+        .unwrap();
+    assert_eq!(report.status, Status::Invalid);
+    assert!(!report.completeness.complete);
+    let finding = serde_json::to_value(report).unwrap();
+    assert_eq!(
+        finding["violations"][0]["details"]["finding"]["arguments"][0]["unresolved"]["name"],
+        "x"
+    );
+}

@@ -296,6 +296,72 @@ pub fn render_text(report: &CheckReport) -> String {
                     let _ = writeln!(text, "  {}", scheduling_text(fault));
                 }
             }
+            ViolationKind::NumberTheory { finding } => {
+                let expected = finding
+                    .expected
+                    .map(|value| format!(", expected {value}"))
+                    .unwrap_or_default();
+                let _ = writeln!(
+                    text,
+                    "  {:?}: relation is {}{expected}{}",
+                    finding.operation,
+                    finding.relation,
+                    condition_text(&finding.condition)
+                );
+                for argument in &finding.arguments {
+                    let position = argument
+                        .position
+                        .map(|position| format!("[{position}]"))
+                        .unwrap_or_default();
+                    if let Some(value) = &argument.value {
+                        let _ = writeln!(
+                            text,
+                            "    {:?}{position}: {}",
+                            argument.role,
+                            argument_text(value)
+                        );
+                    } else if let Some(variable) = &argument.unresolved {
+                        let _ = writeln!(
+                            text,
+                            "    {:?}{position}: unresolved {}",
+                            argument.role, variable.name
+                        );
+                    }
+                }
+            }
+            ViolationKind::Distance { finding } => {
+                let faults = match finding {
+                    crate::DistanceFinding::Inter { faults, .. }
+                    | crate::DistanceFinding::Minimum { faults, .. } => faults,
+                };
+                for fault in faults {
+                    let message = match fault {
+                        crate::DistanceFault::NegativeSeparation { distance } => format!(
+                            "inter-distance requires nonnegative separation, supplied {distance}"
+                        ),
+                        crate::DistanceFault::PairSeparation {
+                            first,
+                            second,
+                            actual,
+                            required,
+                        } => format!(
+                            "distance between positions {first} and {second} is {actual}, requires at least {required}"
+                        ),
+                        crate::DistanceFault::SiteOutOfRange {
+                            position,
+                            site,
+                            size,
+                        } => format!(
+                            "site {site} at position {position} is outside 0..{}",
+                            size - 1
+                        ),
+                        crate::DistanceFault::Minimum { expected, actual } => {
+                            format!("minimum distance is {expected}, supplied {actual}")
+                        }
+                    };
+                    let _ = writeln!(text, "  {message}");
+                }
+            }
             ViolationKind::Circuit { finding } => {
                 let _ = writeln!(text, "  {}", circuit_text(finding));
             }

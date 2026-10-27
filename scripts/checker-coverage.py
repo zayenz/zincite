@@ -25,6 +25,33 @@ CURRENT |= {
     prefix + name
     for prefix in ("", "gecode_", "fzn_")
     for name in (
+        "gecode_inter_distance",
+        "gecode_inter_distance_fzn",
+        "gecode_gcd_int",
+        "gecode_gcd_int_reif",
+        "gecode_gcd_int_imp",
+        "gecode_divides_int",
+        "gecode_divides_int_reif",
+        "gecode_divides_int_imp",
+        "gecode_product_int",
+        "gecode_product_int_reif",
+        "gecode_product_int_imp",
+        "gecode_product_mod_fixed_fzn",
+        "gecode_product_mod_fixed_fzn_reif",
+        "gecode_product_mod_fixed_fzn_imp",
+        "gecode_product_mod_var_fzn",
+        "gecode_product_mod_var_fzn_reif",
+        "gecode_product_mod_var_fzn_imp",
+        "gecode_minimum_distance_fzn",
+        "gecode_minimum_distance_required_fzn",
+        "gecode_int_nroot",
+    )
+}
+
+CURRENT |= {
+    prefix + name
+    for prefix in ("", "gecode_", "fzn_")
+    for name in (
         "gecode_bin_packing_load",
         "gecode_nooverlap",
         "gecode_nooverlap_fzn",
@@ -775,6 +802,11 @@ def calls(body: str) -> str:
 
 
 def output_rule(name: str, task: int, *, wrapper: bool = False) -> str:
+    if task == 29:
+        if name.startswith("gecode_gecode_"):
+            name = name.removeprefix("gecode_")
+        elif name.startswith("fzn_gecode_"):
+            name = name.removeprefix("fzn_")
     if task in {11, 31} and ("blackbox" in name or "restart" in name):
         return "excluded hook; diagnostic"
     if wrapper:
@@ -1118,6 +1150,14 @@ def validate_inventory(files: dict[str, SourceFile], registry_text: str) -> None
         for name in re.findall(r'"([a-z_0-9]+)"', channel_names)
         for prefix in ("", "gecode_", "fzn_")
     }
+    for module in ("number_theory", "distance"):
+        source = (ROOT / f"crates/zincite-check/src/{module}.rs").read_text()
+        names = source.split("match base {", 1)[1].split("_ =>", 1)[0]
+        admitted |= {
+            prefix + name
+            for name in re.findall(r'"([a-z_0-9]+)"', names)
+            for prefix in ("", "gecode_", "fzn_")
+        }
     if admitted != CURRENT:
         raise ValueError("current admission changed; review current-support rows")
     counts = Counter(key[0] for key in files)

@@ -968,3 +968,68 @@ fn set_channel_cli_renders_typed_indices_after_loading() {
     }
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn arithmetic_extension_cli_renders_the_same_loaded_typed_findings() {
+    let directory = std::env::temp_dir().join(format!(
+        "zincite-arithmetic-extensions-cli-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&directory).unwrap();
+    let source = directory.join("model.fzn");
+    let artifact = directory.join("model.json");
+    let candidate = directory.join("candidate.dzn");
+    std::fs::write(
+        &source,
+        include_str!("../../../examples/checker-compilation/arithmetic-extensions.fzn"),
+    )
+    .unwrap();
+    std::fs::write(
+        &candidate,
+        "x=9007199254740993;y=1;modulus=5;sites=[0,1];product=0;minimum=8;",
+    )
+    .unwrap();
+    let export = Command::new(env!("CARGO_BIN_EXE_zincite-check"))
+        .arg("--export")
+        .arg(&artifact)
+        .arg(&source)
+        .output()
+        .unwrap();
+    assert!(
+        export.status.success(),
+        "{}",
+        String::from_utf8_lossy(&export.stderr)
+    );
+    for format in ["json", "text"] {
+        let run = |load| {
+            let mut command = Command::new(env!("CARGO_BIN_EXE_zincite-check"));
+            if load {
+                command.arg("--load");
+            }
+            command
+                .args(["--format", format])
+                .arg(if load { &artifact } else { &source })
+                .arg(&candidate)
+                .output()
+                .unwrap()
+        };
+        let direct = run(false);
+        let loaded = run(true);
+        assert_eq!(direct.status.code(), Some(1));
+        assert_eq!(loaded.status.code(), Some(1));
+        assert_eq!(direct.stdout, loaded.stdout);
+        assert!(direct.stderr.is_empty() && loaded.stderr.is_empty());
+        let text = String::from_utf8(direct.stdout).unwrap();
+        assert!(text.contains("9007199254740993"));
+        if format == "text" {
+            assert!(text.contains("minimum distance is 7, supplied 8"));
+        } else {
+            let report: serde_json::Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(
+                report["violations"][0]["details"]["finding"]["expected"],
+                "9007199254740993"
+            );
+        }
+    }
+    std::fs::remove_dir_all(directory).unwrap();
+}

@@ -5,11 +5,11 @@ const { tmpdir } = require("node:os");
 const { resolve, join } = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-assert.equal(process.argv.length, 22,
-    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json LEGACY.json FLEX.json PACKING.json SET_GLOBALS.json SET_CHANNELS.json CANDIDATES.json NATIVE_CHECKER");
-const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, setChannels, candidates, native] = process.argv.slice(2).map(path => resolve(path));
+assert.equal(process.argv.length, 23,
+    "usage: node smoke.cjs GLUE.js SCHEDULE.json EXACT.json BENCH.json FLOAT.json SELECTION.json SETS.json FUNCTIONS.json COUNTING.json ORDERING.json TABLES.json AUTOMATA.json CIRCUITS.json LEGACY.json FLEX.json PACKING.json SET_GLOBALS.json SET_CHANNELS.json ARITHMETIC.json CANDIDATES.json NATIVE_CHECKER");
+const [glue, schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, setChannels, arithmetic, candidates, native] = process.argv.slice(2).map(path => resolve(path));
 const { PreparedModel } = require(glue);
-const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, setChannels };
+const paths = { schedule, exact, bench, floats, selection, sets, functions, counting, ordering, tables, automata, circuits, legacy, flex, packing, setGlobals, setChannels, arithmetic };
 const defaults = {};
 const models = Object.fromEntries(Object.entries(paths).map(([name, path]) =>
     [name, new PreparedModel(readFileSync(path, "utf8"))]));
@@ -57,7 +57,7 @@ try {
     }
     assert.throws(() => models.floats.check('{"entries":[{"name":"x","value":{"kind":"scalar","value":{"kind":"float","value":1e999}}}]}'));
     for (const value of [NaN, Infinity, -1]) assert.throws(() => models.floats.setFloatTolerance(value, 0));
-    console.log(`Native/Wasm reports and errors agree across ${cases.length * 2} checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, legacy and explicit-end scheduling, bin packing and rectangles, aggregate/ordered/weighted sets, selected sets and channels, global findings and input errors verified.`);
+    console.log(`Native/Wasm reports and errors agree across ${cases.length * 2} checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, legacy and explicit-end scheduling, bin packing and rectangles, aggregate/ordered/weighted sets, selected sets and channels, number theory and distances, global findings and input errors verified.`);
 } finally {
     for (const model of Object.values(models)) model.free();
     rmSync(directory, { recursive: true, force: true });
@@ -117,6 +117,23 @@ function decimal(value) {
 }
 
 function checkDetails(name, report) {
+    if (name === "arithmetic-conflicts") {
+        const product = report.violations.find(v => v.details.finding?.operation === "product");
+        assert.equal(product.details.finding.expected, "9007199254740993");
+        assert.equal(product.details.finding.arguments[0].role, "factor");
+        const minimum = report.violations.find(v => v.details.kind === "distance");
+        assert.equal(minimum.details.finding.expected, "7");
+    }
+    if (name === "arithmetic-range") {
+        const finding = report.violations.find(v => v.details.kind === "distance").details.finding;
+        assert.equal(finding.faults[0].kind, "site_out_of_range");
+        assert.equal(finding.sites[1].unresolved.name, "site_b");
+    }
+    if (name === "arithmetic-modulus") {
+        const finding = report.violations.find(v => v.details.kind === "number_theory").details.finding;
+        assert.equal(finding.operation, "variable_modular_product");
+        assert.equal(finding.expected, null);
+    }
     if (name === "set-channels-selection") {
         const finding = report.violations[0];
         assert.equal(finding.details.kind, "set_channel");
