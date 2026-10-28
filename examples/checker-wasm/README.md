@@ -4,6 +4,9 @@ The `wasm` feature exposes the native loader and checker through `wasm-bindgen`.
 Build with default features disabled to exclude source preparation and the native
 CLI. The Wasm runtime takes strings and performs no filesystem, compiler, solver
 or network operations. The caller loads the prepared artifact and supplies it.
+The [integration guide](../../docs/checker.md) explains how to compile and export
+a model; [architecture and testing](../../docs/checker-architecture.md) describes
+the shared runtime and validation boundary.
 
 ## Build the bindings
 
@@ -187,12 +190,11 @@ the native suite.
 `smoke.cjs` reads built bindings, prepared artifacts and typed assignment data.
 It compares Wasm reports with the native CLI's `--load` path, using temporary
 literal `.dzn` files made from the same typed values, and removes those temporary
-files afterward. The earlier 19-artifact invocation and optional Gecode extension
-still work, with 168 and 178 comparisons respectively; the command above is the
-full acceptance path.
+files afterward. Use the full invocation above to include both compiler profiles
+and official compiler JSON.
 
 The [graphical workshop](../checker-browser/README.md) separately checks actual
 user interactions and entity feedback. For release native and real-browser
-latency, serialized loading, JSON costs and scaling, see the
-[interactive checker report](../../scripts/checker-performance.md). Node supplies
-correctness evidence here; the timing runner uses a real browser.
+latency, serialized loading, JSON costs and scaling from the named 2026-10-28
+build, see the [interactive checker report](../../scripts/checker-performance.md).
+Node supplies correctness evidence here; the timing runner uses a real browser.

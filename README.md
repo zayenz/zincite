@@ -29,6 +29,7 @@ meet the demand.
 | Inspect source, declarations and uses | [Query guide](https://zayenz.se/zincite/guides/queries/) |
 | Extract counts, histograms, types and literal shapes | [Feature-extraction cookbook](https://zayenz.se/zincite/guides/query-cookbook/) |
 | Change data values, filter elements or reduce an enum | [Data-edit guide](https://zayenz.se/zincite/guides/data-edits/) |
+| Integrate candidate checking from a checkout | [Checker integration](docs/checker.md), [browser workshop](examples/checker-browser/README.md) |
 | Look up command statuses and write restrictions | [Command reference](https://zayenz.se/zincite/guides/cli/) |
 | Understand Unknown, failures and coverage limits | [Support limits](https://zayenz.se/zincite/guides/support/) |
 
@@ -77,26 +78,25 @@ offers additional examples and background.
 
 ## Checking candidates from a checkout
 
-The checkout also provides `zincite check` and `zincite-check` for candidate
-checking of MiniZinc 2.10.1 text FlatZinc and official FlatZinc-JSON. Both the
-standard decomposition profile and the pinned Gecode library's mathematical
-predicate surface work with Boolean, exact i64, finite integer-set and finite
-binary64 float values. Prepare once, then check supplied candidates, including
-infeasible or incomplete ones, without running a compiler or solver.
-Export a prepared model to versioned JSON and load it for repeated checking.
-Supported deterministic definitions derive auxiliaries from primary decisions;
-each report lists available violations and independent completeness. Float
-comparison settings travel with the prepared model; integer payloads stay exact
-across JavaScript boundaries. External-execution and search-history hooks are
-explicit exclusions. See the [checker guide](crates/zincite-check/README.md) for
-local installation, both offline compiler profiles, entry points and limits, and
-the [coverage audit](docs/checker-coverage.md) for exact signatures and aliases.
-Parser-free WebAssembly bindings load the same prepared artifacts and check typed
-assignment JSON. The [Wasm example](examples/checker-wasm/README.md) includes
-Node.js and browser builds and an executable comparison with native reports.
-The [interactive measurement report](scripts/checker-performance.md) separates
-preparation, loading and repeated native/browser checks for the workshop example
-and growing models. The checker is not part of the published 0.3.0 packages.
+The checkout provides `zincite check` and `zincite-check` for checking supplied
+candidates against MiniZinc 2.10.1 text FlatZinc or official FlatZinc-JSON.
+Prepare a model once, then check edits locally, including infeasible or incomplete
+candidates. Supported definitions derive auxiliary values; reports contain typed
+violations and independent completeness. Checking starts no compiler or solver.
+The checker is outside the published 0.3.0 packages.
+
+Start with the [checker integration guide](docs/checker.md) for native use,
+prepared artifacts and the two pinned offline compiler profiles. The
+[browser workshop](examples/checker-browser/README.md) maps reports to editable
+jobs, while the [Wasm example](examples/checker-wasm/README.md) explains exact
+integer transport and the shared native/Wasm runtime. The
+[predicate reference](crates/zincite-check/README.md) specifies mathematical
+semantics and numeric limits; the [coverage inventory](docs/checker-coverage.md)
+records signatures, aliases and source compiler limits. For implementation work,
+read [checker architecture and testing](docs/checker-architecture.md).
+
+The [2026-10-28 measurement report](scripts/checker-performance.md) describes
+preparation, loading and repeated checks for its named native/browser build.
 
 ## Exit codes
 

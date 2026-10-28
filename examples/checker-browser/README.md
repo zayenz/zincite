@@ -4,6 +4,9 @@ This page checks edits to the existing two-job model: job 1 cuts panels in three
 hours, then job 2 assembles them in two. It loads one parser-free Wasm
 `PreparedModel` and reuses it for each edit, including infeasible schedules and
 omitted input. No frontend framework, solver, compiler service or account is used.
+The [integration guide](../../docs/checker.md) explains the application contract;
+[architecture and testing](../../docs/checker-architecture.md) explains completion
+and independent completeness.
 
 ## Build, export and serve
 
@@ -28,8 +31,8 @@ Wasm, prepared JSON and served copies live under the ignored `target/` directory
 After editing page source, repeat the `cp` command and reload the browser.
 
 The export command prepares the saved compiled model; it does not invoke
-MiniZinc. For an intentional source-model change, first use the separate
-[compilation recipe](../../crates/zincite-check/README.md#compile-the-application-model-offline) and inspect its output.
+MiniZinc. For an intentional source-model change, compile with a documented
+[compiler profile](../../docs/checker.md) and inspect the output.
 Ordinary schedule edits never recompile the model. Initial page loading makes
 only local static HTTP requests for the page, CSS, JS, Wasm and prepared JSON.
 After loading, edits call Wasm directly without HTTP requests.
@@ -75,16 +78,14 @@ the job bars; the checker decides whether the schedule is valid.
 Preparation is the offline native `--export` step. In the browser, `start` loads
 Wasm and the artifact and constructs one model. `checkSchedule` builds a fresh
 assignment, calls `model.check`, parses the JSON and maps findings;
-`renderSchedule` and `renderReport` update the view. These direct boundaries allow
-the performance task to measure loading, repeated checks, boundary/report work
-and rendering separately without changing the checker or introducing a benchmark
-framework. No timing threshold is asserted here.
+`renderSchedule` and `renderReport` update the view. These boundaries let a
+measurement distinguish model loading, repeated checks, JSON/report work and
+rendering. No timing threshold is asserted here.
 
 Reuse the existing [full native/Wasm smoke checks](../checker-wasm/README.md#execute-the-nativewasm-comparison)
 after building. Browser acceptance additionally covers the four interactions
 above, keyboard edits, successive report replacement, the narrow layout and the
 absence of network requests during edits.
-
 
 The [interactive checker measurements](../../scripts/checker-performance.md) use
 this model and a five-state edit cycle, including infeasible, omitted and partial
@@ -94,10 +95,15 @@ resume and analyze a named run alongside the workshop server.
 
 ## Acceptance on 2026-10-28
 
-The rebuilt release Wasm passed actual Chrome interactions with **Initial plan**,
-**Both start at 8**, **Recover with 2 and 5**, and **Omit start times from the check**.
-The invalid edit showed four individual findings and three findings per job;
-recovery cleared the old findings and highlights. Omission hid the bars and
-reported nine unresolved references and fourteen blocked checks. Choosing a plan
-after omission restored a complete valid report. This graphical acceptance is
-separate from the measurement page's Wasm/JSON timing, which excludes DOM work.
+Chrome acceptance covered the workshop's actual controls. **Initial plan** was
+complete and valid. **Both start at 8** showed four findings and three findings
+per job. **Recover with 2 and 5** cleared the findings and highlights. Omitting
+start times hid the bars and reported nine unresolved references and fourteen
+blocked checks. Selecting the initial plan after omission restored a complete
+valid report. Keyboard edits and the narrow layout also passed; edits made no
+network requests.
+
+The separate [2026-10-28 measurement report](../../scripts/checker-performance.md)
+records its named build and Wasm/JSON timing workload, which excludes DOM
+rendering. Use the interaction steps above to check a rebuilt page; the saved
+measurements do not establish its latency.

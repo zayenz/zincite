@@ -33,7 +33,7 @@ The checkout's candidate checker accepts MiniZinc 2.10.1 text FlatZinc and
 official FlatZinc-JSON. It checks the mathematical operations emitted by both the
 standard decomposition profile and the pinned Gecode library, including exact
 aliases and conditional set/float/MPFR registrations. The
-[checker guide](../crates/zincite-check/README.md) gives both offline compilation
+[checker integration guide](checker.md) gives both offline compilation
 recipes; the [coverage audit](checker-coverage.md) maps signatures to execution
 tests and include closures. Compiler elimination, domain tightening and source
 abort bodies limit what a source model can expose to applications.
@@ -51,14 +51,18 @@ auxiliary values from known inputs, without choosing missing decisions. A comple
 valid report establishes feasibility of the compiled candidate; it establishes
 no optimality or equivalence to arbitrary MiniZinc source. External executable/DLL
 hooks and restart-history hooks receive located exclusion diagnostics. Search and
-propagation annotations supply metadata, never candidate values.
+propagation annotations supply metadata, never candidate values. Some global
+relations wait for all required operands, even when a partial conflict could be
+inferred mathematically. An incomplete report with no violations is therefore
+not evidence that a satisfying completion exists.
 
 Checking starts no compiler, solver or network request. Both CLI forms can export
 prepared models as versioned JSON and load them without parsing FlatZinc. The
 parser-free Rust API and [Wasm bindings](../examples/checker-wasm/README.md) use the
 same loader and checking runtime. The [graphical example](../examples/checker-browser/README.md)
-and [fresh performance report](../scripts/checker-performance.md) demonstrate
-ordinary edits and their measured scope. The checker is available from this
+demonstrates ordinary edits. The
+[2026-10-28 performance report](../scripts/checker-performance.md) records
+measurements for its named build and workload. The checker is available from this
 checkout, outside the published 0.3.0 packages.
 
 ## Unknown facts and incomplete analysis

@@ -74,8 +74,9 @@ zincite check --load --float-absolute-tolerance 0 --float-relative-tolerance 0 p
 Both entry points support all these options. `--input-format` defaults to `fzn`;
 `fzn-json` selects official compiler JSON for checking or export. `--export`
 creates a new prepared artifact and refuses existing paths. `--load` validates
-that artifact and checks without source parsing; it cannot be combined with
-`--input-format fzn-json`. Reports go to stdout; input and execution errors go to
+that artifact without parsing FlatZinc; the CLI still parses literal `.dzn`
+assignments. `--load` cannot be combined with `--input-format fzn-json` or
+`--export`. Reports go to stdout; input and execution errors go to
 stderr without partial stdout. Assignments use literal `.dzn` values: Boolean,
 checked i64, finite integer sets and finite binary64 floats.
 
@@ -83,8 +84,11 @@ The checker evaluates both pinned standard/Gecode profiles' emitted mathematical
 operations, reports every available violation and records independent
 completeness. Supported deterministic definitions derive outputs from supplied
 inputs. It starts no compiler or solver. External-execution and search-history
-hooks diagnose explicitly. The [checker guide](../crates/zincite-check/README.md)
-describes the two offline compiler recipes, exact signatures, metadata and limits.
+hooks receive explicit diagnostics. The [checker integration guide](checker.md)
+explains preparation, assignments and both offline compiler profiles. The
+[predicate reference](../crates/zincite-check/README.md) gives exact semantics and
+limits. An invalid report may also be incomplete; read `completeness` independently
+of `status`.
 
 `--float-absolute-tolerance NUMBER` and `--float-relative-tolerance NUMBER` accept
 finite nonnegative settings. Each option changes only its named component; a
