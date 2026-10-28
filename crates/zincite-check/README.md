@@ -1,12 +1,16 @@
 # zincite-check
 
-A Rust and WebAssembly checker for a small FlatZinc dialect targeting MiniZinc 2.10.1.
+A Rust and WebAssembly candidate checker for MiniZinc 2.10.1 text FlatZinc and
+official FlatZinc-JSON.
 Prepare a model once, then check candidate assignments repeatedly. Checking
 performs no I/O and starts no compiler or solver.
 
 The [full-library coverage inventory](../../docs/checker-coverage.md) records the
-pinned standard/Gecode signatures, aliases, task owners and include paths for the
-planned expansion. Working support is exactly the subset documented below.
+pinned standard/Gecode signatures, exact aliases, include closures and mathematical
+execution evidence. Both profiles' emitted mathematical operations are supported
+within the numeric and compiler limits below. External executable/DLL and search
+history hooks receive located diagnostics. Checking supplies no search or
+optimality proof.
 
 This checkout introduces the checker. Install it locally with
 `cargo install --locked --path crates/zincite-check`, or install the root command
@@ -258,8 +262,12 @@ external predicate signature. Its optional `--checker` argument validates all
 
 The pinned standard library unconditionally aborts 32 bodies across 27 predicate
 names, including Boolean table reification. Integer table reification accepts
-only tuple widths 1..5. These are source compiler limits and provide no runtime
-support credit. Experimental external-execution and search-history hooks are
+only tuple widths 1..5. In fresh width-2..5 controls it also emits two
+`defines_var` hints for the same integer auxiliary, one on `array_int_element`
+and one on `bool2int`; the checker diagnoses these malformed hints. Explicitly
+marking the source reifier produces the same duplicate. Width 1 exports; width 6
+fails the compiler assertion. Gecode's native table reifiers export successfully.
+These are compiler/metadata limits and provide no runtime support credit. Experimental external-execution and search-history hooks are
 outside pure candidate checking. None of this establishes arbitrary MiniZinc
 source equivalence. `-O0` still tightens domains and eliminates names and labels;
 array metadata can disappear during flattening. Use the symmetry ignore flag

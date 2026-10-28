@@ -1540,6 +1540,37 @@ fn boolean_source_admission_checks_declarations_arity_shape_and_roles() {
     ] {
         prepare("declaration.fzn", source).unwrap();
     }
+    for prefix in ["", "gecode_", "fzn_"] {
+        for (role, declaration, bound, candidates) in [
+            (
+                "int",
+                "",
+                "0",
+                [("x=false;", Status::Valid), ("x=true;", Status::Invalid)],
+            ),
+            (
+                "var int",
+                "var int:n;",
+                "n",
+                [
+                    ("x=true;n=1;", Status::Valid),
+                    ("x=true;n=0;", Status::Invalid),
+                ],
+            ),
+        ] {
+            let source = format!(
+                "predicate {prefix}bool_lin_le(array[int] of int:a,array[int] of var bool:b,{role}:c);{declaration}var bool:x;constraint {prefix}bool_lin_le([1],[x],{bound});solve satisfy;"
+            );
+            let model = prepare("bound-role.fzn", &source).unwrap();
+            for (candidate, status) in candidates {
+                assert_eq!(
+                    model.check(&assignment(candidate)).unwrap().status,
+                    status,
+                    "{source}: {candidate}"
+                );
+            }
+        }
+    }
     for source in [
         "predicate bool_xor(var bool:a,var bool:b);constraint bool_xor(false,true,true);solve satisfy;",
         "predicate bool_xor(var bool:a,var bool:b,var bool:c);constraint bool_xor(false,true);solve satisfy;",
@@ -1845,6 +1876,70 @@ fn float_membership_uses_complete_pairs_and_exact_interval_emptiness() {
 #[test]
 fn float_names_conditions_and_source_roles_follow_pinned_signatures() {
     for prefix in ["", "gecode_", "fzn_"] {
+        for shape in ["", "lin_"] {
+            for (relation, truth) in [("eq", false), ("ne", true), ("le", true), ("lt", true)] {
+                for suffix in ["", "_reif", "_imp"] {
+                    if !prefix.is_empty()
+                        && (suffix == "_imp"
+                            || (relation == "ne" && (shape == "lin_" || suffix == "_reif")))
+                    {
+                        continue;
+                    }
+                    for flag in [false, true] {
+                        let operands = if shape.is_empty() {
+                            "1.0,2.0"
+                        } else {
+                            "[1.0],[1.0],2.0"
+                        };
+                        let condition = if suffix.is_empty() {
+                            String::new()
+                        } else {
+                            format!(",{flag}")
+                        };
+                        let source = format!(
+                            "constraint {prefix}float_{shape}{relation}{suffix}({operands}{condition});solve satisfy;"
+                        );
+                        let valid = match suffix {
+                            "_reif" => flag == truth,
+                            "_imp" => !flag || truth,
+                            _ => truth,
+                        };
+                        assert_eq!(
+                            prepare("float-name.fzn", &source)
+                                .unwrap()
+                                .check(&Assignment::default())
+                                .unwrap()
+                                .status
+                                == Status::Valid,
+                            valid,
+                            "{source}"
+                        );
+                    }
+                }
+            }
+        }
+        for (name, args) in [
+            ("float_abs", "-2.0,2.0"),
+            ("float_plus", "1.0,2.0,3.0"),
+            ("float_times", "2.0,3.0,6.0"),
+            ("float_div", "6.0,2.0,3.0"),
+            ("float_min", "1.0,2.0,1.0"),
+            ("float_max", "1.0,2.0,2.0"),
+            ("int2float", "9007199254740993,9007199254740992.0"),
+        ] {
+            let source = format!("constraint {prefix}{name}({args});solve satisfy;");
+            assert_eq!(
+                prepare("float-alias.fzn", &source)
+                    .unwrap()
+                    .check(&Assignment::default())
+                    .unwrap()
+                    .status,
+                Status::Valid,
+                "{source}"
+            );
+        }
+    }
+    for prefix in ["", "gecode_", "fzn_"] {
         for (relation, left, right, truth) in [
             ("eq", "1.0", "1.0", true),
             ("ne", "1.0", "2.0", true),
@@ -1945,13 +2040,14 @@ fn selection_spellings_and_declared_roles_match_upstream_signatures() {
             };
             for prefix in prefixes {
                 let name = format!("{prefix}array_{var}{stem}_element");
+                let entries = if variable_array { "x" } else { value };
                 let source = format!(
-                    "predicate {name}(var int: i, array[int] of {role}{kind}: a, var {kind}: y); var {kind}: y ::is_defined_var; constraint {name}(1,[{value}],y)::defines_var(y); solve satisfy;"
+                    "predicate {name}(var int: i, array[int] of {role}{kind}: a, var {kind}: y); var {kind}: x; var {kind}: y ::is_defined_var; constraint {name}(1,[{entries}],y)::defines_var(y); solve satisfy;"
                 );
                 assert_eq!(
                     prepare("selection.fzn", &source)
                         .unwrap()
-                        .check(&assignment(""))
+                        .check(&assignment(&format!("x={value};")))
                         .unwrap()
                         .status,
                     Status::Valid,
@@ -2385,19 +2481,61 @@ fn set_names_declarations_and_aliases_check_the_same_relations() {
             );
         }
     }
-    for name in ["eq", "ne", "le", "lt", "subset", "superset"] {
-        let source = format!(
-            "predicate set_{name}_imp(var set of int:a,var set of int:b,var bool:c); constraint set_{name}_imp({{}},{{}},false); solve satisfy;"
-        );
-        let model = prepare("imp.fzn", &source).unwrap();
-        assert_eq!(
-            PreparedModel::from_json(&model.to_json().unwrap())
-                .unwrap()
-                .check(&Assignment::default())
-                .unwrap()
-                .status,
-            Status::Valid
-        );
+    for (name, truth) in [
+        ("eq", true),
+        ("ne", false),
+        ("le", true),
+        ("lt", false),
+        ("subset", true),
+        ("superset", true),
+    ] {
+        for guard in [false, true] {
+            let source = format!(
+                "predicate set_{name}_imp(var set of int:a,var set of int:b,var bool:c); constraint set_{name}_imp({{}},{{}},{guard}); solve satisfy;"
+            );
+            let model = prepare("imp.fzn", &source).unwrap();
+            assert_eq!(
+                PreparedModel::from_json(&model.to_json().unwrap())
+                    .unwrap()
+                    .check(&Assignment::default())
+                    .unwrap()
+                    .status,
+                if !guard || truth {
+                    Status::Valid
+                } else {
+                    Status::Invalid
+                }
+            );
+        }
+    }
+    for prefix in ["", "gecode_", "fzn_"] {
+        for name in ["set_in", "int_in"] {
+            for (kind, value) in [("int", "1"), ("bool", "true")] {
+                for suffix in ["", "_reif", "_imp"] {
+                    for member in [false, true] {
+                        let set = if member { "{1}" } else { "{}" };
+                        let (parameter, flag) = if suffix.is_empty() {
+                            ("", "")
+                        } else {
+                            (",var bool:b", ",true")
+                        };
+                        let source = format!(
+                            "predicate {prefix}{name}{suffix}(var {kind}:x,set of int:s{parameter});constraint {prefix}{name}{suffix}({value},{set}{flag});solve satisfy;"
+                        );
+                        assert_eq!(
+                            prepare("member-role.fzn", &source)
+                                .unwrap()
+                                .check(&Assignment::default())
+                                .unwrap()
+                                .status
+                                == Status::Valid,
+                            member,
+                            "{source}"
+                        );
+                    }
+                }
+            }
+        }
     }
     // Fixed-set declarations also apply to the set_in compatibility signature.
     let model = prepare("bool.fzn", "predicate set_in(var bool:x,set of int:s);var bool:b;constraint set_in(b,{0});solve satisfy;").unwrap();
@@ -5498,7 +5636,7 @@ fn set_global_aliases_signatures_and_fixed_roles() {
             (
                 "gecode_set_min_imp",
                 "var set of int:a,var int:b,var bool:c",
-                "{},1,false",
+                "{1,3},1,true",
             ),
             ("gecode_set_max", "var set of int:a,var int:b", "{1,3},3"),
             (
@@ -6412,6 +6550,24 @@ fn number_theory_and_distance_signatures_and_mathematical_cases() {
             let model = prepare("registered.fzn", &source).unwrap();
             assert_eq!(
                 model.check(&Assignment::default()).unwrap().status,
+                Status::Valid,
+                "{source}"
+            );
+        }
+        for (root, args) in [
+            ("gecode_gcd_int_imp", "12,18,6,true"),
+            ("gecode_divides_int_imp", "3,12,true"),
+            ("gecode_product_int_imp", "[-2,3],-6,true"),
+            ("gecode_product_mod_fixed_fzn_imp", "[-2,3],5,4,true"),
+            ("gecode_product_mod_var_fzn_imp", "[-2,3],5,4,true"),
+        ] {
+            let source = format!("constraint {prefix}{root}({args});solve satisfy;");
+            assert_eq!(
+                prepare("active-guard.fzn", &source)
+                    .unwrap()
+                    .check(&Assignment::default())
+                    .unwrap()
+                    .status,
                 Status::Valid,
                 "{source}"
             );

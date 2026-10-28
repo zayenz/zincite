@@ -134,11 +134,23 @@ def workload(copies: int) -> tuple[str, list[dict]]:
         assignments.append({"entries": entries})
     if copies == 1:
         return original, assignments
-    body = "\n".join(
-        line for line in original.splitlines() if not line.startswith(("%", "solve"))
-    )
+    lines = [
+        line
+        for line in original.splitlines()
+        if line and not line.startswith(("%", "solve"))
+    ]
+    # Replication must preserve FlatZinc's parameter/variable/constraint item order.
+    parameters = [
+        line for line in lines if line.startswith("array") and "of var " not in line
+    ]
+    variables = [line for line in lines if line.startswith("var ") or "of var " in line]
+    constraints = [line for line in lines if line.startswith("constraint ")]
+    if len(parameters) + len(variables) + len(constraints) != len(lines):
+        raise ValueError("unexpected item in workshop template")
     source = "\n".join(
-        rename_variables(body, names, f"_copy{copy}") for copy in range(copies)
+        rename_variables("\n".join(group), names, f"_copy{copy}")
+        for group in (parameters, variables, constraints)
+        for copy in range(copies)
     )
     return source + "\nsolve satisfy;\n", assignments
 

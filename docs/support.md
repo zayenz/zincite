@@ -3,7 +3,8 @@
 Zincite targets MiniZinc 2.10.1 `.mzn` models and assignment-only `.dzn` data.
 The [syntax reference](reference.md#syntax-support) lists accepted constructs
 and differences between the specification and compiler. JSON data and solver
-solution streams are not supported input formats. Code and literals must be UTF-8;
+solution streams are not supported formatter/linter/query input formats. The
+checkout checker separately accepts official FlatZinc-JSON. Code and literals must be UTF-8;
 non-UTF-8 bytes in comments are preserved.
 
 ## Versions and Rust support
@@ -28,21 +29,37 @@ Data edits change the instance. Zincite reparses the candidate and, for
 model-backed construction, checks supported types and array shapes. Those
 checks do not establish satisfiability.
 
-The checkout's candidate checker accepts the explicit FlatZinc subset in the
-[checker guide](../crates/zincite-check/README.md). It checks supplied Boolean
-and integer candidates, reports all available violations and identifies
-unresolved values and blocked checks. Supported linear-equality and
-full-reification definitions calculate auxiliary values from known inputs.
-A complete valid report establishes feasibility of that supported compiled
-model, without claiming optimality.
-Checking starts no compiler or solver; compilation is a separate offline step.
-The checker can export prepared models as versioned JSON, validate and load
-them without parsing FlatZinc, and check through the same runtime. Mathematical
-integers use exact decimal strings. The loader and checking API also work
-without the optional syntax dependency. The optional Wasm bindings expose that
-same API to JavaScript with typed assignment JSON. The
-[Wasm example](../examples/checker-wasm/README.md) documents parser-free builds
-and compares Node.js/Wasm reports with native checking.
+The checkout's candidate checker accepts MiniZinc 2.10.1 text FlatZinc and
+official FlatZinc-JSON. It checks the mathematical operations emitted by both the
+standard decomposition profile and the pinned Gecode library, including exact
+aliases and conditional set/float/MPFR registrations. The
+[checker guide](../crates/zincite-check/README.md) gives both offline compilation
+recipes; the [coverage audit](checker-coverage.md) maps signatures to execution
+tests and include closures. Compiler elimination, domain tightening and source
+abort bodies limit what a source model can expose to applications.
+
+Values include Booleans, checked signed 64-bit integers, compact finite integer
+sets and finite binary64 floats. Integers use exact decimal strings in prepared
+artifacts, Wasm assignments and reports; compiler JSON integers are parsed exactly.
+Float absolute/relative tolerances default to `1e-9` each, with zero/zero for exact
+comparison. Prepared models save both settings, and native, CLI and Wasm callers
+can configure them. Arithmetic overflow and undefined/nonfinite results diagnose.
+
+The checker reports all available violations and identifies unresolved values
+and blocked checks independently. Supported deterministic definitions calculate
+auxiliary values from known inputs, without choosing missing decisions. A complete
+valid report establishes feasibility of the compiled candidate; it establishes
+no optimality or equivalence to arbitrary MiniZinc source. External executable/DLL
+hooks and restart-history hooks receive located exclusion diagnostics. Search and
+propagation annotations supply metadata, never candidate values.
+
+Checking starts no compiler, solver or network request. Both CLI forms can export
+prepared models as versioned JSON and load them without parsing FlatZinc. The
+parser-free Rust API and [Wasm bindings](../examples/checker-wasm/README.md) use the
+same loader and checking runtime. The [graphical example](../examples/checker-browser/README.md)
+and [fresh performance report](../scripts/checker-performance.md) demonstrate
+ordinary edits and their measured scope. The checker is available from this
+checkout, outside the published 0.3.0 packages.
 
 ## Unknown facts and incomplete analysis
 

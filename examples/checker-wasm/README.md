@@ -105,14 +105,10 @@ edits and job feedback using these bindings and the saved compiled model.
 
 ## Execute the native/Wasm comparison
 
-Build the bindings above, then export nineteen artifacts with the native CLI. This
-setup uses both saved compiled workshop models and a tiny handwritten FlatZinc
-integer/set model, the saved float-core control, a direct selection control,
-a direct set control, a float-function control, a direct counting control,
-a direct ordering/channel control, a direct table control, a direct automaton control,
-a direct circuit/cost control, a legacy scheduling control and an explicit-end
-scheduling control, a bin-packing/rectangle control, two set controls and an arithmetic/distance control and the saved standard-profile metadata control.
-This setup does not run MiniZinc:
+Build the bindings above, then export the 21 artifacts below with the native
+CLI. The models cover the two compiler profiles and the family controls; the
+`compiler.json` artifact comes from official FlatZinc-JSON preparation. This
+setup uses saved source artifacts and starts no MiniZinc compiler or solver.
 
 ```sh
 cargo build --locked -p zincite-check --bin zincite-check
@@ -165,150 +161,38 @@ target/debug/zincite-check --export "$checker_run/set-globals.json" examples/che
 target/debug/zincite-check --export "$checker_run/set-channels.json" examples/checker-compilation/set-channels.fzn
 target/debug/zincite-check --export "$checker_run/arithmetic.json" examples/checker-compilation/arithmetic-extensions.fzn
 target/debug/zincite-check --export "$checker_run/standard.json" examples/checker-compilation/standard-controls.fzn
-node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" "$checker_run/automata.json" "$checker_run/circuits.json" "$checker_run/legacy.json" "$checker_run/flex.json" "$checker_run/packing.json" "$checker_run/set-globals.json" "$checker_run/set-channels.json" "$checker_run/arithmetic.json" "$checker_run/standard.json" examples/checker-wasm/candidates.json target/debug/zincite-check
-```
-
-`smoke.cjs` reads only built bindings, prepared artifacts and typed assignment
-data. It needs no model source or compiler. It loads each artifact once and
-compares every observable report with the native CLI's `--load` path. The CLI
-receives literal `.dzn` assignments made from the same typed values in a temporary
-directory. The consumer removes those temporary assignments when finished.
-
-The eighty-four named cases cover valid, invalid, incomplete and invalid-with-incomplete
-reports, application metadata, Boolean and array input, set definitions and domain
-failures, strict resource conflicts, and the distinct integers 9007199254740992
-and 9007199254740993 as both integers and set endpoints. The exact-value model
-also derives arithmetic and reified Boolean outputs and checks conflicting
-supplied outputs above JavaScript's exact-number range. It compares scalar and
-linear relation findings and skips an overflowing product under a false
-implication guard. Boolean cases exercise negation, functional implication,
-parity, clause equivalence, channeling and a Boolean linear result above 2^53.
-Float cases compare saved, custom and strict policy, arithmetic/conversion
-completion, malformed finite values/settings, repeated edits and removed inputs.
-They compare typed conflicts and an incomplete candidate with a known channel
-violation. Selection cases cover offset indexing, rectangular Boolean/set calls,
-all four selected value types, unselected output aliases, typed conflicts and an
-extreme invalid selector with an unavailable result. They use saved, custom and
-strict float tolerance. Set cases compare difference and symmetric difference,
-cardinality and reifier completion, sorted-element and native characteristic
-order findings, supplied-output conflicts, and incomplete input with a known
-violation. Their endpoints above 2^53 cross the same exact-string boundary.
-Float-function cases compare square root, fixed integer and fixed-base powers,
-inverse hyperbolic sine and both extrema conventions. They exercise saved, custom
-and strict policy, typed supplied-output conflicts, missing input and a located
-domain error against the native CLI diagnostic. Three counting cases compare count-array,
-positional-match and reifier completion, typed supplied-output conflicts with
-metadata above 2^53, and missing input. They use direct FlatZinc because the
-compile controls expose dropped GCC definition metadata; compiler-profile closure
-belongs to checker-030/031. Three ordering cases compare sorted-array, distinct-input permutation, inverse,
-arg-min, membership-reifier and Boolean channel completion, typed supplied
-conflicts and invalid-with-incomplete input. Arg-min and channel indexes above
-2^53 stay exact strings. Tied arg-extrema and tied permutations have no invented
-output; the native suite checks those distinctions and the converse channel
-and inverse directions. Three table cases compare integer and Boolean reifier
-completion, typed membership conflicts with fixed data and application metadata,
-and a known Boolean table violation with unavailable integer entries. Repeated
-aliases and integers above 2^53 cross the same exact-string boundary. The table
-control uses direct FlatZinc; the checker guide records the standard wrapper and
-compiler metadata limits. Four circuit cases compare wide offsets, selected edge costs,
-actual supplied-cost sums, reordered combined outputs, typed subcycles and known
-violations with incomplete inputs. The first 54 candidate records keep their
-108 comparisons. Five explicit-end scheduling cases and five packing cases brought the total to 128.
-Five aggregate-set edits brought the total to 138. Five selected-set/channel edits brought it to 148. Six number-theory/distance edits bring it to 160, comparing exact products above 2^53, floor roots, reifiers, pair requirements, invalid site labels and nonpositive variable moduli.
-A second pass exercises reuse after changing and removing inputs. Small boundary
-checks reject a malformed artifact, a JSON number supplied as an integer and an
-unknown assignment name. Expected output ends with `Native/Wasm reports and errors agree across 168 checks; finite floats/functions, saved/custom/strict tolerance, exact integers, arithmetic, relations, Booleans, sets, selections, counts, ordering/channels, tables, automata, circuits, legacy and explicit-end scheduling, bin packing and rectangles, aggregate/ordered/weighted sets, selected sets and channels, number theory and distances, global findings and input errors verified.` The native suite owns
-the wider evaluator coverage.
-
-
-For real-browser latency, serialized-load costs, JSON boundary costs and scaling,
-see the [interactive checker report](../../scripts/checker-performance.md). Its
-repeatable browser collection uses these release web bindings; Node is used only
-for the correctness smoke above.
-
-
-The three automaton candidates exercise acceptance, all three typed rejection
-kinds and a known rejection with missing symbols. The smoke checks exact
-state/symbol strings, numeric positions, word references, labels and application
-IDs, then repeats the 46 candidates after changing and removing assignments.
-The original 43 candidate records are unchanged.
-
-The legacy scheduling artifact checks variable-duration strict unary, optional
-zero-duration tasks, signed resource usage and both cumulatives overloads.
-Four edits compare exact times above `2^53`, typed conflicting pairs/resource
-faults, application metadata and independent completeness. The duration comes
-from a marked integer addition; scheduling itself derives no values.
-
-The explicit-end artifact uses the five flex operations, including native
-seven-argument `fzn_cumulatives`. Its separate marked end equation supplies
-completion. Boundary, interior, conflicting supplied end, incomplete-invalid and
-omitted edits compare typed ends and faults above `2^53`. A contradictory end
-fails the equation while the resource checks use the supplied interval.
-
-Packing cases compare marked load completion, supplied load conflicts, zero-weight
-bin validation, strict interior point conflicts, optional presence, separate
-endpoint equations and incomplete candidates with known dimension faults. They
-assert exact bin labels and endpoints above 2^53, typed item/rectangle positions,
-argument references and application metadata. Each of the original fifty-nine
-candidate records keeps its exact bytes.
-
-Five aggregate-set candidates compare marked union, hull, extremum, reifier and
-weighted-total completion. They exercise first-row duplicate weights, wide exact
-integers, supplied-output conflicts, sequence order across an empty middle set,
-convexity and known pair faults with missing inputs. All 64 earlier candidate
-records keep their exact bytes and their 128 native/Wasm comparisons. The smoke
-loads the same fifteen earlier artifacts plus the direct set-global artifact.
-
-
-Five selected-set/channel candidates compare marked aggregates, range images,
-Boolean flags, integer/set buckets, inverse sets and sorted integers. They check
-partition overlap, an excluded selection index with unresolved outputs, supplied
-conflicts, exact range images above 2^53 and removed inputs. Typed findings carry
-positions, offset labels, compact ranges, references and application metadata.
-All sixteen earlier artifacts load unchanged, and all 69 earlier candidate
-records keep their exact bytes and 138 comparisons. The five added records bring
-the repeated native/Wasm smoke to 148 comparisons.
-
-The standard-profile control adds four candidates and eight native/Wasm
-comparisons, for 168 comparisons across nineteen artifacts. The eighty earlier
-candidate records and eighteen earlier artifacts are unchanged. The added
-candidates check complete success, five independent violations after a derived
-domain failure, a supplied-output conflict with separate constraint and value
-application IDs, and an empty incomplete assignment. Its set-cardinality and
-optional integer auxiliaries are supplied explicitly because compilation drops
-the former's definition hint and the latter represents an editable optional
-value. The checker derives the linear output and optional reifiers.
-
-
-The pinned Gecode application control adds an optional twentieth artifact. After
-building the same bindings and exporting the nineteen artifacts above, run:
-
-```sh
 target/debug/zincite-check --export "$checker_run/gecode.json" examples/checker-compilation/gecode-controls.fzn
-node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" "$checker_run/automata.json" "$checker_run/circuits.json" "$checker_run/legacy.json" "$checker_run/flex.json" "$checker_run/packing.json" "$checker_run/set-globals.json" "$checker_run/set-channels.json" "$checker_run/arithmetic.json" "$checker_run/standard.json" examples/checker-wasm/candidates.json target/debug/zincite-check "$checker_run/gecode.json"
-```
-
-The original invocation still runs its eighty-four cases and 168 comparisons.
-The optional Gecode artifact appends five edits and brings the total to 178
-comparisons. These check derived integer/set/float values, a complete invalid
-edit, a supplied output conflict, omitted inputs and known violations with
-incomplete input. Feedback carries both constraint and value IDs and exact
-entity `9007199254740993`. The earlier candidate records and artifacts are
-unchanged.
-
-
-Official compiler JSON uses the native preparation path before Wasm loading.
-The Gecode smoke invocation also accepts a final optional artifact exported
-from the authored JSON format control:
-
-```sh
 target/debug/zincite-check --input-format fzn-json --export "$checker_run/compiler.json" examples/checker-compilation/json-values.fzn.json
+node examples/checker-wasm/smoke.cjs target/checker-wasm/node/zincite_check.js "$checker_run/schedule.json" "$checker_run/exact.json" "$checker_run/bench.json" "$checker_run/float.json" "$checker_run/selection.json" "$checker_run/sets.json" "$checker_run/functions.json" "$checker_run/counting.json" "$checker_run/ordering.json" "$checker_run/tables.json" "$checker_run/automata.json" "$checker_run/circuits.json" "$checker_run/legacy.json" "$checker_run/flex.json" "$checker_run/packing.json" "$checker_run/set-globals.json" "$checker_run/set-channels.json" "$checker_run/arithmetic.json" "$checker_run/standard.json" examples/checker-wasm/candidates.json target/debug/zincite-check "$checker_run/gecode.json" "$checker_run/compiler.json"
 ```
 
-Append `"$checker_run/compiler.json"` after `"$checker_run/gecode.json"` in the
-invocation above. Three added edits check exact integers and compact disjoint
-domains, a supplied float result conflict with application payloads, and removed
-inputs. This runs 184 comparisons across twenty-one artifacts. Earlier invocations
-and candidate records keep their existing counts. The native API also accepts
-the saved unedited compiler JSON specimens in `examples/checker-compilation/`;
-both source formats export the same executable contract for Wasm.
+The full invocation runs 184 native/Wasm report and error comparisons across
+21 artifacts. It loads each artifact once and repeats the candidate sequence
+after changed and removed assignments. The checks compare complete reports,
+including typed findings, independent completeness, objectives, metadata and
+exact entity payloads above `2^53`. Saved, custom and zero float tolerances govern
+both native and Wasm calls. Malformed artifacts, assignments and nonfinite values
+produce the expected input or execution errors.
+
+The candidate controls cover arithmetic, scalar/linear relations, Booleans, sets,
+selection, float functions and conversions, counting, ordering/channels, tables,
+automata, circuits, scheduling, packing/rectangles, aggregate/selected sets and
+number theory/distance. Standard/Gecode application candidates include complete
+success, infeasible edits, partial input and supplied-output conflicts. The JSON
+format control checks compact disjoint domains and exact integer transport.
+The [coverage audit](../../docs/checker-coverage.md#execution-audit) maps the wider
+native family tests to actual names and signatures; this smoke does not duplicate
+the native suite.
+
+`smoke.cjs` reads built bindings, prepared artifacts and typed assignment data.
+It compares Wasm reports with the native CLI's `--load` path, using temporary
+literal `.dzn` files made from the same typed values, and removes those temporary
+files afterward. The earlier 19-artifact invocation and optional Gecode extension
+still work, with 168 and 178 comparisons respectively; the command above is the
+full acceptance path.
+
+The [graphical workshop](../checker-browser/README.md) separately checks actual
+user interactions and entity feedback. For release native and real-browser
+latency, serialized loading, JSON costs and scaling, see the
+[interactive checker report](../../scripts/checker-performance.md). Node supplies
+correctness evidence here; the timing runner uses a real browser.

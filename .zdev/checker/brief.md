@@ -37,8 +37,10 @@ once, and checked repeatedly after editing its decisions. Native and browser
 checks agree on full feasible and infeasible candidates, and report insufficient
 input explicitly. A serialized model can be loaded and checked
 in the browser without shipping the source parser or
-MiniZinc compiler. The first release supports an explicitly documented dialect;
-it does not claim arbitrary FlatZinc coverage.
+MiniZinc compiler. Current support covers the mathematical FlatZinc operations
+emitted by the two pinned library profiles, text and official JSON preparation,
+and the numeric and compiler boundaries documented in the checker guide.
+External-execution and search-history hooks receive located diagnostics.
 
 ## Boundaries and settled direction
 
@@ -55,11 +57,11 @@ it does not claim arbitrary FlatZinc coverage.
   simple typed values, variables, domains, constraints and definition directions.
   It does not depend on linter facts, the query language or a general MiniZinc
   interpreter. Keep syntax preparation optional for a parser-free Wasm build.
-- Begin with Boolean and checked integer values, scalar variables, literal
-  arrays, aliases, domains and a small explicit predicate set. Add finite integer
-  sets once the basic path works. The full-support expansion below adds floats
-  and the complete targeted libraries; until each task lands, unsupported types
-  and predicates fail preparation.
+- Support Boolean, checked i64, compact finite integer-set and finite binary64
+  float values with scalar variables, arrays, aliases and domains. The full
+  mathematical surface of both pinned library profiles is implemented. Numeric
+  limits, source compiler failures and external hooks are explicit; unknown
+  predicates and malformed input fail preparation.
 - Use fixed-width checked integers consistently across native and Wasm targets.
   Specify overflow, division by zero and signed division/remainder behavior from
   the MiniZinc builtins; never inherit target-dependent `usize` arithmetic.
@@ -250,28 +252,34 @@ blocking the first browser example.
 
 ## Interactive measurement result
 
-The [2026-10-26 engineering report](../../scripts/checker-performance.md) records
-release native and real-browser measurements on the user's M1 Max. The existing
-two-job workshop model used 60 individual checks over feasible, infeasible,
-omitted, incomplete-invalid and recovered states. Native checking p95 was
-0.0083 ms and browser assignment-to-parsed-report p95 was 0.20 ms, below the 100 ms
-ordinary-example target. Preparation, serialized load, normalized Wasm/JSON
+The [2026-10-28 engineering report](../../scripts/checker-performance.md) records
+fresh release native and real-Chrome measurements on the user's M1 Max. The
+two-job workshop model used 60 individual checks after ten warmups over feasible,
+infeasible, omitted, incomplete-invalid and recovered states. Native checking p95
+was 0.008834 ms and browser assignment-to-parsed-report p95 was 0.10 ms, below the
+100 ms ordinary-example target. Preparation, serialized load, normalized Wasm/JSON
 components and memory scaling for 10/100 copies inside one model are separate.
-The report documents scopes, browser/build, sample spread and repeat commands.
-The final saved run is `m1-max-release-2026-10-26-final`.
-No checker optimization was needed. Runtime support is exactly the current
-[checker guide](../../crates/zincite-check/README.md), including finite integer
-sets and the strict disjunctive global; arbitrary FlatZinc and floats are excluded.
+The final named run is `m1-max-release-2026-10-28-full-acceptance-v2`, with four
+completed records, no failures and no unfinished records. The report records
+build and library identities, artifact hashes, scope and raw-result location.
+
+The first run exposed invalid item order in the existing scaling generator;
+the corrected generator groups parameters, variables and constraints. A small
+pilot verified all sizes and unchanged completed records on resume. The failed
+run is saved separately. No runtime latency target was missed, and no checker
+optimization was needed. Actual Initial plan, invalid, recovered and omitted
+interactions in the original graphical example also passed, including recovery
+after omission. Those interactions are separate from timing, which excludes DOM
+rendering.
 
 ## Full FlatZinc and library support
 
-The next approved objective is full candidate checking for the text FlatZinc
-language and FlatZinc-JSON, standard constraints emitted from MiniZinc's standard
-library, and constraint predicates exposed by Gecode's MiniZinc library. This
-expands the initial ten-predicate implementation; it is planned work until the
-corresponding tasks and coverage checks pass. Keep the same native, serialized
-and parser-free Wasm entry points, structured findings and independent
-completeness contract.
+Current support covers candidate checking for text FlatZinc and FlatZinc-JSON,
+standard constraints emitted from MiniZinc's standard library, and mathematical
+predicates exposed by the pinned Gecode MiniZinc library. The final acceptance
+audit pairs exact signatures and include closures with family execution tests,
+compiled controls and public-path agreement. Native, serialized and parser-free
+Wasm entry points share structured findings and independent completeness.
 
 Read the [coverage inventory](../../docs/checker-coverage.md) before extending a
 predicate family or either compiler profile. It records exact source signatures,
@@ -297,10 +305,10 @@ Use these fixed upstream sources for this expansion:
   set and float extensions absent from the installed release. Do not substitute
   that release or silently advance the source revision during implementation.
 
-The first expansion task creates a compact coverage table of exact predicate
-names/signatures, aliases, owning task family, checking semantics and supported
-deterministic outputs. Include standard builtins added through versioned
-redefinitions, deprecated spellings, and Gecode registrations behind set,
+The coverage table records exact predicate names/signatures, aliases, owning
+task families, checking semantics and supported deterministic outputs. Include
+standard builtins added through versioned redefinitions, deprecated spellings,
+and Gecode registrations behind set,
 float or MPFR build flags. Distinguish standard-library predicates that flatten
 to these operations from external predicates that need a direct evaluator.
 Check include/decomposition closure for both actual library profiles; a count
@@ -419,6 +427,25 @@ forms and JSON input, and repeats the ordinary browser workflow/performance
 check after the wider runtime lands. No full-support claim is valid with
 unassigned or unsupported mathematical predicates in either targeted profile.
 
+The final audit admits 128 direct standard signatures, 316 direct Gecode
+signatures and 954 registered mathematical name/signature pairs across 918 names.
+All 959 admitted call names reach mathematical evaluation in the family tests;
+the authored coverage notes map those loops, overload roles and fixture routes.
+Both include profiles have zero missing edges. The full native/Wasm smoke passes
+184 comparisons across 21 artifacts. Source, prepared and official compiler JSON
+reports agree through the native APIs and both CLIs, including exact integers,
+float settings, partial input and supplied-output conflicts.
+
+Compiler limits supply no runtime credit: the standard selected tree has 32
+unconditional abort bodies across 27 names; Gecode's selected fallbacks have 31
+across 26. Standard integer-table reification compiles only at widths 1..5.
+Fresh width-2..5 controls also emit duplicate `defines_var` hints for one
+auxiliary, contrary to the pinned specification's single-definition rule;
+preparation diagnoses that malformed metadata. Width 1 exports and width 6
+fails the compiler assertion. Gecode native table reifiers export. Seven
+malformed restart prototypes lack semicolons. Direct mathematical coverage is
+established separately from these compiler failures.
+
 ## Deferred research and decisions
 
 The full sequential check is the reference behavior. If measurements justify
@@ -474,9 +501,8 @@ timing assertions in `cargo test`; use a small existing-style driver.
 
 ## Validation
 
-For this planning change, run `zdev check checker --format json` and the
-repository-required `zdev check base --format json`. No Rust behavior changes
-or new tests are part of planning.
+After record changes, run `zdev check checker --format json` and the
+repository-required `zdev check base --format json`.
 
 For implementation, run `cargo fmt --all -- --check`,
 `cargo clippy --workspace --all-targets -- -D warnings`, and

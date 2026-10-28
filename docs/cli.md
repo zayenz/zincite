@@ -65,25 +65,34 @@ statement fails, the command produces no partial report on stdout.
 
 ```sh
 zincite check [--format text|json] model.fzn candidate.dzn
-zincite-check [--format text|json] model.fzn candidate.dzn
-zincite check --export prepared.json model.fzn
+zincite-check [--input-format fzn|fzn-json] [--format text|json] model candidate.dzn
+zincite check --input-format fzn-json --export prepared.json model.fzn.json
 zincite-check --load [--format text|json] prepared.json candidate.dzn
+zincite check --load --float-absolute-tolerance 0 --float-relative-tolerance 0 prepared.json candidate.dzn
 ```
 
-`--export` prepares the source and creates a new JSON file, refusing existing
-paths. `--load` validates that artifact and checks without parsing FlatZinc.
-Both entry points support both options. Reports go to stdout; input and
-execution errors go to stderr without partial stdout. The checker reads literal
-Boolean, integer and finite integer set assignments, checks every available domain
-and supported relation, and reports independent completeness. Supported linear,
-full-reification and set definitions derive outputs from known inputs before
-checking. Scheduling includes variable-duration strict disjunctive, optional
-unary/cumulative and legacy cumulatives checks. Checking starts no compiler or
-solver.
-The [checker guide](../crates/zincite-check/README.md)
-defines the admitted syntax, predicate coverage, metadata and exact integer JSON
-encoding, including set endpoints. These commands are available from the checkout,
-outside the published 0.3.0 packages.
+Both entry points support all these options. `--input-format` defaults to `fzn`;
+`fzn-json` selects official compiler JSON for checking or export. `--export`
+creates a new prepared artifact and refuses existing paths. `--load` validates
+that artifact and checks without source parsing; it cannot be combined with
+`--input-format fzn-json`. Reports go to stdout; input and execution errors go to
+stderr without partial stdout. Assignments use literal `.dzn` values: Boolean,
+checked i64, finite integer sets and finite binary64 floats.
+
+The checker evaluates both pinned standard/Gecode profiles' emitted mathematical
+operations, reports every available violation and records independent
+completeness. Supported deterministic definitions derive outputs from supplied
+inputs. It starts no compiler or solver. External-execution and search-history
+hooks diagnose explicitly. The [checker guide](../crates/zincite-check/README.md)
+describes the two offline compiler recipes, exact signatures, metadata and limits.
+
+`--float-absolute-tolerance NUMBER` and `--float-relative-tolerance NUMBER` accept
+finite nonnegative settings. Each option changes only its named component; a
+loaded model supplies the other saved component. Defaults are `1e-9` each;
+zero/zero selects exact checking. Export saves both settings. Prepared artifacts,
+Wasm assignments and reports encode all mathematical integers as exact decimal
+strings, including set endpoints and application payloads. These commands are
+available from the checkout, outside the published 0.3.0 packages.
 
 ## Explicit writes
 

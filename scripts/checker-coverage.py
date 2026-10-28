@@ -1063,7 +1063,7 @@ def render_registry(
     rows = [
         "## Registry and exact aliases",
         "",
-        "Each row is one active registration statement. Prefix expansion is literal; all three spellings use that row's handler and signature(s). Conditions describe the upstream build, not Zincite's target scope. `C` applies only to the exact current names listed above; every other alias is planned.",
+        "Each row is one active registration statement. Prefix expansion is literal; all three spellings use that row's handler and signature(s). Conditions describe the upstream build, not Zincite's target scope. Mathematical aliases are checked directly; external-execution aliases receive located exclusion diagnostics.",
         "",
         "| Row / source | Exact accepted spellings | Handler / condition | Signature source(s) or positional contract | Now | Owner | Useful output |",
         "| --- | --- | --- | --- | --- | --- | --- |",
@@ -1078,7 +1078,10 @@ def render_registry(
             for d in contracts
         )
         task = direct_owner(reg.name)
-        now = ", ".join(code(a) for a in aliases if a in CURRENT) or "planned"
+        now = (
+            ", ".join(code(a) for a in aliases if a in CURRENT)
+            or "excluded hook; diagnosed"
+        )
         if reg.name == "cumulatives":
             now += " (legacy arities 4/6; native explicit-end arity 7; standard min_machine wrapper excluded)"
 
@@ -1579,7 +1582,7 @@ def render_declarations(
         "",
         "## Source signatures and decomposition calls",
         "",
-        "Signatures preserve fixed/variable types, dimensions, argument order and declaration annotations; whitespace outside strings is collapsed. A source body is `wrapper`, with its explicit call heads listed (operators and compiler lowering also contribute). `declaration` rows link source definitions by name; overload selection still belongs to MiniZinc. Profile-specific `direct` rows need runtime evaluation; `intrinsic` rows belong to compiler elaboration. None of these routes counts as working support unless `Now` says `C`. Each file heading links the exact semantic source, with the line in each row; direct Gecode semantics also use the registry handler and family notes.",
+        "Signatures preserve fixed/variable types, dimensions, argument order and declaration annotations; whitespace outside strings is collapsed. A source body is `wrapper`, with its explicit call heads listed (operators and compiler lowering also contribute). `declaration` rows link source definitions by name; overload selection belongs to MiniZinc. `C` marks direct checking, qualified by the signature and numeric limits. Other rows identify compiler lowering/decomposition, annotation classes, diagnosed hooks or compiler limits; they do not claim direct runtime evaluation. Each file heading links the exact semantic source, with the line in each row; direct Gecode semantics also use the registry handler and family notes.",
         "",
     ]
     for key, file in files.items():
@@ -1619,11 +1622,18 @@ def render_declarations(
             route = declaration_route(d, files, declarations, ids, primitive)
             if not d.terminated:
                 route += "; source has no terminating semicolon"
-            now = (
-                "C (qualified)"
-                if current_signature(d) and d.kind == "predicate" and d.body is None
-                else "planned"
-            )
+            if not d.terminated or (
+                d.body is not None and re.match(r"^abort\s*\(", d.body)
+            ):
+                now = "compiler limit; no runtime credit"
+            elif hook:
+                now = "excluded hook; diagnosed"
+            elif d.kind == "annotation":
+                now = "metadata; see recognized classes"
+            elif current_signature(d) and d.kind == "predicate" and d.body is None:
+                now = "C (qualified)"
+            else:
+                now = "compiler lowering/decomposition"
             if hook:
                 output = "excluded hook; diagnostic"
             elif d.kind == "annotation":

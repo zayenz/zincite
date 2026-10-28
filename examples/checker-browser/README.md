@@ -80,7 +80,7 @@ the performance task to measure loading, repeated checks, boundary/report work
 and rendering separately without changing the checker or introducing a benchmark
 framework. No timing threshold is asserted here.
 
-Reuse the existing [six-case native/Wasm smoke checks](../checker-wasm/README.md#execute-the-nativewasm-comparison)
+Reuse the existing [full native/Wasm smoke checks](../checker-wasm/README.md#execute-the-nativewasm-comparison)
 after building. Browser acceptance additionally covers the four interactions
 above, keyboard edits, successive report replacement, the narrow layout and the
 absence of network requests during edits.
@@ -91,3 +91,13 @@ this model and a five-state edit cycle, including infeasible, omitted and partia
 input. The separate measurement page times the Wasm/JSON path and growing models;
 it does not include this page's DOM rendering. Follow its commands to save,
 resume and analyze a named run alongside the workshop server.
+
+## Acceptance on 2026-10-28
+
+The rebuilt release Wasm passed actual Chrome interactions with **Initial plan**,
+**Both start at 8**, **Recover with 2 and 5**, and **Omit start times from the check**.
+The invalid edit showed four individual findings and three findings per job;
+recovery cleared the old findings and highlights. Omission hid the bars and
+reported nine unresolved references and fourteen blocked checks. Choosing a plan
+after omission restored a complete valid report. This graphical acceptance is
+separate from the measurement page's Wasm/JSON timing, which excludes DOM work.

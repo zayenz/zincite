@@ -77,17 +77,20 @@ offers additional examples and background.
 
 ## Checking candidates from a checkout
 
-The checkout also provides `zincite check` and `zincite-check` for a documented
-Boolean, integer and finite integer set FlatZinc subset. Prepare once and check
-supplied candidates, including infeasible or incomplete ones, without running a
-compiler or solver.
-Export a prepared model to versioned JSON and load it for checking without
-parsing the FlatZinc again. See the [checker guide](crates/zincite-check/README.md)
-for local installation, working commands, structured reports and exact coverage.
-Supported linear equality, full reification and set definitions derive auxiliaries
-from primary decisions. Strict disjunctive checks accept nonnegative variable or
-fixed durations. Legacy optional unary and cumulative checks report resource
-conflicts without choosing schedule values.
+The checkout also provides `zincite check` and `zincite-check` for candidate
+checking of MiniZinc 2.10.1 text FlatZinc and official FlatZinc-JSON. Both the
+standard decomposition profile and the pinned Gecode library's mathematical
+predicate surface work with Boolean, exact i64, finite integer-set and finite
+binary64 float values. Prepare once, then check supplied candidates, including
+infeasible or incomplete ones, without running a compiler or solver.
+Export a prepared model to versioned JSON and load it for repeated checking.
+Supported deterministic definitions derive auxiliaries from primary decisions;
+each report lists available violations and independent completeness. Float
+comparison settings travel with the prepared model; integer payloads stay exact
+across JavaScript boundaries. External-execution and search-history hooks are
+explicit exclusions. See the [checker guide](crates/zincite-check/README.md) for
+local installation, both offline compiler profiles, entry points and limits, and
+the [coverage audit](docs/checker-coverage.md) for exact signatures and aliases.
 Parser-free WebAssembly bindings load the same prepared artifacts and check typed
 assignment JSON. The [Wasm example](examples/checker-wasm/README.md) includes
 Node.js and browser builds and an executable comparison with native reports.
