@@ -75,6 +75,45 @@ fn parser_free_load_and_exact_integer_transport() {
 }
 
 #[test]
+fn parser_free_defined_defaults_need_fixed_initializers_and_rebuild_old_artifacts() {
+    let mut model = executable();
+    let fixed = json!({"kind": "integer", "value": "9007199254740993"});
+    model["model"]["constraints"][0]["reference"]["metadata"]["defines"] = json!("x");
+    model["model"]["constraints"][0]["predicate"]["Linear"] = json!({
+        "coefficients": ["1", "-1"], "terms": [{"Variable": 0}, {"Variable": 0}],
+        "bound": "0", "equality": true
+    });
+    model["model"]["variables"][0]["domains"] = json!([{"kind": "fixed", "value": fixed}]);
+    for default in [Json::Null, fixed.clone()] {
+        model["model"]["slots"][0]["default"] = default;
+        let loaded = PreparedModel::from_json(&model.to_string()).unwrap();
+        let report = loaded.check(&Assignment::default()).unwrap();
+        assert_eq!(report.status, Status::Valid);
+        assert_eq!(
+            report.objective.unwrap().argument.value,
+            Value::Integer(9_007_199_254_740_993)
+        );
+        let exported: Json = serde_json::from_str(&loaded.to_json().unwrap()).unwrap();
+        assert_eq!(exported["model"]["slots"][0]["default"], fixed);
+    }
+    model["model"]["slots"][0]["default"] = json!({"kind": "integer", "value": "4"});
+    assert!(PreparedModel::from_json(&model.to_string()).is_err());
+    model["model"]["slots"][0]["default"] = fixed;
+    model["model"]["variables"][0]["domains"] = json!([{
+        "kind": "interval", "lower": "9007199254740993", "upper": "9007199254740993"
+    }]);
+    assert!(PreparedModel::from_json(&model.to_string()).is_err());
+    model["model"]["slots"][0]["default"] = Json::Null;
+    let loaded = PreparedModel::from_json(&model.to_string()).unwrap();
+    assert_eq!(
+        loaded.check(&Assignment::default()).unwrap().status,
+        Status::Incomplete
+    );
+    let exported: Json = serde_json::from_str(&loaded.to_json().unwrap()).unwrap();
+    assert_eq!(exported["model"]["slots"][0]["default"], Json::Null);
+}
+
+#[test]
 fn malformed_executables_fail_loading_before_checking() {
     let original = executable();
     for (pointer, replacement, message) in [

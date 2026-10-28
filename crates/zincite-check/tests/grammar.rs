@@ -179,6 +179,7 @@ fn standard_and_gecode_metadata_validate_nested_roles_without_changing_checks() 
     // Search and propagation names/signatures come from stdlib_ann.mzn and gecode.mzn.
     let source = r#"
         array[1..2] of int: initial=[1,2];
+        float: restart_base=1.5e0;
         array[1..2] of set of int: dimensions=[{-2,4},7..7];
         var 0..3: x ::var_is_introduced ::var_is_introduced ::output_var
             ::checker_value("caf\xc3\xa9\t\101\'\"\\",[9007199254740993]);
@@ -199,7 +200,7 @@ fn standard_and_gecode_metadata_validate_nested_roles_without_changing_checks() 
               ::bool_default_search(input_order,indomain_max)::set_default_search(afc_min,outdomain_max)
               ::float_default_search(first_fail,indomain_split)
               ::restart_luby(10)::restart_linear(2)::restart_constant(5)::restart_none
-              ::restart_geometric(1.5e0,2)::relax_and_reconstruct(xs,50,initial) minimize y;
+              ::restart_geometric(restart_base,2)::relax_and_reconstruct(xs,50,initial) minimize y;
     "#;
     let model = prepare("annotations.fzn", source).unwrap();
     let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
@@ -245,6 +246,30 @@ fn standard_and_gecode_metadata_validate_nested_roles_without_changing_checks() 
             (a.status, a.completeness.complete, a.violations.len()),
             (b.status, b.completeness.complete, b.violations.len())
         );
+    }
+    for annotation in [
+        "boundsZ",
+        "boundsR",
+        "boundsD",
+        "priority(1)",
+        "priority(p)",
+    ] {
+        let annotated = prepare(
+            "plain.fzn",
+            &format!(
+                "int:p=2;var int:x;constraint int_lin_le([1],[x],0)::{annotation};solve satisfy;"
+            ),
+        )
+        .unwrap();
+        for assignment in ["x=0;", "x=1;", ""] {
+            let a = check(&plain, assignment);
+            let b = check(&annotated, assignment);
+            assert_eq!(
+                (a.status, a.completeness.complete, a.violations.len()),
+                (b.status, b.completeness.complete, b.violations.len()),
+                "{annotation}: {assignment}"
+            );
+        }
     }
 }
 
@@ -327,6 +352,17 @@ fn malformed_text_types_references_metadata_and_hooks_receive_locations() {
         "var int:x;solve::int_search([x],mystery,indomain_min,complete) satisfy;",
         "var int:x;solve::restart_geometric(1.0e999,1) satisfy;",
         "var int:x;solve::restart_geometric(true,1) satisfy;",
+        "float:base=1.0;solve::restart_geometric(base,1) satisfy;",
+        "float:base=1.5;solve::restart_geometric(base,0) satisfy;",
+        "var float:base=1.5;solve::restart_geometric(base,1) satisfy;",
+        "constraint int_eq(1,1)::boundsZ(1);solve satisfy;",
+        "var int:x::boundsR;solve satisfy;",
+        "solve::boundsD satisfy;",
+        "constraint int_eq(1,1)::priority;solve satisfy;",
+        "constraint int_eq(1,1)::priority(1,2);solve satisfy;",
+        "constraint int_eq(1,1)::priority(true);solve satisfy;",
+        "var int:p=1;constraint int_eq(1,1)::priority(p);solve satisfy;",
+        "var int:x::priority(1);solve satisfy;",
         "var int:x;solve::restart_constant(x) satisfy;",
         "var int:x;solve::on_restart(x) satisfy;",
         "var int:x;constraint int_lin_le([1],[x],0)::int_search([x],first_fail,indomain_min,complete);solve satisfy;",

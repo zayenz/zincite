@@ -180,8 +180,17 @@ impl PreparedModel {
                 return Err(invalid("slot report reference has no matching declaration"));
             }
             if defined_slots.contains(&index) {
-                if slot.default.is_some() {
-                    return Err(invalid("a defined slot cannot have a default"));
+                if let Some(value) = &slot.default
+                    && !self.variables.iter().any(|variable| {
+                        variable.slot == index
+                            && variable.domains.iter().any(|domain| {
+                                matches!(domain, Domain::Fixed { value: fixed } if fixed == value)
+                            })
+                    })
+                {
+                    return Err(invalid(
+                        "a defined slot default must match a fixed initializer",
+                    ));
                 }
             } else {
                 match &slot.default {

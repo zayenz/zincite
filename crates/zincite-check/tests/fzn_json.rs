@@ -67,6 +67,35 @@ fn compiler_json_and_text_share_findings_completion_and_application_payloads() {
 }
 
 #[test]
+fn json_fixed_initializers_and_propagation_annotations_match_text() {
+    let text = prepare("fixed.fzn", "var int:x::is_defined_var=4;var int:y;constraint int_plus(y,1,x)::defines_var(x)::boundsZ::boundsR::boundsD::priority(2);constraint int_ne(x,4);solve minimize x;").unwrap();
+    let source = r#"{
+        "version": "1.0",
+        "variables": {"x": {"type": "int", "rhs": 4, "defined": true}, "y": {"type": "int"}},
+        "arrays": {},
+        "constraints": [
+            {"id": "int_plus", "args": ["y", 1, "x"], "defines": "x", "ann": ["boundsZ", "boundsR", "boundsD", {"id": "priority", "args": [2]}]},
+            {"id": "int_ne", "args": ["x", 4]}
+        ],
+        "output": [],
+        "solve": {"method": "minimize", "objective": "x"}
+    }"#;
+    let json = prepare_json("fixed.json", source).unwrap();
+    let loaded = PreparedModel::from_json(&json.to_json().unwrap()).unwrap();
+    for candidate in ["", "x=5;y=3;"] {
+        let assignment = parse_assignment("candidate", candidate).unwrap();
+        let expected =
+            without_locations(serde_json::to_value(text.check(&assignment).unwrap()).unwrap());
+        for model in [&json, &loaded] {
+            assert_eq!(
+                without_locations(serde_json::to_value(model.check(&assignment).unwrap()).unwrap()),
+                expected
+            );
+        }
+    }
+}
+
+#[test]
 fn compiled_profiles_agree_on_float_set_objective_and_conflicting_results() {
     for (name, text, source, candidates) in [
         (

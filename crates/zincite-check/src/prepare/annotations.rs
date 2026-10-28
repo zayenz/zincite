@@ -175,6 +175,9 @@ impl Lowerer<'_> {
                 (
                     "domain"
                     | "bounds"
+                    | "boundsZ"
+                    | "boundsR"
+                    | "boundsD"
                     | "domain_propagation"
                     | "bounds_propagation"
                     | "value_propagation"
@@ -185,6 +188,9 @@ impl Lowerer<'_> {
                     | "domain_change_constraint",
                     AnnotationContext::Constraint,
                 ) if flag => {}
+                ("priority", AnnotationContext::Constraint) if call && args.len() == 1 => {
+                    self.constant_integer(args[0])?;
+                }
                 ("empty_annotation", _) if flag => {}
                 (
                     "promise_total"
@@ -384,7 +390,7 @@ impl Lowerer<'_> {
                 }
             }
             ("restart_geometric", SearchRole::Search) if args.len() == 2 => {
-                let base = self.source.float(args[0])?.get();
+                let base = self.constant_float(args[0])?.get();
                 if base <= 1.0 || self.constant_integer(args[1])? <= 0 {
                     return Err(self.source.error(node, "geometric restart needs a finite base greater than one and a positive scale"));
                 }

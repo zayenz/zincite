@@ -2836,7 +2836,7 @@ impl PreparedModel {
                     return Err(fail("a variable has multiple defines_var annotations"));
                 }
                 let direction = definition_direction(constraint, *slot)?;
-                // A definition supplies its output even when an alias has a singleton domain.
+                // Domain singletons must not preempt a definition's output.
                 self.slots[*slot].default = None;
                 if let Some(direction) = direction {
                     let inputs = constraint.predicate.operands();
@@ -2855,6 +2855,16 @@ impl PreparedModel {
                         output: *slot,
                         direction,
                     });
+                }
+            }
+        }
+        // Literal initializers supply known values even for definition targets.
+        for variable in &self.variables {
+            if defined.contains(&variable.slot) {
+                for domain in &variable.domains {
+                    if let Domain::Fixed { value } = domain {
+                        self.slots[variable.slot].default = Some(value.clone());
+                    }
                 }
             }
         }

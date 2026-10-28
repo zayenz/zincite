@@ -261,6 +261,64 @@ fn definition_chains_use_computed_values_despite_singleton_aliases() {
 }
 
 #[test]
+fn fixed_initializers_seed_defined_cycles_and_independent_checks() {
+    let declarations = "var int:x::is_defined_var=4;var int:alias=x;var int:y;";
+    let definition = "constraint int_plus(y,1,x)::defines_var(alias);";
+    for (relations, expected_status, complete, objective) in [
+        (
+            "constraint int_plus(x,-1,y)::defines_var(y);solve minimize y;",
+            Status::Valid,
+            true,
+            3,
+        ),
+        (
+            "constraint int_ne(x,4);solve minimize x;",
+            Status::Invalid,
+            false,
+            4,
+        ),
+    ] {
+        let model = prepare(
+            "fixed.fzn",
+            &format!("{declarations}{definition}{relations}"),
+        )
+        .unwrap();
+        let loaded = PreparedModel::from_json(&model.to_json().unwrap()).unwrap();
+        for model in [&model, &loaded] {
+            let report = model.check(&Assignment::default()).unwrap();
+            assert_eq!(report.status, expected_status);
+            assert_eq!(report.completeness.complete, complete);
+            assert_eq!(
+                report.objective.unwrap().argument.value,
+                Value::Integer(objective)
+            );
+            if !complete {
+                assert_eq!(report.violations.len(), 1);
+                let CheckRef::Constraint { constraint } = &report.violations[0].check else {
+                    panic!("expected the independent constraint violation")
+                };
+                assert_eq!(constraint.predicate, "int_ne");
+                assert_eq!(report.completeness.unresolved_variables.len(), 1);
+                assert_eq!(report.completeness.unresolved_variables[0].name, "y");
+            }
+            let supplied = model.check(&assignment("alias=5;y=3;")).unwrap();
+            assert_eq!(supplied.status, Status::Invalid);
+            assert!(supplied.completeness.complete);
+            assert!(supplied.violations.iter().any(|violation| matches!(
+                violation.details,
+                ViolationKind::Domain {
+                    value: Value::Integer(5)
+                }
+            )));
+            assert!(supplied.violations.iter().any(|violation| matches!(
+                &violation.check,
+                CheckRef::Constraint { constraint } if constraint.ordinal == 1
+            )));
+        }
+    }
+}
+
+#[test]
 fn cycles_need_supplied_values_and_do_not_hide_known_violations() {
     let model = prepare(
         "cycle.fzn",
@@ -4151,15 +4209,21 @@ fn tables_check_rows_empty_guards_reification_and_completion() {
         empty.check(&Assignment::default()).unwrap().status,
         Status::Valid
     );
-    let domain = prepare("table-domain", "var bool: r ::is_defined_var = false; constraint gecode_table_int_reif([1],[1],r)::defines_var(r); constraint bool_eq(r,false); solve satisfy;").unwrap();
-    assert_eq!(
-        domain
-            .check(&Assignment::default())
-            .unwrap()
-            .violations
-            .len(),
-        2
-    );
+    let fixed = prepare("table-fixed", "var bool: r ::is_defined_var = false; constraint gecode_table_int_reif([1],[1],r)::defines_var(r); constraint bool_eq(r,false); solve satisfy;").unwrap();
+    let report = fixed.check(&Assignment::default()).unwrap();
+    assert_eq!(report.violations.len(), 1);
+    assert!(matches!(
+        &report.violations[0].check,
+        CheckRef::Constraint { constraint } if constraint.predicate == "gecode_table_int_reif"
+    ));
+    assert!(matches!(
+        &report.violations[0].details,
+        ViolationKind::Table {
+            membership: true,
+            condition: zincite_check::RelationConditionValue::Reified { result },
+            ..
+        } if result.value == Value::Boolean(false)
+    ));
 }
 
 #[test]
