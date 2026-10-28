@@ -940,8 +940,8 @@ targets can establish empty axes; they cannot repair nonempty keys or holes.
 See the [data-edit guide](data-edits.md#construct-new-data) and the
 [explicit doubled instance](query-comprehension-contract.md#a-complete-doubled-instance).
 The single-pipeline `Query` API also supports the assignment edits described
-below. Add the 0.3.0 library to a Rust project with `cargo add zincite-query@0.3.0`.
-The [Rust API documentation](https://docs.rs/zincite-query/0.3.0) describes its
+below. Add the 0.4.0 library to a Rust project with `cargo add zincite-query@0.4.0`.
+The [Rust API documentation](https://docs.rs/zincite-query/0.4.0) describes its
 native result types.
 
 #### Brace collections in reports
@@ -1096,7 +1096,7 @@ copies, aliases, ordering and set results, including discarded or empty results;
 strict nested observations refuse that value.
 
 The [walkthrough](queries.md#filter-connections-and-accumulate-declarations)
-shows both forms. From the [v0.3.0 checkout](getting-started.md#build-from-a-checkout)
+shows both forms. From the [v0.4.0 checkout](getting-started.md#build-from-a-checkout)
 root, the saved program also runs as:
 
 ```sh
@@ -1744,3 +1744,19 @@ The report is `[3,3]`. Rust `ProgramValue` uses Zirql's `Filter`, `Head`, `Tail`
 Native query leaves preserve Zincite's owner and completeness checks. Full
 signatures and empty behavior are in the
 [shared collection reference](https://zayenz.se/zirql/guides/library-pipelines/#filter).
+
+
+## Checker library
+
+`zincite-check` prepares text FlatZinc or official compiler JSON, checks supplied
+assignments and exports validated executable artifacts. `PreparedModel::check`
+returns typed findings and independent completeness; missing input is a normal
+report outcome. The optional parser-free build loads prepared artifacts for
+native or WebAssembly execution.
+
+Start with the [integration guide](checker.md) for Rust, CLI and JavaScript
+examples. The [architecture guide](checker-architecture.md) explains model
+validation, definition completion and testing. The
+[Rust API documentation](https://docs.rs/zincite-check/0.4.0) describes the public types, and the
+[predicate reference](../crates/zincite-check/README.md) gives exact semantics
+and numeric limits. Add the library with `cargo add zincite-check@0.4.0`.

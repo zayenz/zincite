@@ -7,9 +7,10 @@
 </picture>
 
 Zincite formats, lints and queries MiniZinc model (`.mzn`) and data (`.dzn`)
-files. Use it to keep layout consistent, get feedback on modelling choices,
-and inspect source or data without running a compiler or solver. The Rust
-commands share a source-preserving parser and target MiniZinc 2.10.1.
+files. It also checks supplied candidates against compiled FlatZinc models.
+Use it to keep layout consistent, get feedback on modelling choices, inspect
+source and data, or validate manual edits without running a solver. The Rust
+tools target MiniZinc 2.10.1.
 Formatting and interfaces may change in the 0.x series.
 
 The [documentation site](https://zayenz.se/zincite/) introduces the tools.
@@ -29,19 +30,20 @@ meet the demand.
 | Inspect source, declarations and uses | [Query guide](https://zayenz.se/zincite/guides/queries/) |
 | Extract counts, histograms, types and literal shapes | [Feature-extraction cookbook](https://zayenz.se/zincite/guides/query-cookbook/) |
 | Change data values, filter elements or reduce an enum | [Data-edit guide](https://zayenz.se/zincite/guides/data-edits/) |
-| Integrate candidate checking from a checkout | [Checker integration](docs/checker.md), [browser workshop](examples/checker-browser/README.md) |
+| Check candidates or integrate checking into an application | [Checker integration](docs/checker.md), [browser workshop](examples/checker-browser/README.md) |
 | Look up command statuses and write restrictions | [Command reference](https://zayenz.se/zincite/guides/cli/) |
 | Understand Unknown, failures and coverage limits | [Support limits](https://zayenz.se/zincite/guides/support/) |
 
 ## Installation
 
-Install Zincite 0.3.0 with a current stable Rust toolchain:
+Install Zincite 0.4.0 with a current stable Rust toolchain:
 
 ```sh
-cargo install --locked --version '=0.3.0' zincite
+cargo install --locked --version '=0.4.0' zincite
 ```
 
-The root command supplies `zincite fmt`, `zincite lint` and `zincite query`.
+The root command supplies `zincite fmt`, `zincite lint`, `zincite query` and
+`zincite check`.
 The [installation guide](https://zayenz.se/zincite/guides/getting-started/) covers standalone commands
 and a versioned checkout for the saved examples.
 
@@ -76,14 +78,14 @@ and edit safety. Zirql's
 [values and comprehensions guide](https://zayenz.se/zirql/guides/values/)
 offers additional examples and background.
 
-## Checking candidates from a checkout
+## Checking candidates
 
-The checkout provides `zincite check` and `zincite-check` for checking supplied
+Use `zincite check` or `zincite-check` for checking supplied
 candidates against MiniZinc 2.10.1 text FlatZinc or official FlatZinc-JSON.
 Prepare a model once, then check edits locally, including infeasible or incomplete
 candidates. Supported definitions derive auxiliary values; reports contain typed
 violations and independent completeness. Checking starts no compiler or solver.
-The checker is outside the published 0.3.0 packages.
+The standalone command and Rust library ship in the `zincite-check` package.
 
 Start with the [checker integration guide](docs/checker.md) for native use,
 prepared artifacts and the two pinned offline compiler profiles. The
@@ -115,17 +117,18 @@ fresh-process runtime, memory and analysis completeness for five model roots.
 
 | Rust crate | Guide | Rust API |
 | --- | --- | --- |
-| `zincite-syntax` | [Source, CST and parsing APIs](https://zayenz.se/zincite/guides/reference/#syntax-library) | [0.3.0](https://docs.rs/zincite-syntax/0.3.0) |
-| `zincite-fmt` | [Formatting APIs](https://zayenz.se/zincite/guides/reference/#formatter-library) | [0.3.0](https://docs.rs/zincite-fmt/0.3.0) |
-| `zincite-lint` | [Analysis, settings and fix APIs](https://zayenz.se/zincite/guides/reference/#lint-library) | [0.3.0](https://docs.rs/zincite-lint/0.3.0) |
-| `zincite-query` | [Inspection and data-edit APIs](https://zayenz.se/zincite/guides/reference/#query-library) | [0.3.0](https://docs.rs/zincite-query/0.3.0) |
+| `zincite-syntax` | [Source, CST and parsing APIs](https://zayenz.se/zincite/guides/reference/#syntax-library) | [0.4.0](https://docs.rs/zincite-syntax/0.4.0) |
+| `zincite-fmt` | [Formatting APIs](https://zayenz.se/zincite/guides/reference/#formatter-library) | [0.4.0](https://docs.rs/zincite-fmt/0.4.0) |
+| `zincite-lint` | [Analysis, settings and fix APIs](https://zayenz.se/zincite/guides/reference/#lint-library) | [0.4.0](https://docs.rs/zincite-lint/0.4.0) |
+| `zincite-query` | [Inspection and data-edit APIs](https://zayenz.se/zincite/guides/reference/#query-library) | [0.4.0](https://docs.rs/zincite-query/0.4.0) |
+| `zincite-check` | [Candidate checking APIs](https://zayenz.se/zincite/guides/reference/#checker-library) | [0.4.0](https://docs.rs/zincite-check/0.4.0) |
 
-The library crates are available at version `0.3.0`. From a checkout, use `cargo doc --workspace --no-deps --open` for local API documentation.
+The library crates are available at version `0.4.0`. From a checkout, use `cargo doc --workspace --no-deps --open` for local API documentation.
 
 ## Development
 
-Read [AGENTS.md](https://github.com/zayenz/zincite/blob/v0.3.0/AGENTS.md) for repository guidance and the
-[project brief](https://github.com/zayenz/zincite/blob/v0.3.0/.zdev/base/brief.md) for behavior contracts and planned work.
+Read [AGENTS.md](https://github.com/zayenz/zincite/blob/v0.4.0/AGENTS.md) for repository guidance and the
+[project brief](https://github.com/zayenz/zincite/blob/v0.4.0/.zdev/base/brief.md) for behavior contracts and planned work.
 Run the workspace checks with:
 
 ```sh
@@ -135,14 +138,14 @@ RUSTDOCFLAGS="-D warnings" cargo test --workspace --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 ```
 
-The [developer scripts](https://github.com/zayenz/zincite/blob/v0.3.0/scripts/README.md) document corpus checks and performance
-measurements. The [semantic processing plan](https://github.com/zayenz/zincite/blob/v0.3.0/docs/semantic-processing-plan.md)
+The [developer scripts](https://github.com/zayenz/zincite/blob/v0.4.0/scripts/README.md) document corpus checks and performance
+measurements. The [semantic processing plan](https://github.com/zayenz/zincite/blob/v0.4.0/docs/semantic-processing-plan.md)
 is developer material; it does not establish completed support. Reader
 documentation lives in this README and `docs/*.md`. The
-[Astro documentation site](https://github.com/zayenz/zincite/blob/v0.3.0/site/README.md) renders these same guides.
+[Astro documentation site](https://github.com/zayenz/zincite/blob/v0.4.0/site/README.md) renders these same guides.
 Website build commands are separate from the Rust workspace checks.
 
-See the [0.3.0 release notes](CHANGELOG.md) and
+See the [0.4.0 release notes](CHANGELOG.md) and
 [release procedure](RELEASING.md) for package verification and publication order.
 
 ## License

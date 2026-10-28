@@ -4,7 +4,7 @@ default-members = [".", "crates/zincite-syntax", "crates/zincite-fmt", "crates/z
 resolver = "3"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/zayenz/zincite"
@@ -15,7 +15,7 @@ name = "zincite"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "MiniZinc source formatting, linting and query tools"
+description = "MiniZinc formatting, linting, queries and FlatZinc candidate checking"
 repository.workspace = true
 homepage.workspace = true
 documentation = "https://zayenz.se/zincite/"
@@ -23,7 +23,7 @@ readme = "README.md"
 include = ["/src/**", "/build.rs", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE", "/CHANGELOG.md", "/RELEASING.md", "/assets/zincite-logo-light.svg", "/assets/zincite-logo-dark.svg"]
 
 [dependencies]
-zincite-fmt = { version = "0.3.0", path = "crates/zincite-fmt" }
-zincite-lint = { version = "0.3.0", path = "crates/zincite-lint" }
-zincite-query = { version = "0.3.0", path = "crates/zincite-query" }
-zincite-check = { version = "0.3.0", path = "crates/zincite-check" }
+zincite-fmt = { version = "0.4.0", path = "crates/zincite-fmt" }
+zincite-lint = { version = "0.4.0", path = "crates/zincite-lint" }
+zincite-query = { version = "0.4.0", path = "crates/zincite-query" }
+zincite-check = { version = "0.4.0", path = "crates/zincite-check" }

@@ -1,11 +1,11 @@
 ---
-title: Format, lint and query MiniZinc
-description: Zincite formats MiniZinc source, checks modelling conventions and inspects models and data. Start with a worked staffing example.
+title: Tools for MiniZinc models and FlatZinc candidates
+description: Format, lint and query MiniZinc source, or check candidate assignments with native Rust and WebAssembly tools.
 template: doc
 tableOfContents: false
 hero:
-  title: Format, lint and query MiniZinc.
-  tagline: Tools for working on .mzn models and .dzn data, from the layout of a constraint to the values in an instance.
+  title: Format, lint, query and check.
+  tagline: Format, lint and query MiniZinc source, then check supplied FlatZinc assignments in Rust or WebAssembly.
   image:
     file: ../../../../assets/zincite-mark.svg
   actions:
@@ -19,13 +19,17 @@ hero:
 
 import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-<div className="project-note">Zincite 0.3.0 · MiniZinc 2.10.1</div>
+<div className="project-note">Zincite 0.4.0 · MiniZinc 2.10.1</div>
 
 Zincite helps you review and maintain MiniZinc models. The formatter takes care
 of layout, so an edit to a constraint produces a diff you can read. The linter
 checks conventions and looks for modelling concerns, such as mismatched array
 indices or expressions that may be undefined. Queries let you inspect the
 source and data when you have a more specific question.
+
+The candidate checker evaluates supplied values against a compiled FlatZinc
+model. An application can prepare the model once, derive supported auxiliary
+values after each edit, and show structured violations or missing input.
 
 The commands work without running a MiniZinc compiler or solver. They share a
 parser that keeps comments, spelling and source locations, so findings can
@@ -122,14 +126,27 @@ investigate before asking a solver for a roster.
 [Work through the complete example](./guides/first-model/) for the model,
 formatter output, lint feedback and query result.
 
+## Check candidate assignments
+
+Given a compiled model and a candidate file, run:
+
+```sh
+zincite check delivery.fzn candidate.dzn
+```
+
+The [integration guide](./guides/checker/) supplies those files and follows valid,
+invalid and incomplete edits through the CLI, Rust API and WebAssembly runtime.
+The checker reports every available violation and completeness separately.
+MiniZinc compilation is a separate offline step; repeated checks start no solver.
+
 ## Install Zincite
 
-Install Zincite 0.3.0 with a current stable Rust toolchain:
+Install Zincite 0.4.0 with a current stable Rust toolchain:
 
 <!-- install-commands -->
 
 Formatting and interfaces may change in the 0.x series. Read the
-[release notes](https://github.com/zayenz/zincite/releases/tag/v0.3.0) when
+[release notes](https://github.com/zayenz/zincite/releases/tag/v0.4.0) when
 upgrading. The
 [support guide](./guides/support/) explains language coverage and how to
 interpret incomplete analysis.
@@ -140,6 +157,7 @@ interpret incomplete analysis.
   <LinkCard title="Formatting" description="See the layout choices, configure EditorConfig and set up format on save." href="./guides/formatting/" />
   <LinkCard title="Linting" description="Choose checks for conventions, arrays, domains or search, and review suggested fixes." href="./guides/linting/" />
   <LinkCard title="Queries and data" description="Select source, follow declaration uses, build reports and make smaller data instances." href="./guides/queries/" />
+  <LinkCard title="Candidate checking" description="Complete supported auxiliary values and report violations or missing input in Rust and WebAssembly." href="./guides/checker/" />
 </CardGrid>
 
 The [query guide](./guides/queries/) explains expressions, comprehensions and

@@ -18,10 +18,10 @@ reference for accepted forms, predicate semantics and compilation recipes. The
 [maintainer guide](../../docs/checker-architecture.md) describes preparation,
 execution and the existing validation paths.
 
-Install the checker locally with
-`cargo install --locked --path crates/zincite-check`, or install the root command
-with `cargo install --locked --path .`. It is not part of the published 0.3.0
-packages.
+Install the standalone command with
+`cargo install --locked --version '=0.4.0' zincite-check`, or use `zincite check`
+from the `zincite` package. From a checkout, install with
+`cargo install --locked --path crates/zincite-check`.
 
 ## Try the compiled example
 
@@ -106,11 +106,13 @@ fixed numeric literals take the type required by each use, and empty arrays work
 in every array role. Array aliases and forward references work; cycles, unknown
 references, incompatible types, fields, versions and semantic operations diagnose
 during preparation. String literal objects (`{"string":"text"}`) differ from
-identifier strings. An all-literal array listed in `output` becomes assignable;
-using its name in a fixed role, such as a coefficient array, then diagnoses.
-This is a current preparation boundary; the inspected compiler controls did not
-emit that combination. Nested annotation calls use the existing metadata/search
-validation, including application payloads, paths, output and definition hints.
+identifier strings. An all-literal array listed in `output` becomes assignable.
+If it is nonempty, using its name in a fixed role, such as a coefficient array,
+then diagnoses. Empty arrays have no variable operands and can fill fixed-parameter
+roles. This is a current preparation boundary; the inspected compiler controls
+did not emit the rejected combination. Nested annotation calls use the existing
+metadata/search validation, including application payloads, paths, output and
+definition hints.
 
 Sets and domains use ordered, nonoverlapping, nonreversed range pairs. Integer
 sets and disjoint integer domains stay compact across the full `i64` range.
@@ -451,16 +453,14 @@ failures. Insufficient input returns `Ok(CheckReport)`.
 The default `prepare` feature uses `zincite-syntax` for CST traversal and source
 locations, and includes the native CLI. Disabling default features excludes the
 parser and CLI. `PreparedModel::from_json` and `check` also work with
-a path dependency on this checkout:
+a registry dependency:
 
 ```toml
 [dependencies]
-zincite-check = { path = "../zincite/crates/zincite-check", default-features = false }
+zincite-check = { version = "0.4.0", default-features = false }
 ```
 
-Adjust the path relative to the consuming project's `Cargo.toml`. This checker
-has not been published to the registry. Supply `Assignment` values directly in
-that build. `from_json`
+Supply `Assignment` values directly in that build. `from_json`
 returns a `Diagnostic` on malformed input; `PreparedModel` does not implement
 `Deserialize`, so deserialization cannot bypass admission checks.
 

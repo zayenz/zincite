@@ -2,7 +2,7 @@
 
 `zincite fmt`, `zincite lint` and `zincite query` use the same options as
 `zincite-fmt`, `zincite-lint` and `zincite-query`, respectively. Installed help
-lists the accepted options. `zincite --version` reports `0.3.0` and a build
+lists the accepted options. `zincite --version` reports `0.4.0` and a build
 revision when available:
 
 ```sh
@@ -59,7 +59,7 @@ The [program reference](reference.md#query-programs) defines the default limits.
 Query output is buffered until evaluation and rendering succeed. If a later
 statement fails, the command produces no partial report on stdout.
 
-## Candidate checking from a checkout
+## Candidate checking
 
 `zincite check` and `zincite-check` share one CLI:
 
@@ -96,7 +96,7 @@ loaded model supplies the other saved component. Defaults are `1e-9` each;
 zero/zero selects exact checking. Export saves both settings. Prepared artifacts,
 Wasm assignments and reports encode all mathematical integers as exact decimal
 strings, including set endpoints and application payloads. These commands are
-available from the checkout, outside the published 0.3.0 packages.
+available through `zincite check` and the standalone `zincite-check` package.
 
 ## Explicit writes
 
@@ -110,7 +110,7 @@ bytes again before replacing the file. Writes retain file permissions.
 
 ## Exit codes
 
-| Code | Formatter | Linter | Query | Checker (checkout) |
+| Code | Formatter | Linter | Query | Checker |
 | --- | --- | --- | --- | --- |
 | `0` | Formatting succeeded; check found no changes | No unsuppressed warnings or errors | Complete result | Valid, complete candidate or successful export |
 | `1` | Check found formatting changes | Unsuppressed warnings | Incomplete semantic report or data candidate | Invalid or incomplete report |

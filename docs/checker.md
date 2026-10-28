@@ -47,10 +47,10 @@ cargo run -p zincite-check -- delivery.fzn candidate.dzn
 cargo run -p zincite -- check --format json delivery.fzn candidate.dzn
 ```
 
-The checker is available from this checkout and is not included in the published
-0.3.0 packages. To use the shorter commands shown below, install the standalone
-binary with `cargo install --locked --path crates/zincite-check` and the root
-binary with `cargo install --locked --path .`.
+Install the standalone command with
+`cargo install --locked --version '=0.4.0' zincite-check`, or install `zincite`
+at the same version for `zincite check`. The `cargo run` examples above use a
+source checkout; the shorter commands below use the installed binaries.
 
 Try these candidate contents in sequence:
 
@@ -70,15 +70,15 @@ is 5. Each call starts with fresh values.
 ## Prepare once in Rust
 
 A native application can parse FlatZinc once and construct typed assignments for
-each edit. Add a path dependency on this checkout:
+each edit. Add the library to the application's `Cargo.toml`:
 
 ```toml
 [dependencies]
-zincite-check = { path = "../zincite/crates/zincite-check" }
+zincite-check = "0.4.0"
 ```
 
-Adjust the path relative to the application's `Cargo.toml`. With the FlatZinc
-above beside `src/main.rs` as `src/delivery.fzn`, this is a complete program:
+With the FlatZinc above beside `src/main.rs` as `src/delivery.fzn`, this is a
+complete program:
 
 ```rust
 use zincite_check::{
@@ -236,9 +236,11 @@ Zincite reads those tokens directly. It also accepts the specified `rhs` field
 for fixed values and aliases. The
 [FlatZinc-JSON reference](../crates/zincite-check/README.md#prepare-official-compiler-json)
 describes contextual array types and admission limits. In particular, listing
-an all-literal array in JSON `output` makes that array assignable; its name then
-cannot serve as a fixed coefficient array. That is a current preparation
-boundary, not a demonstrated defect in MiniZinc's emitted output.
+an all-literal array in JSON `output` makes that array assignable. If it is
+nonempty, its name cannot serve as a fixed coefficient array. Empty arrays have
+no variable operands and can fill fixed-parameter roles. This is a current
+preparation boundary; the inspected compiler controls did not emit the rejected
+combination.
 
 ## Use the parser-free Wasm runtime
 

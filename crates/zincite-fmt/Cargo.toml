@@ -6,13 +6,13 @@ license.workspace = true
 description = "MiniZinc source formatter"
 repository.workspace = true
 homepage.workspace = true
-documentation = "https://docs.rs/zincite-fmt/0.3.0"
+documentation = "https://docs.rs/zincite-fmt/0.4.0"
 readme = "README.md"
 include = ["/src/**", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
 
 [dependencies]
 ec4rs = { version = "1.2.0", features = ["allow-empty-values"] }
-zincite-syntax = { version = "0.3.0", path = "../zincite-syntax" }
+zincite-syntax = { version = "0.4.0", path = "../zincite-syntax" }
 
 [dev-dependencies]
-zincite-lint = { version = "0.3.0", path = "../zincite-lint" }
+zincite-lint = { version = "0.4.0", path = "../zincite-lint" }

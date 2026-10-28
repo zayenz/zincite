@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.4.0
+
+- Add `zincite check`, the standalone `zincite-check` command and a reusable Rust checker for MiniZinc 2.10.1 text FlatZinc and official FlatZinc-JSON.
+- Fill auxiliary values through supported functional definitions and report every evaluable constraint violation, application metadata and available objectives. Report completeness separately; missing input is an ordinary report outcome.
+- Cover the MiniZinc 2.10.1 standard library and the Gecode main snapshot from 2026-10-26, with checked i64 values, compact integer sets and configurable finite-float comparisons. Diagnose external-execution and search-history hooks explicitly.
+- Export validated prepared models for repeated native or parser-free WebAssembly checks. Keep integer values exact across JavaScript boundaries.
+- Add integration and architecture guides, offline compiler recipes and a graphical workshop example. Document compiler limits and measurements for the named native/browser build.
+
 ## 0.3.0
 
 - Use Zirql 0.3.0 for shared program reading, preparation, scalar conversions, formatting, collection operations and JSON/Markdown reports.

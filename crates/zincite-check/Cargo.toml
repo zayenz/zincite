@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
+documentation = "https://docs.rs/zincite-check/0.4.0"
 description = "Repeated native and WebAssembly candidate checking for FlatZinc"
 readme = "README.md"
 include = ["/src/**", "/examples/**", "/minizinc/**", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
@@ -19,7 +20,7 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 libm = { version = "=0.2.16", default-features = false }
-zincite-syntax = { version = "0.3.0", path = "../zincite-syntax", optional = true }
+zincite-syntax = { version = "0.4.0", path = "../zincite-syntax", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
 

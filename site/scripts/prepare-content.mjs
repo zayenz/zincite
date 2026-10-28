@@ -9,7 +9,8 @@ const guides = [
   'getting-started', 'first-model', 'formatting', 'formatting-style', 'format-on-save',
   'linting', 'lint-conventions', 'lint-scope', 'lint-arrays', 'lint-domains',
   'lint-formulation', 'lint-flattening', 'lint-search',
-  'queries', 'query-cookbook', 'query-comprehension-contract', 'data-edits', 'cli', 'support', 'reference',
+  'queries', 'query-cookbook', 'query-comprehension-contract', 'data-edits',
+  'checker', 'checker-architecture', 'cli', 'support', 'reference',
 ];
 const output = resolve(site, 'src/content/docs/guides');
 await mkdir(output, { recursive: true });
@@ -26,7 +27,7 @@ for (const name of guides) {
     const slug = resolved.match(/^docs\/([\w-]+)\.md$/)?.[1];
     if (slug && guides.includes(slug)) return `](../${slug}/${anchor ? `#${anchor}` : ''})`;
     if (resolved === 'README.md') return `](../../${anchor ? `#${anchor}` : ''})`;
-    return `](https://github.com/zayenz/zincite/blob/v0.3.0/${resolved}${anchor ? `#${anchor}` : ''})`;
+    return `](https://github.com/zayenz/zincite/blob/v0.4.0/${resolved}${anchor ? `#${anchor}` : ''})`;
   });
   await writeFile(resolve(output, `${name}.md`), `---\ntitle: ${JSON.stringify(title[1])}\neditUrl: false\n---\n${body}`);
 }

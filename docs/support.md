@@ -4,12 +4,12 @@ Zincite targets MiniZinc 2.10.1 `.mzn` models and assignment-only `.dzn` data.
 The [syntax reference](reference.md#syntax-support) lists accepted constructs
 and differences between the specification and compiler. JSON data and solver
 solution streams are not supported formatter/linter/query input formats. The
-checkout checker separately accepts official FlatZinc-JSON. Code and literals must be UTF-8;
+candidate checker separately accepts official FlatZinc-JSON. Code and literals must be UTF-8;
 non-UTF-8 bytes in comments are preserved.
 
 ## Versions and Rust support
 
-Zincite 0.3.0 supports the current stable Rust toolchain. No separate minimum
+Zincite 0.4.0 supports the current stable Rust toolchain. No separate minimum
 Rust version is promised. The command-line tools and library crates share the
 same release version. Formatting and interfaces may change in the 0.x series;
 review the [release notes](../CHANGELOG.md) when upgrading.
@@ -29,7 +29,7 @@ Data edits change the instance. Zincite reparses the candidate and, for
 model-backed construction, checks supported types and array shapes. Those
 checks do not establish satisfiability.
 
-The checkout's candidate checker accepts MiniZinc 2.10.1 text FlatZinc and
+The candidate checker accepts MiniZinc 2.10.1 text FlatZinc and
 official FlatZinc-JSON. It checks the mathematical operations emitted by both the
 standard decomposition profile and the pinned Gecode library, including exact
 aliases and conditional set/float/MPFR registrations. The
@@ -62,8 +62,8 @@ parser-free Rust API and [Wasm bindings](../examples/checker-wasm/README.md) use
 same loader and checking runtime. The [graphical example](../examples/checker-browser/README.md)
 demonstrates ordinary edits. The
 [2026-10-28 performance report](../scripts/checker-performance.md) records
-measurements for its named build and workload. The checker is available from this
-checkout, outside the published 0.3.0 packages.
+measurements for its named build and workload. The checker ships in Zincite 0.4.0
+and the standalone `zincite-check` package.
 
 ## Unknown facts and incomplete analysis
 

@@ -17,7 +17,7 @@ export default defineConfig({
   site, base, trailingSlash: 'always',
   integrations: [starlight({
     title: 'Zincite',
-    description: 'Format, lint and query MiniZinc source files.',
+    description: 'Format, lint and query MiniZinc models, and check FlatZinc candidates.',
     logo: { light: '../assets/zincite-logo-dark.svg', dark: '../assets/zincite-logo-light.svg', replacesTitle: true, alt: 'Zincite' },
     favicon: '/favicon.svg',
     customCss: ['./src/styles/custom.css'],
@@ -36,6 +36,7 @@ export default defineConfig({
         { label: 'Search and symmetry breaking', slug: 'guides/lint-search' },
       ] },
       { label: 'Queries and data', items: ['guides/queries', 'guides/query-cookbook', 'guides/data-edits'] },
+      { label: 'Candidate checking', items: ['guides/checker', 'guides/checker-architecture'] },
       { label: 'Reference', items: [
         'guides/cli',
         { label: 'Query expressions', slug: 'guides/query-comprehension-contract' },
