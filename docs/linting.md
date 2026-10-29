@@ -78,8 +78,10 @@ mistake report informational findings: `constant-variable`, `compact-if`,
 `effective-zero-one`, `reified-global`, `search-coverage`,
 `decision-variable-operator`, `decision-variable-generator`,
 `decision-variable-condition`, `unmarked-symmetry-breaking`,
-`global-constraint-opportunity` and `missing-input-precondition`. Every other
-rule warns, except that `expensive-comprehension` reports a product of symbolic
+`global-constraint-opportunity` and `missing-input-precondition`.
+`unused-declaration` is also informational: an unused declaration is usually
+leftover or shared-data housekeeping rather than a mistake, so it is reported
+without failing the run. Every other rule warns, except that `expensive-comprehension` reports a product of symbolic
 generator sizes as informational, because it does not claim that the product
 exceeds a numeric threshold or will be slow in practice. Severity is not
 configurable.

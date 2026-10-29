@@ -1135,10 +1135,10 @@ fn unused_declaration_selection_respects_complete_roots_limits_and_status_preced
         "--show-limitations",
     ];
     let output = run(&args, "");
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(0));
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert_eq!(stderr.matches("warning [unused-declaration]").count(), 1);
+    assert_eq!(stderr.matches("info [unused-declaration]").count(), 1);
     assert!(stderr.contains("'unused'") && !stderr.contains("analysis limitation"));
     assert_eq!(std::fs::read_to_string(&root).unwrap(), original);
     assert!(
@@ -1164,7 +1164,7 @@ fn unused_declaration_selection_respects_complete_roots_limits_and_status_preced
     let stderr = String::from_utf8(uncertain.stderr).unwrap();
     assert!(
         stderr.contains("analysis limitation: unused-declaration")
-            && !stderr.contains("warning [unused-declaration]")
+            && !stderr.contains("info [unused-declaration]")
     );
     std::fs::write(&root, original).unwrap();
     let broken = dir.join("broken.mzn");
@@ -1184,7 +1184,7 @@ fn unused_declaration_selection_respects_complete_roots_limits_and_status_preced
     assert!(
         String::from_utf8(mixed.stderr)
             .unwrap()
-            .contains("warning [unused-declaration]")
+            .contains("info [unused-declaration]")
     );
     let stdin = run(&["--rules", "unused-declaration"], original);
     assert_eq!(stdin.status.code(), Some(0));
@@ -2733,10 +2733,11 @@ fn diagnostic_only_rules_keep_native_fix_diff_bytes_and_statuses() {
         );
         assert_eq!(
             result.status.code(),
-            Some(1),
+            Some(0),
             "{}",
             String::from_utf8_lossy(&result.stderr)
         );
+        assert!(String::from_utf8_lossy(&result.stderr).contains("info [unused-declaration]"));
         assert!(result.stdout.is_empty());
     }
     assert_eq!(

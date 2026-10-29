@@ -434,6 +434,7 @@ impl Rule {
                     | Self::UnmarkedSymmetryBreaking
                     | Self::GlobalConstraintOpportunity
                     | Self::MissingInputPrecondition
+                    | Self::UnusedDeclaration
             ) {
                 Severity::Informational
             } else {

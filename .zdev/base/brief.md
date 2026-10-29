@@ -313,7 +313,9 @@ constant-variable, compact-if, effective-zero-one, reified-global,
 search-coverage, decision-variable-operator, decision-variable-generator,
 decision-variable-condition, unmarked-symmetry-breaking,
 global-constraint-opportunity and missing-input-precondition.
-expensive-comprehension keeps its current warning/informational split. Every
+unused-declaration is informational too: in a sample of 158 local models it
+fired in 91 and reported unused data parameters and helpers, which are
+housekeeping rather than likely mistakes. expensive-comprehension keeps its current warning/informational split. Every
 other rule warns. Severity is not configurable.
 
 **Rule corrections.**

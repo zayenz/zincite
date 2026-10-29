@@ -36,7 +36,7 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
         assert_eq!(rule.metadata().family, RuleFamily::Style);
     }
     assert_eq!(search.severity, Severity::Informational);
-    assert_eq!(Rule::UnusedDeclaration.severity(), Severity::Warning);
+    assert_eq!(Rule::UnusedDeclaration.severity(), Severity::Informational);
     assert_eq!(Rule::ExpensiveComprehension.severity(), Severity::Warning);
     for rule in Rule::DEFAULT.into_iter().chain(Rule::THESIS).chain([
         Rule::IndexSetMismatch,
