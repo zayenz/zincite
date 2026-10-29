@@ -31,9 +31,8 @@ baseline; the Corpus and thesis expansion section explicitly extends them.
 - Prefer simple modules and direct tree traversal. Add crates, generic interfaces,
   semantic machinery, and tests when an actual consumer or risk justifies them.
 - Target MiniZinc 2.10.1, including `.mzn` models and `.dzn` data files.
-- Use naming, missing-constraint-label, prefer-array-comprehension,
-  index-set-mismatch, suspicious-shadowing and partial-expression as the default
-  rules, in that order. Keep all other rules opt-in and preserve the fourteen-rule
+- The `default` preset is defined in the Lint review follow-up (2026-10-29)
+  section. Keep all other rules opt-in and preserve the fourteen-rule
   `--rules thesis` preset. Build name resolution and semantic facts only as
   selected rules need them.
 - Accept explicit file paths and stdin. Extend linting and formatter check mode
@@ -288,6 +287,69 @@ Formatter explicit writes must reject a file changed since reading before
 replacing it, using the existing lint-fix replacement approach where practical.
 This is stale-edit protection, not a promise of cross-process locking.
 
+## Lint review follow-up (2026-10-29)
+
+A review ran `--rules all` over 594 models: 158 local models under
+`~/minizinc/` and the 436 published Challenge models. Its decisions supersede
+the earlier default statements in this brief.
+
+**Default preset.** A default run reports likely mistakes and stays quiet on
+well-written models, so exit status 1 carries meaning. `default` selects
+prefer-array-comprehension, index-set-mismatch, suspicious-shadowing,
+partial-expression, hidden-optionality, vacuous-constraint, unbounded-variable
+and unused-declaration, in that order. The new rules pairwise-self-comparison
+and deprecated-call then join the end of the default, in that order.
+naming and missing-constraint-label leave the default and remain in the
+`conventions` preset. Together they produced over 32,000 findings in 89% of
+the reviewed files and hid every other result.
+
+**Families.** array-index-start, global-variable-in-function,
+element-predicate and unused-generator-binding move to `style`. Other
+families are unchanged.
+
+**Default severity.** These rules propose an alternative formulation
+without identifying a likely mistake, so they report informational findings:
+constant-variable, compact-if, effective-zero-one, reified-global,
+search-coverage, decision-variable-operator, decision-variable-generator,
+decision-variable-condition, unmarked-symmetry-breaking,
+global-constraint-opportunity and missing-input-precondition.
+expensive-comprehension keeps its current warning/informational split. Every
+other rule warns. Severity is not configurable.
+
+**Rule corrections.**
+- index-set-mismatch, partial-expression and vacuous-constraint must reason
+  through named parameters and sets. They currently stay silent on
+  `int: n = 3; array[1..n] of int: x; ... x[4]` and on
+  `forall (i in 1..n) (x[i + 1])`, so they found nothing in the reviewed
+  corpus. Unconditional initializers supply known values. A symbolic claim
+  must hold for every parameter value for which the iteration is nonempty;
+  otherwise the rule stays quiet.
+- search-coverage applies only when the solve item has a search annotation.
+- unused-declaration does not report generator bindings; that is
+  unused-generator-binding's job.
+- suspicious-shadowing exempts callable formal parameters that share a name
+  with a top-level declaration. global-variable-in-function recommends
+  exactly that pattern.
+- decision-variable-operator covers only `^`, `div`, `mod` and `/`. Boolean
+  connectives are ordinary modelling and produced most of its 18,753
+  findings.
+
+**New rules.**
+
+| ID | Family | Default | Preset | Concern |
+| --- | --- | --- | --- | --- |
+| `pairwise-self-comparison` | correctness | yes | formulation | An enforced irreflexive comparison between two generator bindings over the same source that never excludes the equal pair, such as `forall (i, j in S) (x[i] != x[j])`. It cannot be satisfied when that pair is evaluated. |
+| `deprecated-call` | suspicious | yes | conventions | A call that resolves to a standard-library callable annotated `mzn_deprecated`. |
+| `prefer-assertion` | style | no | conventions | A constraint item that depends only on parameters; `assert` explains failed input. Existing `assert` calls are quiet. |
+| `ambiguous-precedence` | suspicious | no | conventions | Unparenthesized `/\` mixed with `\/` or `xor`, and chains of two or more `->`/`<-` (left-associative). `a /\ b -> c` stays quiet. Source-only. |
+| `float-equality` | suspicious | no | domains | `=` or `!=` between parameter-valued float expressions. Decision float equalities are ordinary constraints and stay quiet. |
+
+An if-then without else is not linted. Its default else is intended.
+
+**Cost.** The default rules share guarded and iteration facts. These took about
+40 s on the 93 KB `liner-sf-repositioning/tp7_8.mzn` model. They took over 60 s on
+`connect/connect__0018.mzn` and several large generated Challenge models.
+
 ## Remaining layout defaults
 
 These defaults complete the agreed formatting direction without adding style
@@ -309,8 +371,9 @@ whitespace; adjacent formatting must not swallow or duplicate it.
 
 ## Initial lint contract
 
-Rule IDs are `naming` and `missing-constraint-label`. Both are warnings enabled by
-default; unsuppressed warnings fail the command. Naming checks declarations and
+Rule IDs are `naming` and `missing-constraint-label`. Both are warnings;
+unsuppressed warnings fail the command. Since the Lint review follow-up
+(2026-10-29) they run through the `conventions` preset, not by default. Naming checks declarations and
 bindings whose role is clear from syntax: ordinary values, callable names,
 parameters, fields and generator bindings use snake_case; enum/type names,
 constructors and explicitly declared parameter sets/domains use UpperCamelCase.
@@ -398,10 +461,9 @@ symlink-directory cycles and deduplicate overlapping inputs. Do not recursively
 write directories in this bundle. Explicit file writes retain their current
 contract. Reading included files for semantic linting never formats them.
 
-`--rules default` and `--rules preset:default` select naming,
-missing-constraint-label, prefer-array-comprehension, index-set-mismatch,
-suspicious-shadowing and partial-expression, in that order; omitted `--rules`
-is equivalent.
+`--rules default` and `--rules preset:default` select the default rules in the
+order given by the Lint review follow-up (2026-10-29); omitted `--rules` is
+equivalent.
 `--rules thesis` selects exactly the fourteen thesis rules, and `--rules all`
 selects every registered rule. A comma-separated list of stable rule IDs selects exactly
 those rules. Reject unknown IDs and repeated `--rules`; keep the existing text
@@ -610,14 +672,14 @@ Keep stable readable IDs, including the existing sixteen. Each rule records a
 primary family, a short explanation, required semantic facts, availability and
 fix capability (none, sometimes or always). Families are `correctness`,
 `suspicious`, `modelling`, `performance`, and `style`; families classify purpose,
-not severity or fix safety. Assign a rule once, and document the membership.
+not severity or fix safety. Each rule also records its default severity; the
+Lint review follow-up (2026-10-29) lists the informational rules. Assign a rule once, and document the membership.
 Keep the exit status policy: unsuppressed warnings fail; informational advice
 alone does not. For `expensive-comprehension`, symbolic Cartesian structure
 without a proven count or threshold exceedance is informational advice; reserve
 warnings for stronger evidence. Broad heuristic advice stays
-opt-in; the `default` preset includes naming, missing-constraint-label,
-prefer-array-comprehension, index-set-mismatch, suspicious-shadowing and
-partial-expression, in that order. Preserve the fourteen-rule `thesis` preset.
+opt-in; the Lint review follow-up (2026-10-29) defines the `default` preset.
+Preserve the fourteen-rule `thesis` preset.
 `all` expands to every registered rule and still diagnoses unavailable selections.
 
 Selectors accept exact IDs, `family:NAME`, `preset:NAME`, and legacy
