@@ -2,7 +2,7 @@
 use crate::{
     ArrayIndexSet, BindingFacts, DeclarationRole, DefinitionCoverage, DefinitionEnforcement,
     DefinitionFacts, DefinitionSafety, Domain, DomainFacts, FileFinding, Instantiation,
-    InstantiationFacts, ModelContext, NumericBound, Rule, Severity, SourceDiagnostic, TypeKind,
+    InstantiationFacts, ModelContext, NumericBound, Rule, SourceDiagnostic, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 pub(super) struct IndexResult {
@@ -33,7 +33,7 @@ pub(super) fn check_array_indices(
             Ok(Some(lower)) if lower != 1 => result.findings.push(FileFinding { fix: None,
                 location: index.location.clone(),
                 rule: Rule::ArrayIndexStart,
-                severity: Severity::Warning,
+                severity: Rule::ArrayIndexStart.severity(),
                 message: format!("numeric array index set starts at {lower}; consider starting at 1 for simpler indexing"),
             }),
             Err(_) if inspected_count_bound(context, bindings, calls, instantiations, facts, definitions, &index.domain)

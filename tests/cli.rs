@@ -163,7 +163,7 @@ fn lint_selection_and_settings_keep_standalone_behavior() {
     assert!(
         String::from_utf8(listed.stdout)
             .unwrap()
-            .contains("unused-generator-binding\tsuspicious\tavailable\tsometimes\tscope,all")
+            .contains("unused-generator-binding\tstyle\twarning\tavailable\tsometimes\tscope,all")
     );
     std::fs::remove_dir_all(directory).unwrap();
 }

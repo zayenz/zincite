@@ -175,12 +175,12 @@ fn check_family_markers(redefined: bool) {
             .unwrap()
     };
     let output = run(&root);
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(0));
     assert!(output.stdout.is_empty());
     assert_eq!(
         String::from_utf8(output.stderr)
             .unwrap()
-            .matches("warning [unmarked-symmetry-breaking]")
+            .matches("info [unmarked-symmetry-breaking]")
             .count(),
         12
     );

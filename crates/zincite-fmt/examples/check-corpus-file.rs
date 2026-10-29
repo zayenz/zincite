@@ -264,7 +264,7 @@ fn semantic_report(
     preset: &str,
     model_options: &zincite_lint::ModelOptions,
 ) {
-    use zincite_lint::{RuleOutcome, SourceKind};
+    use zincite_lint::{RuleOutcome, Severity, SourceKind};
     let options = zincite_lint::LintOptions::from_selection(preset).unwrap();
     let data = zincite_syntax::FileMode::from_path(path) == zincite_syntax::FileMode::Data;
     // Match native routing: only model-dependent selections load the include closure.
@@ -374,15 +374,20 @@ fn semantic_report(
     });
     let parse_count = parsed.map_or("null".into(), |(p, _)| p.diagnostics().len().to_string());
     let parse_errors = parsed.map_or("[]".into(), |(p, _)| messages(p.diagnostics()));
+    let warnings = result
+        .findings
+        .iter()
+        .filter(|f| f.severity == Severity::Warning)
+        .count();
     println!(
-        "{{\"input_status\":\"ok\",\"check_kind\":\"semantic\",\"selection\":{},\"file_mode\":{},\"root_state\":{},\"loaded_solve_count\":{solves},\"dependencies\":{dependencies},\"parse_count\":{},\"parse_errors\":{},\"token_coverage\":{tokens},\"tree_coverage\":{tree},\"analysis_status\":{},\"warning_count\":{},\"error_count\":{},\"limitation_count\":{},\"rules\":{{{}}},\"error_samples\":[{}],\"limitation_samples\":[{}],\"sample_limits\":{{\"findings_per_rule\":3,\"errors\":12,\"limitations\":12,\"message_characters\":512}}}}",
+        "{{\"input_status\":\"ok\",\"check_kind\":\"semantic\",\"selection\":{},\"file_mode\":{},\"root_state\":{},\"loaded_solve_count\":{solves},\"dependencies\":{dependencies},\"parse_count\":{},\"parse_errors\":{},\"token_coverage\":{tokens},\"tree_coverage\":{tree},\"analysis_status\":{},\"warning_count\":{warnings},\"info_count\":{},\"error_count\":{},\"limitation_count\":{},\"rules\":{{{}}},\"error_samples\":[{}],\"limitation_samples\":[{}],\"sample_limits\":{{\"findings_per_rule\":3,\"errors\":12,\"limitations\":12,\"message_characters\":512}}}}",
         quoted(preset),
         quoted(if data { "data" } else { "model" }),
         quoted(root_state),
         parse_count,
         parse_errors,
         result.status(),
-        result.findings.len(),
+        result.findings.len() - warnings,
         result.errors.len(),
         result.limitations.len(),
         rules.join(","),

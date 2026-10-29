@@ -5,8 +5,7 @@ use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 use crate::callables::{is_expression, operation_head_start};
 use crate::{
     BindingFacts, CallFact, CallOutcome, DeclarationId, FileFinding, FileId, Instantiation,
-    InstantiationFacts, ModelContext, Rule, Severity, SourceDiagnostic, SourceKind, SourceLocation,
-    TypeKind,
+    InstantiationFacts, ModelContext, Rule, SourceDiagnostic, SourceKind, SourceLocation, TypeKind,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -474,7 +473,7 @@ pub(super) fn check_global_uses(
             continue;
         }
         match &usage.outcome {
-            GlobalUseOutcome::DecisionDependent => findings.push(FileFinding { fix: None, location: usage.location.clone(), rule: Rule::ReifiedGlobal, severity: Severity::Warning, message: "this Boolean-valued global use may require reification or half-reification; consider whether an enforced formulation expresses the model more clearly".into() }),
+            GlobalUseOutcome::DecisionDependent => findings.push(FileFinding { fix: None, location: usage.location.clone(), rule: Rule::ReifiedGlobal, severity: Rule::ReifiedGlobal.severity(), message: "this Boolean-valued global use may require reification or half-reification; consider whether an enforced formulation expresses the model more clearly".into() }),
             GlobalUseOutcome::Unsupported(reason) => limitations.push(SourceDiagnostic { location: usage.location.clone(), message: format!("reified-global: {reason}") }),
             _ => {}
         }

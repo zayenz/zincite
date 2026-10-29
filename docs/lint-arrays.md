@@ -4,11 +4,11 @@ These rules check which indices an array accepts, what a filtered comprehension
 contains and whether an array constructor is needed. Select them with
 `--rules preset:arrays`. See [linting](linting.md) for model context and fix options.
 
-| Rule | Default | Automatic fix |
-| --- | --- | --- |
-| [`index-set-mismatch`](#index-set-mismatch) | Yes | No |
-| [`hidden-optionality`](#hidden-optionality) | Yes | No |
-| [`prefer-array-comprehension`](#prefer-array-comprehension) | Yes | Sometimes |
+| Rule | Family | Severity | Default | Automatic fix |
+| --- | --- | --- | --- | --- |
+| [`index-set-mismatch`](#index-set-mismatch) | `correctness` | Warning | Yes | No |
+| [`hidden-optionality`](#hidden-optionality) | `suspicious` | Warning | Yes | No |
+| [`prefer-array-comprehension`](#prefer-array-comprehension) | `style` | Warning | Yes | Sometimes |
 
 ## index-set-mismatch
 

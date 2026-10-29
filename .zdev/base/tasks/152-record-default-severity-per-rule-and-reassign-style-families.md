@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-152"
 key = "lint-families-and-severity"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -27,13 +27,23 @@ Read the Families and Default severity paragraphs of the brief's Lint review fol
 
 ## Done when
 
-- [ ] Every finding from the eleven informational rules has informational severity, and every other rule's findings are unchanged.
-- [ ] `--list-rules` and `--explain RULE` show each rule's default severity alongside its family.
-- [ ] array-index-start, global-variable-in-function, element-predicate and unused-generator-binding report family `style`, and `family:style` selects them.
-- [ ] `docs/linting.md` and the group pages under `docs/lint-*.md` describe the severity split and the new family membership.
-- [ ] The corpus helper reports warning and informational totals separately, and `scripts/check-corpus.py` derives the expected status from warnings only. An informational-only root passes report validation.
+- [x] Every finding from the eleven informational rules has informational severity, and every other rule's findings are unchanged.
+- [x] `--list-rules` and `--explain RULE` show each rule's default severity alongside its family.
+- [x] array-index-start, global-variable-in-function, element-predicate and unused-generator-binding report family `style`, and `family:style` selects them.
+- [x] `docs/linting.md` and the group pages under `docs/lint-*.md` describe the severity split and the new family membership.
+- [x] The corpus helper reports warning and informational totals separately, and `scripts/check-corpus.py` derives the expected status from warnings only. An informational-only root passes report validation.
 
 ## Validation
 
 - Update the existing catalogue/family tests and one CLI check showing a model with only informational findings exiting 0. Run the corpus helper on one informational-only model and confirm its report validates.
 - Run the brief's Rust validation commands and `zdev check base --format json`.
+
+## Result
+
+Each catalogue entry records its default severity; the eleven advisory rules report informational findings and four rules moved to the style family. --list-rules and --explain show severity, the corpus tooling counts warnings and informational findings separately, and the docs-site example renderer accepts informational findings.
+
+Validation:
+
+- cargo fmt --check, cargo clippy -D warnings, cargo test --workspace, zdev check, site npm run build: all pass
+- Release CLI: informational-only search-coverage model exits 0; --rules family:style selects the reassigned rules; check-corpus.py validates an informational-only root
+- Independent Codex verifier: rework (site example renderer required warnings), one correction, focused recheck pass on snapshot We9b7548a50bda54b

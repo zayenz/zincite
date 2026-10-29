@@ -247,7 +247,7 @@ fn joint_selection_keys_suppress_only_emitted_matching_obligations_and_preserve_
                 .all(|f| f.location.range.start >= 3 && f.location.line >= 2)
         );
         assert_eq!(context.files[0].byte_offset, 3);
-        assert_eq!(result.status(), 1);
+        assert_eq!(result.status(), u8::from(partial > 0));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

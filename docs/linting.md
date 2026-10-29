@@ -58,7 +58,8 @@ meaning and limits.
 
 ## Reading diagnostics
 
-A warning includes the rule ID, source path and location. For an included file,
+A diagnostic starts with its severity, `warning` or `info`, followed by the rule
+ID, source path and location. For an included file,
 `[root PATH]` identifies the model being analysed: the same include can have
 different findings when used by different models.
 
@@ -67,9 +68,19 @@ Excerpts come from the analysed input, including stdin and
 included files; diagnostics without available source retain their text location.
 
 Warnings produce exit status 1. Input or configuration errors produce 2.
-Informational advice alone produces 0. For example, `expensive-comprehension`
-can point out a product of symbolic generator sizes without claiming that it
-exceeds a numeric threshold or will be slow in practice.
+Informational findings alone produce 0.
+
+Each rule has a fixed severity, shown by `--list-rules` and `--explain RULE`.
+Rules that propose an alternative formulation without identifying a likely
+mistake report informational findings: `constant-variable`, `compact-if`,
+`effective-zero-one`, `reified-global`, `search-coverage`,
+`decision-variable-operator`, `decision-variable-generator`,
+`decision-variable-condition`, `unmarked-symmetry-breaking`,
+`global-constraint-opportunity` and `missing-input-precondition`. Every other
+rule warns, except that `expensive-comprehension` reports a product of symbolic
+generator sizes as informational, because it does not claim that the product
+exceeds a numeric threshold or will be slow in practice. Severity is not
+configurable.
 
 Analysis can also be incomplete. Zincite prints the number of limitations for
 each affected model; use `--show-limitations` to read their locations and
@@ -87,12 +98,13 @@ with `--list-rules` or `--explain RULE`:
 | --- | --- |
 | `correctness` | Inconsistent source relationships, such as incompatible array indices. |
 | `suspicious` | Constructs that may be unintended, such as shadowing or hidden optional values. |
-| `modelling` | Input assumptions, formulation choices and search coverage. |
+| `modelling` | Input assumptions, formulation choices, symmetry and search coverage. |
 | `performance` | Source structure that may create expensive work during flattening. These checks do not predict solver runtime. |
-| `style` | Naming and source conventions. |
+| `style` | Naming, labels and conventional formulations, such as one-based array indices, direct array indexing, comprehension forms, passing decisions to functions as arguments and `_` for unused generator names. |
 
 Families describe the concern, not its severity or whether it can be fixed
-automatically. A correctness finding is still reported as a warning.
+automatically. A `style` rule such as `naming` warns, while a `modelling` rule
+such as `search-coverage` reports informational findings.
 [Fix support](#suppression-and-explicit-fixes) is listed separately.
 
 ## Model context and source preservation

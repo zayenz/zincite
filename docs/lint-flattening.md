@@ -6,13 +6,13 @@ MiniZinc translates a model for a solver. Select them with
 it does not measure flattening time or predict solving time.
 See [linting](linting.md) for configuration and model context.
 
-| Rule | Default | Automatic fix |
-| --- | --- | --- |
-| [`expensive-comprehension`](#expensive-comprehension) | No | No |
-| [`decision-variable-operator`](#decision-variable-operator) | No | No |
-| [`decision-variable-generator`](#decision-variable-generator) | No | No |
-| [`decision-variable-condition`](#decision-variable-condition) | No | No |
-| [`reified-global`](#reified-global) | No | No |
+| Rule | Family | Severity | Default | Automatic fix |
+| --- | --- | --- | --- | --- |
+| [`expensive-comprehension`](#expensive-comprehension) | `performance` | Warning; symbolic sizes informational | No | No |
+| [`decision-variable-operator`](#decision-variable-operator) | `performance` | Informational | No | No |
+| [`decision-variable-generator`](#decision-variable-generator) | `performance` | Informational | No | No |
+| [`decision-variable-condition`](#decision-variable-condition) | `performance` | Informational | No | No |
+| [`reified-global`](#reified-global) | `performance` | Informational | No | No |
 
 ## expensive-comprehension
 

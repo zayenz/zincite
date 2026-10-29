@@ -3,7 +3,7 @@ use crate::domains::OffsetBound;
 use crate::{
     BindingFacts, Cardinality, Domain, FileFinding, FileId, GuardActivation, GuardObligationKind,
     GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts, IterationIndexSet,
-    ModelContext, NumericBound, Rule, Severity, SourceDiagnostic, SourceLocation,
+    ModelContext, NumericBound, Rule, SourceDiagnostic, SourceLocation,
 };
 use std::collections::HashMap;
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
@@ -174,7 +174,7 @@ pub(super) fn check_index_set_mismatches(
                         findings.push(FileFinding { fix: None,
                             location: location.clone(),
                             rule: Rule::IndexSetMismatch,
-                            severity: Severity::Warning,
+                            severity: Rule::IndexSetMismatch.severity(),
                             message: format!(
                                 "index space {space} {concern} for array '{}' dimension {} ({}, declared at {}:{}:{})",
                                 declaration.name, dimension, describe(&target.domain, bindings),

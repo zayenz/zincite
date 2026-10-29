@@ -7,7 +7,7 @@ use crate::domains::tokens;
 use crate::{
     BindingFacts, DeclarationId, DefinitionEnforcement, FileFinding, FileId, GuardActivation,
     GuardedFacts, GuardedOutcome, Instantiation, IterationFacts, IterationIndexSet, ModelContext,
-    OptionalFacts, Rule, Severity, SourceDiagnostic, SourceLocation, TypeInst, TypeKind,
+    OptionalFacts, Rule, SourceDiagnostic, SourceLocation, TypeInst, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 
@@ -619,7 +619,7 @@ pub(super) fn check_global_patterns(
         findings.push(FileFinding { fix: None,
             location: fact.location.clone(),
             rule: Rule::GlobalConstraintOpportunity,
-            severity: Severity::Warning,
+            severity: Rule::GlobalConstraintOpportunity.severity(),
             message: format!("{message}; raw evaluation is proved total in this enforced context; advice offers no automatic edit or solving-speed claim"),
         });
     }

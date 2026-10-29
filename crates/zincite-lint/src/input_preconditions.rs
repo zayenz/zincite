@@ -5,7 +5,7 @@ use crate::partial_expression::{captured_by_default, collect_nodes, empty_iterat
 use crate::{
     BindingFacts, BindingResolution, DeclarationId, DeclarationRole, FileFinding, FileId,
     GuardActivation, GuardObligation, GuardObligationKind, GuardedFacts, GuardedOutcome,
-    IterationFacts, ModelContext, ReferenceKind, Rule, Severity, SourceDiagnostic,
+    IterationFacts, ModelContext, ReferenceKind, Rule, SourceDiagnostic,
 };
 use std::collections::BTreeSet;
 use std::ops::Range;
@@ -303,7 +303,7 @@ pub(super) fn check_input_preconditions(
         findings.push(FileFinding { fix: None,
             location: o.operation.clone(),
             rule: Rule::MissingInputPrecondition,
-            severity: Severity::Warning,
+            severity: Rule::MissingInputPrecondition.severity(),
             message: format!(
                 "callable '{}' (boundary {}:{}:{}) uses inputs [{names}] without an established condition: {condition}; this supported body requirement is neither declared nor protected here by a guard/assertion; evaluation may be conditional, and this advice does not establish a failing input, model feasibility or runtime error",
                 callable.name,

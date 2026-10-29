@@ -1,7 +1,7 @@
 //! Missing-search advice over independently produced coverage facts.
 use crate::{
     BindingFacts, DeclarationRole, FileFinding, Instantiation, ModelContext, ModelRootState, Rule,
-    SearchCoverage, SearchFacts, Severity,
+    SearchCoverage, SearchFacts,
 };
 pub(super) fn check_search_coverage(
     context: &ModelContext,
@@ -37,7 +37,7 @@ pub(super) fn check_search_coverage(
             fix: None,
             location: d.location.clone(),
             rule: Rule::SearchCoverage,
-            severity: Severity::Warning,
+            severity: Rule::SearchCoverage.severity(),
             message: format!(
                 concat!(
                     "consider including '{}' in the solve search; its whole value is not covered ",

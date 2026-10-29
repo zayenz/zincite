@@ -4,11 +4,11 @@ These rules make names, constraint intent and numeric array indices easier to
 read. Select the group with `--rules preset:conventions`.
 See [linting](linting.md) for configuration, suppressions and diagnostic output.
 
-| Rule | Default | Automatic fix |
-| --- | --- | --- |
-| [`naming`](#naming) | No | No |
-| [`missing-constraint-label`](#missing-constraint-label) | No | No |
-| [`array-index-start`](#array-index-start) | No | No |
+| Rule | Family | Severity | Default | Automatic fix |
+| --- | --- | --- | --- | --- |
+| [`naming`](#naming) | `style` | Warning | No | No |
+| [`missing-constraint-label`](#missing-constraint-label) | `style` | Warning | No | No |
+| [`array-index-start`](#array-index-start) | `style` | Warning | No | No |
 
 ## naming
 

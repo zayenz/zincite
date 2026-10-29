@@ -92,12 +92,12 @@ fn resolved_globals_keep_context_dependency_identity_ranges_and_suppression() {
         .arg(&root)
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(0));
     assert!(output.stdout.is_empty());
     assert_eq!(
         String::from_utf8(output.stderr)
             .unwrap()
-            .matches("warning [reified-global]")
+            .matches("info [reified-global]")
             .count(),
         11
     );

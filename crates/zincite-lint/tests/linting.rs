@@ -27,6 +27,17 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
         Rule::ReifiedGlobal.metadata().family,
         RuleFamily::Performance
     );
+    for rule in [
+        Rule::ArrayIndexStart,
+        Rule::GlobalVariableInFunction,
+        Rule::ElementPredicate,
+        Rule::UnusedGeneratorBinding,
+    ] {
+        assert_eq!(rule.metadata().family, RuleFamily::Style);
+    }
+    assert_eq!(search.severity, Severity::Informational);
+    assert_eq!(Rule::UnusedDeclaration.severity(), Severity::Warning);
+    assert_eq!(Rule::ExpensiveComprehension.severity(), Severity::Warning);
     for rule in Rule::DEFAULT.into_iter().chain(Rule::THESIS).chain([
         Rule::IndexSetMismatch,
         Rule::HiddenOptionality,
@@ -461,28 +472,36 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
     let expanded =
         LintOptions::from_selection("missing-constraint-label,family:style,preset:thesis,all")
             .unwrap();
+    let style = [
+        Rule::MissingConstraintLabel,
+        Rule::Naming,
+        Rule::PreferArrayComprehension,
+        Rule::ArrayIndexStart,
+        Rule::ElementPredicate,
+        Rule::GlobalVariableInFunction,
+        Rule::UnusedGeneratorBinding,
+        Rule::PreferEnum,
+    ];
     assert_eq!(
         expanded.rules,
-        [
-            Rule::MissingConstraintLabel,
-            Rule::Naming,
-            Rule::PreferArrayComprehension,
-            Rule::PreferEnum
-        ]
-        .into_iter()
-        .chain(Rule::THESIS)
-        .chain(Rule::ADDITIONAL)
-        .chain([
-            Rule::IndexSetMismatch,
-            Rule::HiddenOptionality,
-            Rule::PartialExpression,
-            Rule::VacuousConstraint,
-            Rule::UnusedGeneratorBinding,
-            Rule::GlobalConstraintOpportunity,
-            Rule::MissingInputPrecondition,
-            Rule::SuspiciousDomain
-        ])
-        .collect::<Vec<_>>()
+        style
+            .into_iter()
+            .chain(
+                Rule::THESIS
+                    .into_iter()
+                    .chain(Rule::ADDITIONAL)
+                    .chain([
+                        Rule::IndexSetMismatch,
+                        Rule::HiddenOptionality,
+                        Rule::PartialExpression,
+                        Rule::VacuousConstraint,
+                        Rule::GlobalConstraintOpportunity,
+                        Rule::MissingInputPrecondition,
+                        Rule::SuspiciousDomain
+                    ])
+                    .filter(|rule| !style.contains(rule))
+            )
+            .collect::<Vec<_>>()
     );
     for (legacy, prefixed) in [
         ("default", "preset:default"),
@@ -526,6 +545,9 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
             Rule::MissingConstraintLabel,
             Rule::ArrayIndexStart,
             Rule::PreferArrayComprehension,
+            Rule::ElementPredicate,
+            Rule::GlobalVariableInFunction,
+            Rule::UnusedGeneratorBinding,
             Rule::PreferEnum,
             Rule::IndexSetMismatch,
             Rule::SuspiciousShadowing,

@@ -79,14 +79,15 @@ that case from a check that completed without a finding.
 
 | Result | How to read it |
 | --- | --- |
-| Lint warning | A selected rule found something to review. The rule ID and message explain the concern. |
+| Lint warning | A selected rule found a likely mistake to review. The rule ID and message explain the concern. |
+| Lint info | A selected rule proposes an alternative formulation. It does not change the exit status. |
 | Lint limitation | Part of the analysis could not be completed. Use `--show-limitations` for details. |
 | Query with `complete: false` | Available results are included, but the `limitations` list explains what is missing. |
 | Checker invalid/incomplete | A known violation and unresolved work can coexist; read the independent completeness fields. |
 | Input or query error | Fix the reported syntax, configuration, dependency or query problem before using the result. |
 
-Lint exits 1 for warnings and 2 for errors. Limitations alone do not change
-that status, so exit 0 does not mean all semantic checks completed. Semantic
+Lint exits 1 for warnings and 2 for errors; informational findings alone exit 0.
+Limitations alone do not change that status, so exit 0 does not mean all semantic checks completed. Semantic
 queries exit 1 for incomplete results and 2 for errors. Keep the completeness
 fields with a query result if another program will use it. See the
 [exit-code table](cli.md#exit-codes) for all commands.

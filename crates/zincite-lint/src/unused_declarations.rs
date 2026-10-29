@@ -3,8 +3,8 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::{
     BindingFacts, BindingResolution, CallOutcome, DeclarationId, DeclarationRole, FileFinding,
-    FileId, Instantiation, ModelContext, Reference, ReferenceKind, Rule, Severity,
-    SourceDiagnostic, SourceKind, SourceLocation, TypeInst, TypeKind,
+    FileId, Instantiation, ModelContext, Reference, ReferenceKind, Rule, SourceDiagnostic,
+    SourceKind, SourceLocation, TypeInst, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
@@ -706,7 +706,7 @@ pub(super) fn check_unused_declarations(
             continue;
         }
         findings.push(FileFinding { fix: None,location:d.location.clone(),rule:Rule::UnusedDeclaration,
-            severity:Severity::Warning,message:format!("declaration '{}' is unreachable from this model's constraints, solve and output; consider whether it is needed",d.name)});
+            severity:Rule::UnusedDeclaration.severity(),message:format!("declaration '{}' is unreachable from this model's constraints, solve and output; consider whether it is needed",d.name)});
     }
     findings
 }

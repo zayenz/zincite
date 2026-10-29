@@ -7,7 +7,7 @@ use crate::{
     BindingFacts, CallFact, FileFinding, FileId, GuardActivation, GuardAssumptionKind,
     GuardContext, GuardEvaluation, GuardObligation, GuardObligationKind, GuardedExpression,
     GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts, ModelContext, Presence, Rule,
-    Severity, SourceDiagnostic, SourceLocation,
+    SourceDiagnostic, SourceLocation,
 };
 use std::collections::HashMap;
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
@@ -220,7 +220,7 @@ pub(super) fn check_partial_expressions(
                             fix: None,
                             location: location.clone(),
                             rule: Rule::PartialExpression,
-                            severity: Severity::Warning,
+                            severity: Rule::PartialExpression.severity(),
                             message,
                         });
                     }

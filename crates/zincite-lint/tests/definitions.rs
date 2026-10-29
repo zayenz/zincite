@@ -241,7 +241,7 @@ fn unsupported_value_safety_limits_only_constant_variable() {
         RuleOutcome::Limited { .. }
     ));
     assert_eq!(result.rules[1].outcome, RuleOutcome::Completed);
-    assert_eq!(result.status(), 1);
+    assert_eq!(result.status(), 0);
     std::fs::remove_dir_all(directory).unwrap();
 }
 

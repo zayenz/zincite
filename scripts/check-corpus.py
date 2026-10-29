@@ -75,7 +75,7 @@ def semantic_report_valid(result, selection, selected):
             or result.get('selection') != selection or not isinstance(result.get('rules'), dict)
             or set(result['rules']) != set(selected)):
         return False
-    counts = ('warning_count', 'error_count', 'limitation_count')
+    counts = ('warning_count', 'info_count', 'error_count', 'limitation_count')
     if any(type(result.get(key)) is not int or result[key] < 0 for key in counts):
         return False
     state = result.get('root_state')
@@ -94,7 +94,8 @@ def semantic_report_valid(result, selection, selected):
             return False
     status = 2 if result['error_count'] else int(bool(result['warning_count']))
     return (result.get('analysis_status') == status
-            and sum(r['finding_count'] for r in result['rules'].values()) == result['warning_count']
+            and sum(r['finding_count'] for r in result['rules'].values())
+            == result['warning_count'] + result['info_count']
             and result.get('root_state') in ('complete', 'fragment', 'multiple_solve', 'data', 'syntax_rejected', 'input_error')
             and (state == 'input_error' and result.get('token_coverage') is None and result.get('tree_coverage') is None
                  or type(result.get('token_coverage')) is bool and type(result.get('tree_coverage')) is bool))
@@ -107,6 +108,7 @@ def unobserved_rules(selected, reason):
 
 def semantic_totals(record, totals, rule_totals, states):
     totals['warnings'] += record.get('warning_count', 0)
+    totals['informational'] += record.get('info_count', 0)
     totals['errors'] += record.get('error_count', 0)
     totals['limitations'] += record.get('limitation_count', 0)
     totals['api_results_observed'] += record.get('check_kind') == 'semantic'

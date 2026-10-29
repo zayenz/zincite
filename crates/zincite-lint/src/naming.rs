@@ -1,6 +1,6 @@
 use zincite_syntax::{NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
-use crate::{LintDiagnostic, Rule, Severity};
+use crate::{LintDiagnostic, Rule};
 
 #[derive(Clone, Copy)]
 enum Style {
@@ -54,7 +54,7 @@ pub(super) fn check_names(
                 warnings.push(LintDiagnostic {
                     fix: None,
                     rule: Rule::Naming,
-                    severity: Severity::Warning,
+                    severity: Rule::Naming.severity(),
                     range: token.range.clone(),
                     message: format!("use {expected} for declared name '{written}'"),
                 });

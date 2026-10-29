@@ -1,7 +1,7 @@
 //! Conditional modelling advice over independent expression facts.
 use crate::{
     BindingFacts, CallOutcome, DeclarationRole, ExpressionInstantiation, FileFinding, FileId,
-    Instantiation, InstantiationFacts, ModelContext, Rule, Severity, SourceDiagnostic, SourceKind,
+    Instantiation, InstantiationFacts, ModelContext, Rule, SourceDiagnostic, SourceKind,
     SourceLocation,
 };
 use std::collections::BTreeMap;
@@ -98,7 +98,7 @@ impl Checker<'_> {
                 fix: None,
                 location,
                 rule: self.rule,
-                severity: Severity::Warning,
+                severity: self.rule.severity(),
                 message,
             });
         } else if let Some(reason) = nodes.iter().find_map(|n| match self.fact(file, n) {

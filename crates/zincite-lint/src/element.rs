@@ -1,7 +1,7 @@
 //! Readability advice for resolved standard element predicates.
 use crate::{
-    BindingFacts, CallOutcome, DeclarationRole, FileFinding, ModelContext, Rule, Severity,
-    SourceDiagnostic, SourceKind,
+    BindingFacts, CallOutcome, DeclarationRole, FileFinding, ModelContext, Rule, SourceDiagnostic,
+    SourceKind,
 };
 
 pub(super) struct ElementResult {
@@ -62,7 +62,7 @@ pub(super) fn check_element(
                         fix,
                         location: call.location.clone(),
                         rule: Rule::ElementPredicate,
-                        severity: Severity::Warning,
+                        severity: Rule::ElementPredicate.severity(),
                         message: "consider indexing equality (value = array[index]) to make this element constraint easier to read".into(),
                     });
                 }

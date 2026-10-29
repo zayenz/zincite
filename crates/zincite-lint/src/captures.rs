@@ -1,7 +1,7 @@
 //! Advisory policy over independently produced lexical binding facts.
 use crate::{
     BindingFacts, BindingResolution, DeclarationRole, FileFinding, Instantiation, ModelContext,
-    ReferenceKind, Rule, Severity, SourceDiagnostic,
+    ReferenceKind, Rule, SourceDiagnostic,
 };
 
 pub(super) struct CaptureResult {
@@ -45,7 +45,7 @@ pub(super) fn check_captures(context: &ModelContext, facts: &BindingFacts) -> Ca
                         result.findings.push(FileFinding { fix: None,
                             location: reference.location.clone(),
                             rule: Rule::GlobalVariableInFunction,
-                            severity: Severity::Warning,
+                            severity: Rule::GlobalVariableInFunction.severity(),
                             message: format!("consider passing global decision '{}' as an argument to '{}' to make its dependencies clear", declaration.name, facts.declarations[owner.0].name),
                         });
                         continue;

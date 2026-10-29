@@ -4,7 +4,7 @@ use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 use crate::callables::operation_fact;
 use crate::{
     BindingFacts, CallOutcome, DeclarationId, DeclarationRole, FileFinding, FileId, Instantiation,
-    ModelContext, Rule, Severity, SourceDiagnostic, SourceKind, SourceLocation, TypeKind,
+    ModelContext, Rule, SourceDiagnostic, SourceKind, SourceLocation, TypeKind,
 };
 
 const FAMILY: [&str; 11] = [
@@ -206,7 +206,7 @@ pub(super) fn check_symmetry_uses(
             continue;
         }
         match &usage.outcome {
-            SymmetryUseOutcome::Unmarked => findings.push(FileFinding { fix: None, location: usage.location.clone(), rule: Rule::UnmarkedSymmetryBreaking, severity: Severity::Warning, message: "is this constraint intended to break symmetry? If so, consider symmetry_breaking_constraint(...); it may instead express required model logic".into() }),
+            SymmetryUseOutcome::Unmarked => findings.push(FileFinding { fix: None, location: usage.location.clone(), rule: Rule::UnmarkedSymmetryBreaking, severity: Rule::UnmarkedSymmetryBreaking.severity(), message: "is this constraint intended to break symmetry? If so, consider symmetry_breaking_constraint(...); it may instead express required model logic".into() }),
             SymmetryUseOutcome::Unsupported(reason) => limitations.push(SourceDiagnostic { location: usage.location.clone(), message: format!("unmarked-symmetry-breaking: {reason}") }),
             SymmetryUseOutcome::Marked => {}
         }

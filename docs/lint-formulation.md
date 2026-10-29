@@ -5,15 +5,15 @@ directly, or point out expressions that cannot do what their surrounding code
 suggests. Select them with `--rules preset:formulation`.
 See [linting](linting.md) for selection and fix settings.
 
-| Rule | Default | Automatic fix |
-| --- | --- | --- |
-| [`constant-variable`](#constant-variable) | No | No |
-| [`compact-if`](#compact-if) | No | No |
-| [`effective-zero-one`](#effective-zero-one) | No | No |
-| [`element-predicate`](#element-predicate) | No | Sometimes |
-| [`global-constraint-opportunity`](#global-constraint-opportunity) | No | No |
-| [`prefer-enum`](#prefer-enum) | No | No |
-| [`vacuous-constraint`](#vacuous-constraint) | Yes | No |
+| Rule | Family | Severity | Default | Automatic fix |
+| --- | --- | --- | --- | --- |
+| [`constant-variable`](#constant-variable) | `modelling` | Informational | No | No |
+| [`compact-if`](#compact-if) | `performance` | Informational | No | No |
+| [`effective-zero-one`](#effective-zero-one) | `performance` | Informational | No | No |
+| [`element-predicate`](#element-predicate) | `style` | Warning | No | Sometimes |
+| [`global-constraint-opportunity`](#global-constraint-opportunity) | `modelling` | Informational | No | No |
+| [`prefer-enum`](#prefer-enum) | `style` | Warning | No | No |
+| [`vacuous-constraint`](#vacuous-constraint) | `suspicious` | Warning | Yes | No |
 
 ## constant-variable
 

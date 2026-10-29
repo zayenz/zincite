@@ -56,7 +56,7 @@ workflows, configuration and layout directives. Use the
 ## Linting
 
 The [linting guide](https://zayenz.se/zincite/guides/linting/) explains default rules, families, presets,
-model context, suppression and explicit fixes. Rule family, warning severity,
+model context, suppression and explicit fixes. Rule family, severity,
 advisory wording and fix eligibility are separate properties.
 
 ## Querying items

@@ -1,4 +1,6 @@
 //! Stable rule catalogue and explicit selection, without rule dispatch machinery.
+use crate::Severity;
+
 /// A rule's purpose, independent of warning severity and fix safety.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuleFamily {
@@ -10,7 +12,7 @@ pub enum RuleFamily {
     Modelling,
     /// Formulations that may affect solver work; no runtime guarantee.
     Performance,
-    /// Names and source readability.
+    /// Names, source readability and conventional formulations.
     Style,
 }
 
@@ -68,6 +70,9 @@ impl FixSupport {
 pub struct RuleMetadata {
     pub id: &'static str,
     pub family: RuleFamily,
+    /// Severity of the rule's findings. Not configurable; expensive-comprehension
+    /// also reports informational symbolic advice.
+    pub severity: Severity,
     pub purpose: &'static str,
     pub requires_model: bool,
     /// The facts the implementation needs; metadata does not produce those facts.
@@ -191,7 +196,7 @@ impl Rule {
             ),
             Self::ArrayIndexStart => (
                 "array-index-start",
-                RuleFamily::Modelling,
+                RuleFamily::Style,
                 "Advise starting known nonempty numeric array index sets at 1.",
                 "Resolved declarations, named domains and symbolic numeric index sets.",
                 "Enum indices are not numeric offsets. Unknown symbolic bounds and unconstrained int indices stay quiet; unsupported domain facts report limitations.",
@@ -219,7 +224,7 @@ impl Rule {
             ),
             Self::ElementPredicate => (
                 "element-predicate",
-                RuleFamily::Modelling,
+                RuleFamily::Style,
                 "Recommend indexing equality for a resolved standard-library three-argument element predicate.",
                 "Lexical bindings, selected callable bodies/types, actual array domains and guarded operand totality.",
                 "User lookalikes do not match. A Safe indexing-equality fix requires the supported standard body, matching nonoptional scalar types, actual index membership, total operands and core equality; unknown, optional, opaque, named or annotated unsupported forms retain advice only. Ambiguous, unresolved or unsupported calls report limitations.",
@@ -233,7 +238,7 @@ impl Rule {
             ),
             Self::GlobalVariableInFunction => (
                 "global-variable-in-function",
-                RuleFamily::Suspicious,
+                RuleFamily::Style,
                 "Advise passing captured top-level decisions to user callables as arguments.",
                 "Lexical bindings, declaration identity and declared instantiation.",
                 "Shadowed parameters/locals and parameter-valued globals are not captures. Callable names and field labels are not variable uses. Analysis does not perform full type checking.",
@@ -324,7 +329,7 @@ impl Rule {
             ),
             Self::UnusedGeneratorBinding => (
                 "unused-generator-binding",
-                RuleFamily::Suspicious,
+                RuleFamily::Style,
                 "Identify unused generator names while retaining every iteration and evaluation.",
                 "Resolved uses across remaining domains, filters, bodies and annotations; iteration multiplicity and guarded obligations.",
                 "Anonymous and underscore-prefixed names are exempt. A Safe fix replaces only a completely unused membership name in an array, set or indexed comprehension with _, preserving multiplicity and evaluation. Generator-call shorthand, assignment and unknown/partial evaluation remain advice-only. No generator removal or hoisting is offered.",
@@ -368,6 +373,25 @@ impl Rule {
         RuleMetadata {
             id,
             family,
+            // Advice proposing an alternative formulation, not a likely mistake.
+            severity: if matches!(
+                self,
+                Self::ConstantVariable
+                    | Self::CompactIf
+                    | Self::EffectiveZeroOne
+                    | Self::ReifiedGlobal
+                    | Self::SearchCoverage
+                    | Self::DecisionVariableOperator
+                    | Self::DecisionVariableGenerator
+                    | Self::DecisionVariableCondition
+                    | Self::UnmarkedSymmetryBreaking
+                    | Self::GlobalConstraintOpportunity
+                    | Self::MissingInputPrecondition
+            ) {
+                Severity::Informational
+            } else {
+                Severity::Warning
+            },
             purpose,
             requirements,
             limitations,
@@ -395,6 +419,10 @@ impl Rule {
 
     pub fn id(self) -> &'static str {
         self.metadata().id
+    }
+
+    pub fn severity(self) -> Severity {
+        self.metadata().severity
     }
 
     pub fn from_id(id: &str) -> Option<Self> {

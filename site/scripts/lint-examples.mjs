@@ -48,8 +48,10 @@ export function renderLintExamples(markdown) {
           '--isolated', '--rules', rule, '--stdlib-dir', stdlib, filename,
         ], { cwd: directory, encoding: 'utf8' });
         if (result.error) throw result.error;
-        if (result.status !== 1 || !result.stderr.includes(`warning [${rule}]:`)) {
-          throw new Error(`Lint example '${rule}' did not produce its warning (exit ${result.status}):\n${result.stderr}`);
+        const reported = (result.status === 1 && result.stderr.includes(`warning [${rule}]:`))
+          || (result.status === 0 && result.stderr.includes(`info [${rule}]:`));
+        if (!reported) {
+          throw new Error(`Lint example '${rule}' did not produce its finding (exit ${result.status}):\n${result.stderr}`);
         }
         const titledBlock = block.split('\n')[0].includes('title=') ? block
           : block.replace('```minizinc', `\`\`\`minizinc title="${filename}"`);

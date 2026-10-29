@@ -2,8 +2,7 @@
 use crate::domains::expression_integer;
 use crate::{
     BindingFacts, DefinitionSafety, FileFinding, FileId, Instantiation, InstantiationFacts,
-    ModelContext, Rule, Severity, SourceDiagnostic, SourceLocation, TypeKind,
-    expression_safety_view,
+    ModelContext, Rule, SourceDiagnostic, SourceLocation, TypeKind, expression_safety_view,
 };
 use zincite_syntax::{NodeKind, SyntaxNode};
 
@@ -177,7 +176,7 @@ pub(super) fn check_compact_ifs(context: &ModelContext, facts: &CompactIfFacts) 
                 result.findings.push(FileFinding { fix: None,
                     location: fact.location.clone(),
                     rule: Rule::CompactIf,
-                    severity: Severity::Warning,
+                    severity: Rule::CompactIf.severity(),
                     message: format!("consider the compact form {formulation} for this zero-branch conditional; compare readability for your model"),
                 });
             }

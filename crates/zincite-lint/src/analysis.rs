@@ -594,10 +594,7 @@ fn write_report<'a>(
     output: &mut impl Write,
 ) -> io::Result<u8> {
     for finding in &result.findings {
-        let severity = match finding.severity {
-            Severity::Informational => "info",
-            Severity::Warning => "warning",
-        };
+        let severity = finding.severity.as_str();
         write_diagnostic(
             output,
             root,

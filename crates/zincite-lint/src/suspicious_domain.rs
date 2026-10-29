@@ -5,7 +5,7 @@ use crate::domains::invariant_integer;
 use crate::{
     BindingFacts, DeclarationId, DefinitionCoverage, DefinitionFacts, Domain, FileFinding, FileId,
     ModelContext, NumericDeclaration, NumericDomainRelation, NumericFacts, NumericOutcome, Rule,
-    Severity, SourceDiagnostic, SourceLocation,
+    SourceDiagnostic, SourceLocation,
 };
 use std::collections::BTreeSet;
 
@@ -196,7 +196,7 @@ pub(super) fn check_numeric_contracts(
         };
         findings.push(FileFinding { fix: None,
             rule: Rule::SuspiciousDomain,
-            severity: Severity::Warning,
+            severity: Rule::SuspiciousDomain.severity(),
             location: contract.location.clone(),
             message: format!(
                 "{proof}; complete RHS '{rhs}' derives {}; destination '{}' requires {} (declared at {}:{}:{})",

@@ -6,7 +6,7 @@ use crate::{
     BindingFacts, CallableDefinitionOperation, CallableDefinitionStatus, DeclarationId,
     DeclarationRole, DefinitionCoverage, DefinitionEnforcement, DefinitionFacts, DefinitionSafety,
     Domain, DomainFacts, FileFinding, FileId, Instantiation, InstantiationFacts, ModelContext,
-    Rule, Severity, SourceDiagnostic, TypeInst, TypeKind, UnavailableCallableDefinition,
+    Rule, SourceDiagnostic, TypeInst, TypeKind, UnavailableCallableDefinition,
 };
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
@@ -158,7 +158,7 @@ pub(super) fn check_unbounded_variables(
             result.findings.push(FileFinding { fix: None,
                 location: declaration.location.clone(),
                 rule: Rule::UnboundedVariable,
-                severity: Severity::Warning,
+                severity: Rule::UnboundedVariable.severity(),
                 message: format!("consider an explicit domain for '{}'; its numeric value or array elements have no explicit bounds or proven complete definition", declaration.name),
             });
         }

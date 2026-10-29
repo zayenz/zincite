@@ -78,14 +78,14 @@ fn full_chain_uses_and_repetition_advice_preserve_declaration_identity() {
     assert!(Rule::UnusedGeneratorBinding.is_available());
     assert_eq!(
         Rule::UnusedGeneratorBinding.metadata().family,
-        RuleFamily::Suspicious
+        RuleFamily::Style
     );
     assert_eq!(
         Rule::UnusedGeneratorBinding.metadata().fix_support,
         FixSupport::Sometimes
     );
     assert!(
-        LintOptions::from_selection("family:suspicious")
+        LintOptions::from_selection("family:style")
             .unwrap()
             .rules
             .contains(&Rule::UnusedGeneratorBinding)

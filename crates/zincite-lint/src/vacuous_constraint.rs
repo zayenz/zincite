@@ -6,7 +6,7 @@ use crate::domains::tokens;
 use crate::{
     BindingFacts, FileFinding, FileId, GuardActivation, GuardAssumptionKind, GuardContext,
     GuardObligationKind, GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts,
-    ModelContext, OptionalFacts, Rule, Severity, SourceDiagnostic, SourceLocation,
+    ModelContext, OptionalFacts, Rule, SourceDiagnostic, SourceLocation,
 };
 use zincite_syntax::{NodeKind, SyntaxNode};
 
@@ -285,7 +285,7 @@ fn finding(location: SourceLocation, message: String) -> FileFinding {
         fix: None,
         location,
         rule: Rule::VacuousConstraint,
-        severity: Severity::Warning,
+        severity: Rule::VacuousConstraint.severity(),
         message,
     }
 }

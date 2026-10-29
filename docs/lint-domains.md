@@ -4,12 +4,12 @@ These rules review variable bounds and the conditions needed for operations such
 as indexing and division. Select them with `--rules preset:domains`.
 See [linting](linting.md) for model setup and diagnostic limitations.
 
-| Rule | Default | Automatic fix |
-| --- | --- | --- |
-| [`unbounded-variable`](#unbounded-variable) | Yes | No |
-| [`suspicious-domain`](#suspicious-domain) | No | No |
-| [`partial-expression`](#partial-expression) | Yes | No |
-| [`missing-input-precondition`](#missing-input-precondition) | No | No |
+| Rule | Family | Severity | Default | Automatic fix |
+| --- | --- | --- | --- | --- |
+| [`unbounded-variable`](#unbounded-variable) | `performance` | Warning | Yes | No |
+| [`suspicious-domain`](#suspicious-domain) | `suspicious` | Warning | No | No |
+| [`partial-expression`](#partial-expression) | `suspicious` | Warning | Yes | No |
+| [`missing-input-precondition`](#missing-input-precondition) | `modelling` | Informational | No | No |
 
 ## unbounded-variable
 

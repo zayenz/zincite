@@ -72,7 +72,7 @@ fn both_complete_patterns_preserve_actual_indices_and_source_identities() {
         "{facts:?}"
     );
     assert_eq!(result.findings.len(), 2, "{result:?}");
-    assert_eq!(result.status(), 1);
+    assert_eq!(result.status(), 0);
     assert!(result.limitations.is_empty(), "{result:?}");
     assert!(result.findings[0].message.contains("all_different(xs)"));
     assert!(

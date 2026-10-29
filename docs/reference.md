@@ -1682,8 +1682,10 @@ located model diagnostics. By default they report each root's limitation count;
 `--show-limitations` also prints each limitation's location and reason. This
 changes presentation only, not the library result.
 Informational findings (`info`) alone keep status 0; unsuppressed warnings
-produce 1, and errors take precedence with 2. Symbolic Cartesian structure
-advice is informational; proved threshold exceedance remains a warning.
+produce 1, and errors take precedence with 2. `Rule::severity()` and
+`RuleMetadata::severity` give each rule's fixed finding severity. Symbolic
+Cartesian structure advice from `expensive-comprehension` is informational;
+proved threshold exceedance remains a warning.
 Limitations alone keep status 0 or 1. Unsupported required semantics remain
 explicit limitations; analysis does not guess missing parameter values.
 

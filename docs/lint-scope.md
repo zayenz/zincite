@@ -4,12 +4,12 @@ These rules find hidden dependencies and names that are unused or conceal other
 names. Select them with `--rules preset:scope`.
 See [linting](linting.md) for configuration and suppressions.
 
-| Rule | Default | Automatic fix |
-| --- | --- | --- |
-| [`suspicious-shadowing`](#suspicious-shadowing) | Yes | No |
-| [`unused-declaration`](#unused-declaration) | Yes | No |
-| [`unused-generator-binding`](#unused-generator-binding) | No | Sometimes |
-| [`global-variable-in-function`](#global-variable-in-function) | No | No |
+| Rule | Family | Severity | Default | Automatic fix |
+| --- | --- | --- | --- | --- |
+| [`suspicious-shadowing`](#suspicious-shadowing) | `suspicious` | Warning | Yes | No |
+| [`unused-declaration`](#unused-declaration) | `suspicious` | Warning | Yes | No |
+| [`unused-generator-binding`](#unused-generator-binding) | `style` | Warning | No | Sometimes |
+| [`global-variable-in-function`](#global-variable-in-function) | `style` | Warning | No | No |
 
 ## suspicious-shadowing
 

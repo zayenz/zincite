@@ -206,18 +206,30 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
     assert_eq!(list.lines().count(), 29);
-    assert!(list.contains("naming\tstyle\tavailable\tnone\tconventions,all"));
-    assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis,search,all"));
-    assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\tdefault,arrays,all"));
-    assert!(list.contains("hidden-optionality\tsuspicious\tavailable\tnone\tdefault,arrays,all"));
-    assert!(list.contains("partial-expression\tsuspicious\tavailable\tnone\tdefault,domains,all"));
+    assert!(list.contains("naming\tstyle\twarning\tavailable\tnone\tconventions,all"));
+    assert!(list.contains("search-coverage\tmodelling\tinfo\tavailable\tnone\tthesis,search,all"));
     assert!(
-        list.contains("vacuous-constraint\tsuspicious\tavailable\tnone\tdefault,formulation,all")
+        list.contains(
+            "index-set-mismatch\tcorrectness\twarning\tavailable\tnone\tdefault,arrays,all"
+        )
     );
     assert!(
-        list.contains("global-constraint-opportunity\tmodelling\tavailable\tnone\tformulation,all")
+        list.contains(
+            "hidden-optionality\tsuspicious\twarning\tavailable\tnone\tdefault,arrays,all"
+        )
     );
-    assert!(list.contains("prefer-enum\tstyle\tavailable\tnone\tformulation,all"));
+    assert!(
+        list.contains(
+            "partial-expression\tsuspicious\twarning\tavailable\tnone\tdefault,domains,all"
+        )
+    );
+    assert!(list.contains(
+        "vacuous-constraint\tsuspicious\twarning\tavailable\tnone\tdefault,formulation,all"
+    ));
+    assert!(list.contains(
+        "global-constraint-opportunity\tmodelling\tinfo\tavailable\tnone\tformulation,all"
+    ));
+    assert!(list.contains("prefer-enum\tstyle\twarning\tavailable\tnone\tformulation,all"));
     let advisory = run(&["--explain", "prefer-enum"], "invalid");
     assert!(advisory.status.success() && advisory.stderr.is_empty());
     let advisory = String::from_utf8(advisory.stdout).unwrap();
@@ -231,7 +243,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     assert!(explanation.status.success() && explanation.stderr.is_empty());
     let explanation = String::from_utf8(explanation.stdout).unwrap();
     for expected in [
-        "Family: modelling",
+        "Family: style",
         "Presets: thesis,formulation,all",
         "Availability: available",
         "Requires model context: yes",
@@ -760,12 +772,12 @@ fn decision_use_selection_preserves_cli_status_context_and_independent_inputs() 
         root.to_str().unwrap(),
         "--show-limitations",
     ];
-    let warning = run(&args, "");
-    assert_eq!(warning.status.code(), Some(1));
-    assert!(warning.stdout.is_empty());
-    let stderr = String::from_utf8(warning.stderr).unwrap();
+    let advice = run(&args, "");
+    assert_eq!(advice.status.code(), Some(0));
+    assert!(advice.stdout.is_empty());
+    let stderr = String::from_utf8(advice.stderr).unwrap();
     for id in rules.split(',') {
-        assert!(stderr.contains(&format!("warning [{id}]")), "{stderr}");
+        assert!(stderr.contains(&format!("info [{id}]")), "{stderr}");
     }
     assert!(!stderr.contains("analysis limitation"));
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
@@ -777,7 +789,7 @@ fn decision_use_selection_preserves_cli_status_context_and_independent_inputs() 
     assert_eq!(failed.status.code(), Some(2));
     let stderr = String::from_utf8(failed.stderr).unwrap();
     assert!(
-        stderr.contains("warning [decision-variable-operator]")
+        stderr.contains("info [decision-variable-operator]")
             && stderr.contains("cannot resolve include")
     );
     std::fs::write(&root,"int: limit; array[int] of int: xs=[i|i in 1..limit where true]; constraint if true then limit^2>0 else false endif; solve satisfy;").unwrap();
@@ -878,8 +890,8 @@ fn constant_variable_selection_keeps_context_limits_and_status_precedence() {
         .arg(&model)
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("warning [constant-variable]"));
+    assert_eq!(output.status.code(), Some(0));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("info [constant-variable]"));
     assert!(output.stdout.is_empty());
     let failed = Command::new(env!("CARGO_BIN_EXE_zincite-lint"))
         .args(["--rules", "constant-variable", "--stdlib-dir"])
@@ -888,7 +900,7 @@ fn constant_variable_selection_keeps_context_limits_and_status_precedence() {
         .output()
         .unwrap();
     assert_eq!(failed.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&failed.stderr).contains("warning [constant-variable]"));
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("info [constant-variable]"));
     let inapplicable = Command::new(env!("CARGO_BIN_EXE_zincite-lint"))
         .args(["--rules", "constant-variable"])
         .arg(&data)
@@ -999,10 +1011,10 @@ fn compact_if_selection_keeps_advice_limits_and_suppression_separate() {
         "--show-limitations",
     ];
     let output = run(&args, "");
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(0));
     assert!(output.stdout.is_empty());
     let diagnostics = String::from_utf8(output.stderr).unwrap();
-    assert_eq!(diagnostics.matches("warning [compact-if]").count(), 2);
+    assert_eq!(diagnostics.matches("info [compact-if]").count(), 2);
     assert!(!diagnostics.contains("analysis limitation"));
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     std::fs::write(&root,"var bool: choice; var int: value; % section\n% zincite-lint: ignore compact-if\nvar int: suppressed=if choice then value else 0 endif; solve satisfy;").unwrap();
@@ -1018,7 +1030,7 @@ fn compact_if_selection_keeps_advice_limits_and_suppression_separate() {
     assert_eq!(output.status.code(), Some(0));
     let diagnostics = String::from_utf8(output.stderr).unwrap();
     assert!(diagnostics.contains("analysis limitation: compact-if"));
-    assert!(!diagnostics.contains("warning [compact-if]"));
+    assert!(!diagnostics.contains("info [compact-if]"));
     std::fs::remove_dir_all(directory).unwrap();
 }
 
@@ -1041,10 +1053,10 @@ fn effective_zero_one_selection_preserves_facts_limits_and_status_precedence() {
         "--show-limitations",
     ];
     let output = run(&args, "");
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(0));
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert_eq!(stderr.matches("warning [effective-zero-one]").count(), 3);
+    assert_eq!(stderr.matches("info [effective-zero-one]").count(), 3);
     assert!(!stderr.contains("analysis limitation"));
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     let broken = directory.join("broken.mzn");
@@ -1064,7 +1076,7 @@ fn effective_zero_one_selection_preserves_facts_limits_and_status_precedence() {
     assert!(
         String::from_utf8(output.stderr)
             .unwrap()
-            .contains("warning [effective-zero-one]")
+            .contains("info [effective-zero-one]")
     );
     std::fs::write(&root,"var 0..1: a; var 0..1: b; function int: opaque()=1; constraint a=opaque() -> b=1; solve satisfy;").unwrap();
     let output = run(&args, "");
@@ -1199,10 +1211,10 @@ fn search_selection_keeps_completion_suppression_and_status_precedence() {
         root.to_str().unwrap(),
     ];
     let output = run(&args, "");
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(0));
     assert!(output.stdout.is_empty());
     let diagnostics = String::from_utf8(output.stderr).unwrap();
-    assert_eq!(diagnostics.matches("warning [search-coverage]").count(), 1);
+    assert_eq!(diagnostics.matches("info [search-coverage]").count(), 1);
     assert!(
         diagnostics.contains("bytes 26..33:") && diagnostics.contains("'missing'"),
         "{diagnostics}"
@@ -1212,9 +1224,9 @@ fn search_selection_keeps_completion_suppression_and_status_precedence() {
         let mut selected = args;
         selected[1] = selection;
         let output = run(&selected, "");
-        assert_eq!(output.status.code(), Some(1));
+        assert_eq!(output.status.code(), Some(0));
         let diagnostics = String::from_utf8(output.stderr).unwrap();
-        assert!(diagnostics.contains("warning [search-coverage]"));
+        assert!(diagnostics.contains("info [search-coverage]"));
         assert!(
             !diagnostics.contains("direct definitions only")
                 && !diagnostics.contains("unavailable rules")
@@ -1223,7 +1235,7 @@ fn search_selection_keeps_completion_suppression_and_status_precedence() {
     std::fs::write(&root, "var 0..9: seed;\n% zincite-lint: ignore search-coverage\nvar 0..9: missing; solve :: int_search([seed],input_order,indomain_min,complete) satisfy;").unwrap();
     let output = run(&args, "");
     assert_eq!(output.status.code(), Some(0));
-    assert!(!String::from_utf8_lossy(&output.stderr).contains("warning ["));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("[search-coverage]"));
     std::fs::write(&root, source).unwrap();
     let broken = directory.join("broken.mzn");
     std::fs::write(&broken, "var int: broken=;").unwrap();
@@ -1232,7 +1244,7 @@ fn search_selection_keeps_completion_suppression_and_status_precedence() {
     let output = run(&independent, "");
     assert_eq!(output.status.code(), Some(2));
     let diagnostics = String::from_utf8(output.stderr).unwrap();
-    assert!(diagnostics.contains("warning [search-coverage]") && diagnostics.contains("error:"));
+    assert!(diagnostics.contains("info [search-coverage]") && diagnostics.contains("error:"));
     let stdin = run(
         &["--show-limitations", "--rules", "search-coverage"],
         source,
@@ -1484,7 +1496,7 @@ fn personal_settings_inspect_effective_options_and_keep_cli_replacement_read_onl
     assert_eq!(output.status.code(), Some(0));
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains(
-        "Rules: missing-constraint-label,prefer-array-comprehension,prefer-enum,compact-if"
+        "Rules: missing-constraint-label,prefer-array-comprehension,array-index-start,element-predicate,global-variable-in-function,unused-generator-binding,prefer-enum,compact-if"
     ));
     let names = text
         .lines()
@@ -2101,7 +2113,7 @@ fn unused_generator_selection_suppression_and_metadata_preserve_source_and_statu
     assert!(explain.status.success());
     let text = String::from_utf8(explain.stdout).unwrap();
     assert!(
-        text.contains("Family: suspicious")
+        text.contains("Family: style")
             && text.contains("Availability: available")
             && text.contains("Fix support: sometimes")
             && text.contains("Generator-call shorthand")
@@ -2150,12 +2162,11 @@ fn global_pattern_selection_suppression_and_statuses_remain_read_only() {
         "--show-limitations",
     ];
     let output = run(&args, "");
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(0));
     assert!(output.stdout.is_empty());
     let text = String::from_utf8(output.stderr).unwrap();
     assert_eq!(
-        text.matches("warning [global-constraint-opportunity]")
-            .count(),
+        text.matches("info [global-constraint-opportunity]").count(),
         1
     );
     assert!(text.contains("all_different(xs)"));
@@ -2202,7 +2213,7 @@ fn global_pattern_selection_suppression_and_statuses_remain_read_only() {
     );
     assert_eq!(output.status.code(), Some(2));
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("warning [global-constraint-opportunity]")
+        String::from_utf8_lossy(&output.stderr).contains("info [global-constraint-opportunity]")
     );
     assert!(
         zincite_lint::LintOptions::from_selection("family:modelling")
@@ -2300,11 +2311,9 @@ fn expensive_comprehension_threshold_selection_and_source_are_explicit() {
     );
     assert!(!String::from_utf8_lossy(&default.stderr).contains("expensive-comprehension"));
     let list = run(&["--list-rules"], "invalid");
-    assert!(
-        String::from_utf8(list.stdout)
-            .unwrap()
-            .contains("expensive-comprehension\tperformance\tavailable\tnone\tflattening,all")
-    );
+    assert!(String::from_utf8(list.stdout).unwrap().contains(
+        "expensive-comprehension\tperformance\twarning\tavailable\tnone\tflattening,all"
+    ));
     assert_eq!(std::fs::read_to_string(&root).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -2405,10 +2414,10 @@ fn callable_input_contract_selection_locations_and_suppression_are_read_only() {
             "",
         );
         let text = String::from_utf8(output.stderr).unwrap();
-        assert_eq!(output.status.code(), Some(1), "{text}");
+        assert_eq!(output.status.code(), Some(0), "{text}");
         assert!(output.stdout.is_empty());
         assert_eq!(
-            text.matches("warning [missing-input-precondition]").count(),
+            text.matches("info [missing-input-precondition]").count(),
             1,
             "{text}"
         );
@@ -2428,7 +2437,7 @@ fn callable_input_contract_selection_locations_and_suppression_are_read_only() {
     assert!(
         String::from_utf8(list.stdout)
             .unwrap()
-            .contains("missing-input-precondition\tmodelling\tavailable\tnone\tdomains,all")
+            .contains("missing-input-precondition\tmodelling\tinfo\tavailable\tnone\tdomains,all")
     );
     for selection in ["default", "thesis"] {
         let output = run(
@@ -2523,7 +2532,7 @@ fn domain_contract_selection_locations_limits_and_suppression_preserve_source() 
     assert!(
         String::from_utf8(list.stdout)
             .unwrap()
-            .contains("suspicious-domain\tsuspicious\tavailable\tnone\tdomains,all")
+            .contains("suspicious-domain\tsuspicious\twarning\tavailable\tnone\tdomains,all")
     );
     let unknown = dir.join("unknown.mzn");
     std::fs::write(&unknown, "int:N; var 0..1:unknown=N; solve satisfy;").unwrap();
@@ -2613,7 +2622,7 @@ fn fix_modes_validate_all_explicit_paths_and_settings_before_analysis() {
     let text = String::from_utf8(settings.stdout).unwrap();
     assert!(text.contains("Rules: naming\n"));
     assert!(text.contains(
-        "fixable: naming,missing-constraint-label,prefer-array-comprehension,prefer-enum\n"
+        "fixable: naming,missing-constraint-label,prefer-array-comprehension,array-index-start,element-predicate,global-variable-in-function,unused-generator-binding,prefer-enum\n"
     ));
     assert!(text.contains("unfixable: naming\n"));
     let result = run(&["--fix", "--rules", "naming", a], "");
@@ -2813,8 +2822,10 @@ fn semantic_fixes_preview_apply_once_and_respect_selection_suppression_and_roots
     assert_eq!(invoke("--fix").status.code(), Some(1));
     assert_eq!(std::fs::read_to_string(&root).unwrap(), suppressed);
     let list = String::from_utf8(run(&["--list-rules"], "").stdout).unwrap();
-    assert!(list.contains("element-predicate\tmodelling\tavailable\tsometimes\tthesis"));
-    assert!(list.contains("unused-generator-binding\tsuspicious\tavailable\tsometimes\tscope,all"));
+    assert!(list.contains("element-predicate\tstyle\twarning\tavailable\tsometimes\tthesis"));
+    assert!(
+        list.contains("unused-generator-binding\tstyle\twarning\tavailable\tsometimes\tscope,all")
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 

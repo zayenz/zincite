@@ -1,7 +1,7 @@
 //! Shadowing policy consumes enclosing-binding facts; it does not rebuild scopes.
 use crate::{
     BindingFacts, BindingResolution, Declaration, DeclarationRole, FileFinding, ModelContext, Rule,
-    Severity, SourceDiagnostic,
+    SourceDiagnostic,
 };
 
 pub(super) fn check_shadowing(
@@ -56,7 +56,7 @@ pub(super) fn check_shadowing(
         findings.push(FileFinding { fix: None,
             location: inner.location.clone(),
             rule: Rule::SuspiciousShadowing,
-            severity: Severity::Warning,
+            severity: Rule::SuspiciousShadowing.severity(),
             message: format!("binding '{}' hides an enclosing binding at {}:{}:{} bytes {}..{}; consider a distinct name to make the scope clear", inner.name, location.path.display(), location.line, location.column, location.range.start, location.range.end),
         });
     }

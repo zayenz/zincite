@@ -1,7 +1,7 @@
 //! Direct comprehension advice over standard call signatures and fixed set identity.
 use crate::{
     BindingFacts, DeclarationRole, Domain, EditPart, FileFinding, FileId, Fix, FixSafety,
-    Instantiation, ModelContext, NumericBound, Rule, Severity, SourceSnapshot, TextEdit, TypeKind,
+    Instantiation, ModelContext, NumericBound, Rule, SourceSnapshot, TextEdit, TypeKind,
 };
 use std::collections::BTreeMap;
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
@@ -61,7 +61,7 @@ pub(super) fn check(
                     findings.push(FileFinding {
                         location,
                         rule: Rule::PreferArrayComprehension,
-                        severity: Severity::Warning,
+                        severity: Rule::PreferArrayComprehension.severity(),
                         message: "Prefer a direct array comprehension with the same index axes"
                             .into(),
                         fix,

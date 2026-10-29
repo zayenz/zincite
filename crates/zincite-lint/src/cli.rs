@@ -61,8 +61,8 @@ index-set-mismatch, suspicious-shadowing, partial-expression, hidden-optionality
 vacuous-constraint, unbounded-variable and unused-declaration, in that order.
 Naming and missing-constraint-label run only when selected, for example with
 --rules default,preset:conventions or select = [\"default\", \"preset:conventions\"] in zincite.toml.
---list-rules lists rule IDs, families, availability, fix support and preset membership.
---explain RULE describes a rule's purpose, required facts, limitations and options.
+--list-rules lists rule IDs, families, severities, availability, fix support and preset membership.
+--explain RULE describes a rule's purpose, severity, required facts, limitations and options.
 These inspection commands run alone, write to stdout and do not read input.
 Rule entries report availability, implemented fix support and current options.
 
@@ -81,6 +81,8 @@ Stdin has no model context: selected semantic analysis reports a limitation;
 standalone .dzn inputs mark semantic rules inapplicable.
 
 Prefer-enum is opt-in advisory advice and offers no automatic fix.
+Rules that propose an alternative formulation report informational findings; --list-rules
+shows each rule's severity. Other rules warn. Severity is not configurable.
 Symbolic Cartesian advice from expensive-comprehension is informational when no numeric
 count or threshold exceedance is established. Numeric threshold and proven placement
 advice remain warnings. Informational advice alone does not fail lint.
@@ -460,14 +462,18 @@ fn inspect_rules(arguments: &[std::ffi::OsString]) -> Result<u8, String> {
 }
 
 fn write_rule_list(output: &mut impl Write) -> io::Result<()> {
-    writeln!(output, "ID\tFamily\tAvailability\tFixes\tPresets\tPurpose")?;
+    writeln!(
+        output,
+        "ID\tFamily\tSeverity\tAvailability\tFixes\tPresets\tPurpose"
+    )?;
     for rule in Rule::all() {
         let metadata = rule.metadata();
         writeln!(
             output,
-            "{}\t{}\t{}\t{}\t{}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
             metadata.id,
             metadata.family.as_str(),
+            metadata.severity.as_str(),
             if metadata.available {
                 "available"
             } else {
@@ -485,9 +491,10 @@ fn write_rule_explanation(rule: Rule, output: &mut impl Write) -> io::Result<()>
     let metadata = rule.metadata();
     writeln!(output, "{}: {}", metadata.id, metadata.purpose)?;
     writeln!(output, "Family: {}", metadata.family.as_str())?;
+    writeln!(output, "Severity: {}", metadata.severity.as_str())?;
     writeln!(
         output,
-        "Families describe purpose, not severity or fix safety."
+        "Families describe purpose, not severity or fix safety. Informational findings alone do not fail lint."
     )?;
     writeln!(
         output,

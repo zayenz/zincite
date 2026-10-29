@@ -6,7 +6,7 @@ use crate::domains::tokens;
 use crate::{
     BindingFacts, Cardinality, CollectionCardinality, FileFinding, FileId, GuardActivation,
     GuardedFacts, GuardedOutcome, Instantiation, InstantiationFacts, ModelContext,
-    OptionalConditionKind, OptionalFacts, Presence, Rule, Severity, SourceDiagnostic, TypeKind,
+    OptionalConditionKind, OptionalFacts, Presence, Rule, SourceDiagnostic, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 
@@ -172,7 +172,7 @@ pub(super) fn check_hidden_optionality(
                     } else {
                         "explicitly absent comprehension elements"
                     };
-                    findings.push(FileFinding{fix:None,location,rule:Rule::HiddenOptionality,severity:Severity::Warning,message:format!("if this comparison intends to count selected or present elements, length does not measure that count: {cause} gates presence, while length measures array capacity {} when the collection is defined{}",capacity(&counts.capacity),present(&counts.present))});
+                    findings.push(FileFinding{fix:None,location,rule:Rule::HiddenOptionality,severity:Rule::HiddenOptionality.severity(),message:format!("if this comparison intends to count selected or present elements, length does not measure that count: {cause} gates presence, while length measures array capacity {} when the collection is defined{}",capacity(&counts.capacity),present(&counts.present))});
                 }
             }
         }

@@ -136,6 +136,15 @@ pub enum Severity {
     Warning,
 }
 
+impl Severity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Informational => "info",
+            Self::Warning => "warning",
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct LintDiagnostic {
     /// Optional producer-supplied fix in original snapshot coordinates.
@@ -281,7 +290,7 @@ fn missing_labels(node: &SyntaxNode, parsed: &ParsedFile, warnings: &mut Vec<Lin
             warnings.push(LintDiagnostic {
                 fix: None,
                 rule: Rule::MissingConstraintLabel,
-                severity: Severity::Warning,
+                severity: Rule::MissingConstraintLabel.severity(),
                 range,
                 message:
                     "consider adding a string label to explain this constraint's modelling intent"

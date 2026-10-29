@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 159
-- Ready: 2
-- Blocked: 5
-- Done: 152
+- Ready: 5
+- Blocked: 1
+- Done: 153
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -160,11 +160,11 @@
 | [base-149](tasks/149-leave-unused-generator-bindings-to-their-own-rule.md) | Leave unused generator bindings to their own rule | done | — |
 | [base-150](tasks/150-exempt-callable-parameters-that-share-a-top-level-name.md) | Exempt callable parameters that share a top-level name | done | — |
 | [base-151](tasks/151-limit-decision-variable-operator-to-arithmetic-operators.md) | Limit decision-variable-operator to arithmetic operators | done | — |
-| [base-152](tasks/152-record-default-severity-per-rule-and-reassign-style-families.md) | Record default severity per rule and reassign style families | ready | — |
+| [base-152](tasks/152-record-default-severity-per-rule-and-reassign-style-families.md) | Record default severity per rule and reassign style families | done | — |
 | [base-153](tasks/153-switch-the-default-preset-to-likely-mistake-checks.md) | Switch the default preset to likely-mistake checks | done | base-149 |
-| [base-154](tasks/154-add-pairwise-self-comparison-for-unsatisfiable-equal-pairs.md) | Add pairwise-self-comparison for unsatisfiable equal pairs | blocked | base-153, base-152 |
+| [base-154](tasks/154-add-pairwise-self-comparison-for-unsatisfiable-equal-pairs.md) | Add pairwise-self-comparison for unsatisfiable equal pairs | ready | base-153, base-152 |
 | [base-155](tasks/155-add-deprecated-call-for-deprecated-standard-library-callable.md) | Add deprecated-call for deprecated standard-library callables | blocked | base-153, base-152, base-154 |
-| [base-156](tasks/156-add-prefer-assertion-for-parameter-only-constraints.md) | Add prefer-assertion for parameter-only constraints | blocked | base-152 |
-| [base-157](tasks/157-add-ambiguous-precedence-for-easily-misread-boolean-operator.md) | Add ambiguous-precedence for easily misread Boolean operators | blocked | base-152 |
-| [base-158](tasks/158-add-float-equality-for-parameter-float-comparisons.md) | Add float-equality for parameter float comparisons | blocked | base-152 |
+| [base-156](tasks/156-add-prefer-assertion-for-parameter-only-constraints.md) | Add prefer-assertion for parameter-only constraints | ready | base-152 |
+| [base-157](tasks/157-add-ambiguous-precedence-for-easily-misread-boolean-operator.md) | Add ambiguous-precedence for easily misread Boolean operators | ready | base-152 |
+| [base-158](tasks/158-add-float-equality-for-parameter-float-comparisons.md) | Add float-equality for parameter float comparisons | ready | base-152 |
 | [base-159](tasks/159-reduce-shared-semantic-lint-cost.md) | Reduce shared semantic lint cost | ready | — |

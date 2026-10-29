@@ -2,7 +2,7 @@
 use crate::{
     BindingFacts, BindingResolution, Cardinality, DeclarationId, FileFinding, GuardObligation,
     GuardedFacts, GuardedOutcome, IterationFacts, IterationMultiplicity, ModelContext, Rule,
-    Severity, SourceDiagnostic, SourceLocation,
+    SourceDiagnostic, SourceLocation,
 };
 
 /// Usage and retained evaluation requirements for one generator declaration.
@@ -195,7 +195,7 @@ pub(super) fn check_unused_generators(
             },
             location: binding.location.clone(),
             rule: Rule::UnusedGeneratorBinding,
-            severity: Severity::Warning,
+            severity: Rule::UnusedGeneratorBinding.severity(),
             message,
         });
     }

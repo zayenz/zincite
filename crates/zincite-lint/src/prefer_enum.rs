@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 
 use crate::{
     BindingFacts, CallOutcome, DeclarationId, DeclarationRole, Domain, DomainFacts, FileFinding,
-    FileId, Instantiation, ModelContext, ModelRootState, Rule, Severity, SourceDiagnostic,
-    SourceKind, TypeKind,
+    FileId, Instantiation, ModelContext, ModelRootState, Rule, SourceDiagnostic, SourceKind,
+    TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 
@@ -101,7 +101,7 @@ pub(super) fn check(
                 .is_some_and(|s| !s[d.item].contains(&Rule::PreferEnum))
         {
             result.findings.push(FileFinding {
-                location: d.location.clone(), rule: Rule::PreferEnum, severity: Severity::Warning, fix: None,
+                location: d.location.clone(), rule: Rule::PreferEnum, severity: Rule::PreferEnum.severity(), fix: None,
                 message: format!("Members of '{}' appear to serve as identities in the supported model uses; consider an enum. Review member names and external data/output compatibility before converting", d.name),
             });
         }
