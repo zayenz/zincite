@@ -23,11 +23,12 @@ them. Passing those checks does not establish that the model has a solution.
 The default reports likely mistakes and stays quiet on well-written models, so
 exit status 1 means a finding needs review. It checks array-construction
 wrappers, index compatibility, shadowing, partial expressions, optional-value
-counts, vacuous constraints, unbounded variables, unused declarations and
-pairwise comparisons that cannot hold for an equal pair. Their rule IDs are
-`prefer-array-comprehension`, `index-set-mismatch`, `suspicious-shadowing`,
-`partial-expression`, `hidden-optionality`, `vacuous-constraint`,
-`unbounded-variable`, `unused-declaration` and `pairwise-self-comparison`.
+counts, vacuous constraints, unbounded variables, unused declarations,
+pairwise comparisons that cannot hold for an equal pair and calls to deprecated
+standard-library callables. Their rule IDs are `prefer-array-comprehension`,
+`index-set-mismatch`, `suspicious-shadowing`, `partial-expression`,
+`hidden-optionality`, `vacuous-constraint`, `unbounded-variable`,
+`unused-declaration`, `pairwise-self-comparison` and `deprecated-call`.
 
 Naming and constraint-label checks run only when you select them. The
 `conventions` preset contains them. To add them to the default, run
@@ -43,7 +44,7 @@ only once.
 
 | Preset | Rules |
 | --- | --- |
-| [`conventions`](lint-conventions.md) | `naming`, `missing-constraint-label`, `array-index-start` |
+| [`conventions`](lint-conventions.md) | `naming`, `missing-constraint-label`, `array-index-start`, `deprecated-call` |
 | [`scope`](lint-scope.md) | `suspicious-shadowing`, `unused-declaration`, `unused-generator-binding`, `global-variable-in-function` |
 | [`arrays`](lint-arrays.md) | `index-set-mismatch`, `hidden-optionality`, `prefer-array-comprehension` |
 | [`domains`](lint-domains.md) | `unbounded-variable`, `suspicious-domain`, `partial-expression`, `missing-input-precondition` |
@@ -192,7 +193,7 @@ trigger other rules when you select a broader preset.
 
 | Group | What to review |
 | --- | --- |
-| [Conventions](lint-conventions.md) | Names, constraint labels and numeric index origins. |
+| [Conventions](lint-conventions.md) | Names, constraint labels, numeric index origins and deprecated standard-library calls. |
 | [Scope](lint-scope.md) | Hidden names and dependencies, unused declarations and generator bindings. |
 | [Arrays](lint-arrays.md) | Index compatibility, optional elements and array-construction wrappers. |
 | [Domains](lint-domains.md) | Variable bounds, conflicting definitions and conditions required by expressions. |

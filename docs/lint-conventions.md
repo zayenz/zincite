@@ -1,7 +1,7 @@
 # Naming, labels and index conventions
 
 These rules make names, constraint intent and numeric array indices easier to
-read. Select the group with `--rules preset:conventions`.
+read, and point out standard-library calls that MiniZinc has deprecated. Select the group with `--rules preset:conventions`.
 See [linting](linting.md) for configuration, suppressions and diagnostic output.
 
 | Rule | Family | Severity | Default | Automatic fix |
@@ -9,6 +9,7 @@ See [linting](linting.md) for configuration, suppressions and diagnostic output.
 | [`naming`](#naming) | `style` | Warning | No | No |
 | [`missing-constraint-label`](#missing-constraint-label) | `style` | Warning | No | No |
 | [`array-index-start`](#array-index-start) | `style` | Warning | No | No |
+| [`deprecated-call`](#deprecated-call) | `suspicious` | Warning | Yes | No |
 
 ## naming
 
@@ -80,3 +81,31 @@ reasonably start at 2026. Keep that representation and [suppress the
 rule](linting.md#suppression-and-explicit-fixes) when appropriate. Enum indices
 are exempt. Unknown bounds and unconstrained `int` indices do not receive this
 advice.
+
+## deprecated-call
+
+Reports a call to a standard-library predicate or function that MiniZinc marks
+with `mzn_deprecated`. The message quotes the MiniZinc version that deprecated
+it and the library's explanation, usually a link to the documentation.
+
+```minizinc
+include "globals.mzn";
+
+array[1 .. 5] of var 1 .. 3: shift;
+constraint at_most(2, shift, 3);
+```
+
+<!-- zincite-lint: deprecated-call -->
+
+The integer form of `at_most` has been deprecated since MiniZinc 2.4.0. Its
+documentation recommends a count instead:
+
+```minizinc
+constraint count (s in shift) (s = 3) <= 2;
+```
+
+The rule follows the overload the call selects. The set form of `at_most` is
+not deprecated, so a call with set arguments stays quiet. So does a call to
+your own predicate with the same name. When Zincite cannot select one
+overload and a deprecated candidate remains, it records an analysis limitation
+instead of a finding. Replacing the call is manual.

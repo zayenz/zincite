@@ -93,7 +93,7 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
             .rules
             .contains(&Rule::PartialExpression)
     );
-    assert_eq!(Rule::DEFAULT.len(), 9);
+    assert_eq!(Rule::DEFAULT.len(), 10);
     assert_eq!(Rule::THESIS.len(), 14);
     assert!(Rule::from_id("unknown-rule").is_none());
 }
@@ -358,6 +358,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
         "unbounded-variable",
         "unused-declaration",
         "pairwise-self-comparison",
+        "deprecated-call",
     ];
     assert_eq!(
         LintOptions::default().rules,
@@ -404,6 +405,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
                 "suspicious-domain",
                 "prefer-enum",
                 "pairwise-self-comparison",
+                "deprecated-call",
             ])
             .collect(),
         ),
@@ -501,6 +503,7 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
                         Rule::MissingInputPrecondition,
                         Rule::SuspiciousDomain,
                         Rule::PairwiseSelfComparison,
+                        Rule::DeprecatedCall,
                     ])
                     .filter(|rule| !style.contains(rule))
             )
@@ -559,7 +562,8 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
             Rule::VacuousConstraint,
             Rule::UnboundedVariable,
             Rule::UnusedDeclaration,
-            Rule::PairwiseSelfComparison
+            Rule::PairwiseSelfComparison,
+            Rule::DeprecatedCall
         ]
     );
     assert_eq!(
@@ -620,7 +624,12 @@ fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
     let groups: &[(&str, &[&str])] = &[
         (
             "conventions",
-            &["naming", "missing-constraint-label", "array-index-start"],
+            &[
+                "naming",
+                "missing-constraint-label",
+                "array-index-start",
+                "deprecated-call",
+            ],
         ),
         (
             "scope",
@@ -700,7 +709,7 @@ fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
     catalogue.sort_unstable();
     covered.sort_unstable();
     assert_eq!(covered, catalogue);
-    assert_eq!(covered.len(), 29);
+    assert_eq!(covered.len(), 30);
 
     let settings = LintSettings::from_toml(
         r#"
@@ -725,6 +734,7 @@ fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
             Rule::PairwiseSelfComparison,
             Rule::MissingConstraintLabel,
             Rule::ArrayIndexStart,
+            Rule::DeprecatedCall,
         ]
     );
     let fixes = settings.resolve_fixes().unwrap();
@@ -819,7 +829,8 @@ fn personal_presets_merge_typed_options_and_reject_ambiguous_or_invalid_settings
             Rule::PartialExpression,
             Rule::HiddenOptionality,
             Rule::VacuousConstraint,
-            Rule::PairwiseSelfComparison
+            Rule::PairwiseSelfComparison,
+            Rule::DeprecatedCall
         ]
     );
     let bundles = LintSettings::from_toml("[lint]\nselect=['preset:a']\n[lint.presets.a]\nselect=['naming']\n[lint.presets.a.options.suspicious-shadowing]\nignore-names=['a']\n[lint.presets.b]\nselect=['naming']\n[lint.presets.b.options.suspicious-shadowing]\nignore-names=['b']").unwrap();

@@ -463,6 +463,22 @@ impl Loader<'_> {
                 location,
             });
         }
+        // Like the compiler, read a standard file's deprecation companion,
+        // which redeclares its deprecated callables with mzn_deprecated.
+        if self.context.files[id].kind == SourceKind::StandardLibrary {
+            let mut companion = path.as_os_str().to_owned();
+            companion.push(".deprecated.mzn");
+            let companion = PathBuf::from(companion);
+            if companion.is_file() {
+                let location = self.context.files[id].location(0..0);
+                let target = self.load_file(&companion, implicit, false, Some(location.clone()));
+                self.context.includes.push(IncludeEdge {
+                    from: id,
+                    target,
+                    location,
+                });
+            }
+        }
         self.active.pop();
         Some(id)
     }

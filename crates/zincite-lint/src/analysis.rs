@@ -234,6 +234,7 @@ pub fn analyze_model_with_facts(
     let mut unused_incomplete = false;
     let mut unused_generator_incomplete = false;
     let mut patterns_incomplete = false;
+    let mut deprecated_incomplete = false;
     let mut comprehension_incomplete = false;
     let mut input_incomplete = false;
     let mut domain_contract_incomplete = false;
@@ -422,6 +423,16 @@ pub fn analyze_model_with_facts(
                     &comparisons,
                 ));
         }
+        if options.rules.contains(&Rule::DeprecatedCall) {
+            let (findings, limitations) = crate::deprecated_call::check_deprecated_calls(
+                context,
+                bindings,
+                &facts.source_view(),
+            );
+            deprecated_incomplete = !limitations.is_empty();
+            result.findings.extend(findings);
+            result.limitations.extend(limitations);
+        }
         if options.rules.contains(&Rule::UnusedGeneratorBinding) {
             let (findings, limitations) = crate::unused_generator::check_unused_generators(
                 context,
@@ -558,6 +569,7 @@ pub fn analyze_model_with_facts(
                     || (rule == Rule::VacuousConstraint && vacuous_incomplete)
                     || (rule == Rule::UnusedGeneratorBinding && unused_generator_incomplete)
                     || (rule == Rule::GlobalConstraintOpportunity && patterns_incomplete)
+                    || (rule == Rule::DeprecatedCall && deprecated_incomplete)
                     || (rule == Rule::ExpensiveComprehension && comprehension_incomplete)
                     || (rule == Rule::MissingInputPrecondition && input_incomplete)
                     || (rule == Rule::SuspiciousDomain && domain_contract_incomplete)

@@ -14,6 +14,7 @@ mod compact_if;
 mod constant_variable;
 mod decision_use;
 mod definitions;
+mod deprecated_call;
 mod domains;
 mod effective_zero_one;
 mod element;

@@ -115,10 +115,11 @@ pub enum Rule {
     PreferArrayComprehension,
     PreferEnum,
     PairwiseSelfComparison,
+    DeprecatedCall,
 }
 
 impl Rule {
-    pub const DEFAULT: [Self; 9] = [
+    pub const DEFAULT: [Self; 10] = [
         Self::PreferArrayComprehension,
         Self::IndexSetMismatch,
         Self::SuspiciousShadowing,
@@ -128,6 +129,7 @@ impl Rule {
         Self::UnboundedVariable,
         Self::UnusedDeclaration,
         Self::PairwiseSelfComparison,
+        Self::DeprecatedCall,
     ];
     pub const THESIS: [Self; 14] = [
         Self::ArrayIndexStart,
@@ -169,6 +171,7 @@ impl Rule {
             Self::SuspiciousDomain,
             Self::PreferEnum,
             Self::PairwiseSelfComparison,
+            Self::DeprecatedCall,
         ])
     }
 
@@ -176,6 +179,13 @@ impl Rule {
     /// registering a rule; CLI explanations and the existing accessors use it.
     pub fn metadata(self) -> RuleMetadata {
         let (id, family, purpose, requirements, limitations) = match self {
+            Self::DeprecatedCall => (
+                "deprecated-call",
+                RuleFamily::Suspicious,
+                "Report calls to standard-library callables annotated mzn_deprecated, quoting the version and explanation.",
+                "Resolved callable identity and the mzn_deprecated annotation on that standard declaration or its identical prototype.",
+                "Standard-library callables only; a user callable with the same name stays quiet. Unresolved or ambiguous calls with a deprecated standard namesake report a limitation. No fix is offered.",
+            ),
             Self::PairwiseSelfComparison => (
                 "pairwise-self-comparison",
                 RuleFamily::Correctness,
@@ -458,6 +468,7 @@ const SEMANTIC_PRESETS: &[(&str, &[Rule])] = &[
             Rule::Naming,
             Rule::MissingConstraintLabel,
             Rule::ArrayIndexStart,
+            Rule::DeprecatedCall,
         ],
     ),
     (

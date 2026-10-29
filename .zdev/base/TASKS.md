@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 159
-- Ready: 5
+- Ready: 4
 - Blocked: 0
-- Done: 154
+- Done: 155
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -163,7 +163,7 @@
 | [base-152](tasks/152-record-default-severity-per-rule-and-reassign-style-families.md) | Record default severity per rule and reassign style families | done | — |
 | [base-153](tasks/153-switch-the-default-preset-to-likely-mistake-checks.md) | Switch the default preset to likely-mistake checks | done | base-149 |
 | [base-154](tasks/154-add-pairwise-self-comparison-for-unsatisfiable-equal-pairs.md) | Add pairwise-self-comparison for unsatisfiable equal pairs | done | base-153, base-152 |
-| [base-155](tasks/155-add-deprecated-call-for-deprecated-standard-library-callable.md) | Add deprecated-call for deprecated standard-library callables | ready | base-153, base-152, base-154 |
+| [base-155](tasks/155-add-deprecated-call-for-deprecated-standard-library-callable.md) | Add deprecated-call for deprecated standard-library callables | done | base-153, base-152, base-154 |
 | [base-156](tasks/156-add-prefer-assertion-for-parameter-only-constraints.md) | Add prefer-assertion for parameter-only constraints | ready | base-152 |
 | [base-157](tasks/157-add-ambiguous-precedence-for-easily-misread-boolean-operator.md) | Add ambiguous-precedence for easily misread Boolean operators | ready | base-152 |
 | [base-158](tasks/158-add-float-equality-for-parameter-float-comparisons.md) | Add float-equality for parameter float comparisons | ready | base-152 |
