@@ -62,24 +62,12 @@ struct Checker<'a> {
 fn advised_operator(kind: TokenKind) -> bool {
     matches!(
         kind,
-        TokenKind::Power
-            | TokenKind::Div
-            | TokenKind::Mod
-            | TokenKind::Slash
-            | TokenKind::Xor
-            | TokenKind::Or
-            | TokenKind::Implies
-            | TokenKind::ReverseImplies
-            | TokenKind::Equivalence
-            | TokenKind::Not
+        TokenKind::Power | TokenKind::Div | TokenKind::Mod | TokenKind::Slash
     )
 }
 
 fn operator_name(name: &str) -> bool {
-    matches!(
-        name,
-        "^" | "div" | "mod" | "/" | "xor" | "\\/" | "->" | "<-" | "<->" | "not"
-    )
+    matches!(name, "^" | "div" | "mod" | "/")
 }
 
 impl Checker<'_> {

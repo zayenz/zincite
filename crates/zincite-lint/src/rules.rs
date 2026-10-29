@@ -255,9 +255,9 @@ impl Rule {
             Self::DecisionVariableOperator => (
                 "decision-variable-operator",
                 RuleFamily::Performance,
-                "Advise on selected expensive or reified operators with decision-dependent operands.",
+                "Advise on ^, div, mod and / with decision-dependent operands.",
                 "Lexical bindings, resolved callable types and operand instantiation.",
-                "The operators are ^, div, mod, /, xor, disjunction, implication in either direction, equivalence and not, including equivalent spellings. Parameter-only operands stay quiet; unknown facts report limitations. Reformulation/tabling advice is conditional and has no solving-speed guarantee.",
+                "The operators are ^, div, mod and /, including quoted call spellings. Unlike the thesis, Boolean xor, disjunction, implication, equivalence and not stay quiet because they are ordinary modelling. Parameter-only operands stay quiet; unknown facts report limitations. Reformulation/tabling advice is conditional and has no solving-speed guarantee.",
             ),
             Self::UnmarkedSymmetryBreaking => (
                 "unmarked-symmetry-breaking",

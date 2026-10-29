@@ -50,8 +50,8 @@ dependencies remain valid. It does not reorder the model automatically.
 
 ## decision-variable-operator
 
-Points out selected arithmetic and Boolean operators with decision-dependent
-operands.
+Points out power, integer division, modulo and division with
+decision-dependent operands.
 
 ```minizinc
 var 0 .. 40: hours;
@@ -64,9 +64,11 @@ constraint model. Review whether `shift_length` should be fixed input, or whethe
 a small table of allowed combinations would express the problem better. Keep
 the division if it is the clearest suitable formulation.
 
-The checked operators are power, division, modulo, `xor`, disjunction,
-implication in either direction, equivalence and negation, including equivalent
-spellings. Parameter-only operands are exempt. The finding does not imply that
+The checked operators are `^`, `div`, `mod` and `/`, including quoted call
+spellings such as `'div'(x, y)`. The rule deliberately departs from the thesis
+by leaving `xor`, disjunction, implication in either direction, equivalence and
+`not` alone: on decisions they are ordinary modelling, not a sign of a costly
+formulation. Parameter-only operands are exempt. The finding does not imply that
 the operator is incorrect or that a proposed alternative will solve faster.
 
 ## decision-variable-generator

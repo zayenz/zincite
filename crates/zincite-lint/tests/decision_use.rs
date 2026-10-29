@@ -174,13 +174,7 @@ fn operator_families_conditions_and_sources_use_separate_facts_and_suppressions(
         .filter(|f| f.rule == Rule::DecisionVariableOperator && f.location.path == root)
         .map(|f| &source[f.location.range.clone()])
         .collect();
-    assert_eq!(
-        operators,
-        vec![
-            "^", "div", "mod", "/", "xor", "\\/", "->", "<-", "<->", "not", "∨", "→", "←", "↔",
-            "¬", "'div'", "'not'"
-        ]
-    );
+    assert_eq!(operators, ["^", "div", "mod", "/", "'div'"]);
     assert_eq!(
         result
             .findings
