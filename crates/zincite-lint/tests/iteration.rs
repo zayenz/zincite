@@ -80,7 +80,7 @@ fn set<'a>(
         .unwrap_or_else(|| panic!("missing set {spelling}"))
 }
 #[test]
-fn membership_relations_keep_order_offsets_enums_and_replaceable_identity() {
+fn membership_relations_keep_order_offsets_enums_and_written_values() {
     let source = concat!(
         "enum X={A,B,C}; enum Y={D,E,F}; int:N=3; int:K=3; set of int:P={1,2,3}; set of int:Q={1,2,3};\n",
         "array[0..2] of int:a; array[1..3] of int:b; array[X,1..3] of int:grid;\n",
@@ -162,11 +162,11 @@ fn membership_relations_keep_order_offsets_enums_and_replaceable_identity() {
     );
     assert_eq!(
         set(&context, &facts, "P").equal_members(set(&context, &facts, "Q")),
-        GuardedOutcome::Unknown
+        GuardedOutcome::Proven
     );
     assert_eq!(
         set(&context, &facts, "1..N").equal_members(set(&context, &facts, "1..K")),
-        GuardedOutcome::Unknown
+        GuardedOutcome::Proven
     );
     let mut anonymous_left = set(&context, &facts, "P").clone();
     let mut anonymous_right = set(&context, &facts, "Q").clone();
@@ -405,7 +405,7 @@ fn rejecting_filters_do_not_relabel_inherited_emptiness() {
     assert_eq!(first.filters[1].coverage, IterationCoverage::Unknown);
     assert_eq!(
         iteration(&context, &facts, "[i | i in 1..N where i>N]").filters[0].coverage,
-        IterationCoverage::Unknown
+        IterationCoverage::Empty
     );
     assert!(matches!(
         iteration(&context, &facts, "[i | i in 1..3 where opaque(i)]").filters[0].definedness,

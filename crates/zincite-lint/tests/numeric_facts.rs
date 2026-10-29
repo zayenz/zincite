@@ -221,8 +221,14 @@ fn missing_data_distinct_defaults_and_unsupported_math_retain_identity_and_locat
     assert_eq!(
         n.value,
         NumericOutcome::Symbolic {
-            lower: NumericBound::Symbol(n.declaration),
-            upper: NumericBound::Symbol(n.declaration)
+            lower: NumericBound::Defined {
+                declaration: n.declaration,
+                value: Box::new(NumericBound::Integer(2))
+            },
+            upper: NumericBound::Defined {
+                declaration: n.declaration,
+                value: Box::new(NumericBound::Integer(2))
+            }
         }
     );
     assert_ne!(n.value, k.value);

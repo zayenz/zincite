@@ -164,18 +164,18 @@ fn local_guards_preserve_obligations_identity_and_boolean_ranges() {
         indices[1].kind,
         GuardObligationKind::Index { dimension: 2, .. }
     ));
-    assert_eq!(indices[0].outcome, GuardedOutcome::Unknown);
+    assert_eq!(indices[0].outcome, GuardedOutcome::Proven);
     assert_eq!(
         obligation(&context, &facts, "grid[j,1]").outcome,
         GuardedOutcome::Proven
     );
     assert_eq!(
         obligation(&context, &facts, "grid[q,1]").outcome,
-        GuardedOutcome::Unknown
+        GuardedOutcome::Proven
     );
     assert_eq!(
         obligation(&context, &facts, "grid[K,1]").outcome,
-        GuardedOutcome::Unknown
+        GuardedOutcome::Proven
     );
     assert!(
         facts
@@ -396,7 +396,7 @@ fn aggregate_preconditions_and_missing_interpretation_remain_explicit() {
     );
     assert_eq!(
         obligation(&context, &facts, "min(symbolic_array)").outcome,
-        GuardedOutcome::Unknown
+        GuardedOutcome::Proven
     );
     assert_eq!(
         obligation(&context, &facts, "min({})").outcome,

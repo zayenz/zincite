@@ -131,7 +131,10 @@ fn candidate_indices_are_distinct_from_unknowns_and_scoped_protection() {
         "constraint forall(e in 1..0)(a[e+1]>0); int:inactive=if false then 7 div 0 else 0 endif; var int:source=sum(s in {11 div 0} where false)(s); solve satisfy;\n",
     );
     let (dir, context, result) = model("candidates", source, "partial-expression");
-    assert_eq!(spellings(&context, &result), ["a[i+1]", "11 div 0"]);
+    assert_eq!(
+        spellings(&context, &result),
+        ["a[i+1]", "8 div N", "11 div 0"]
+    );
     assert!(
         result.findings[0]
             .message
@@ -329,4 +332,27 @@ fn filtered_native_index_sets_keep_symbolic_counts_and_source_errors() {
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
+}
+#[test]
+fn initialized_parameters_supply_known_requirements() {
+    let source = concat!(
+        "int:n=7; array[1..n] of int:required; int:next_week=required[n+1];\n",
+        "int:this_week=required[n]; int:zero=0; var int:ratio=8 div zero;\n",
+        "-1..1:z=0; var int:bounded=8 div z; 1..9:w=2; var int:nonzero=8 div w;\n",
+        "int:half=n div 2; int:rest=n mod 4; int:halved=required[half+5]; int:remainder=required[rest+5]; int:fits=required[half+4];\n",
+        "int:m; array[1..m] of int:data; int:unknown=data[m+1]; var int:divided=8 div m; solve satisfy;\n",
+    );
+    let (dir, context, result) = model("named", source, "partial-expression");
+    assert_eq!(
+        spellings(&context, &result),
+        [
+            "required[n+1]",
+            "8 div zero",
+            "8 div z",
+            "required[half+5]",
+            "required[rest+5]"
+        ]
+    );
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    std::fs::remove_dir_all(dir).unwrap();
 }

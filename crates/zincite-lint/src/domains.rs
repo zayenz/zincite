@@ -2783,6 +2783,25 @@ pub(crate) fn resolve_numeric_facts_view(
             );
         }
     }
+    // Expression consumers interpret written values. Only an initialized
+    // parameter with a declared interval has a different declaration value.
+    let bounded: HashSet<_> = facts
+        .declarations
+        .iter()
+        .filter(|d| d.required.interval().is_some())
+        .map(|d| d.declaration.0)
+        .collect();
+    interpreter.written_values = true;
+    if facts.definitions.iter().any(|rhs| {
+        rhs.parameter_default
+            && bounded.contains(&rhs.target.0)
+            && matches!(known_outcome(rhs.outcome.clone()), NumericOutcome::Exact(_))
+    }) {
+        interpreter.declarations = vec![None; bindings.declarations.len()];
+        for declaration in &facts.declarations {
+            interpreter.declaration(declaration.declaration);
+        }
+    }
     // Only this final pass reuses flat outcomes after declaration interpretation.
     interpreter.expression_memo = Some(vec![None; calls.expressions.len()]);
     for expression in calls.expressions.iter() {
@@ -2969,6 +2988,16 @@ fn numeric_arithmetic(
             let bound = arithmetic(vec![a.clone(), c.clone()]);
             (bound.clone(), bound)
         }
+        // Written parameter values can still determine the closed operands.
+        [(a, b), (c, d)]
+            if matches!(operator, TokenKind::Div | TokenKind::Mod) && a == b && c == d =>
+        {
+            let bound = arithmetic(vec![a.clone(), c.clone()]);
+            if known_integer(&bound).is_none() {
+                return Unknown("division/remainder needs closed invariant operands".into());
+            }
+            (bound.clone(), bound)
+        }
         [(..), (..)] if matches!(operator, TokenKind::Div | TokenKind::Mod) => {
             return Unknown("division/remainder needs closed invariant operands".into());
         }
@@ -3023,6 +3052,8 @@ struct Bounds<'a> {
     instantiations: Option<&'a crate::InstantiationFacts>,
     declarations: Vec<Option<NumericOutcome>>,
     active: Vec<DeclarationId>,
+    /// Prefer an initialized parameter's written value to its declared interval.
+    written_values: bool,
 }
 impl<'a> Bounds<'a> {
     fn new(
@@ -3090,6 +3121,7 @@ impl<'a> Bounds<'a> {
                 Vec::new()
             },
             active: Vec::new(),
+            written_values: false,
         }
     }
     fn walk(
@@ -3739,15 +3771,32 @@ impl<'a> Bounds<'a> {
         let value = if ty.instantiation == crate::Instantiation::Parameter
             && self.bindings.declarations[id.0].role != DeclarationRole::Local
         {
-            // Data can replace written defaults. Preserve identity, never the
-            // default as an exact value of every model instance.
-            if required.interval().is_some() {
-                required
+            // Preserve identity rather than an invariant value. An initialized
+            // parameter cannot be reassigned, so it also retains its written
+            // value for consumers that interpret known values. Invariant facts
+            // keep an independently declared interval instead.
+            let bounded = required.interval().is_some();
+            let written = if bounded && !self.written_values {
+                None
             } else {
-                NumericOutcome::Symbolic {
+                self.initializer(id)
+            };
+            match written {
+                Some(NumericOutcome::Exact(value)) => {
+                    let bound = NumericBound::Defined {
+                        declaration: id,
+                        value: Box::new(NumericBound::Integer(value)),
+                    };
+                    NumericOutcome::Symbolic {
+                        lower: bound.clone(),
+                        upper: bound,
+                    }
+                }
+                _ if bounded => required,
+                _ => NumericOutcome::Symbolic {
                     lower: NumericBound::Symbol(id),
                     upper: NumericBound::Symbol(id),
-                }
+                },
             }
         } else if ty.instantiation == crate::Instantiation::Unknown {
             NumericOutcome::Unknown("declaration instantiation is unknown".into())
@@ -3772,6 +3821,26 @@ impl<'a> Bounds<'a> {
         self.expression_memo = None;
         self.declarations[id.0] = Some(value.clone());
         value
+    }
+    /// The written initializer of a declaration, ignoring separate assignments.
+    fn initializer(&mut self, id: DeclarationId) -> Option<NumericOutcome> {
+        let declaration = &self.bindings.declarations[id.0];
+        let source = &self.context.files[declaration.file];
+        let node = crate::callables::find_node(
+            source.parsed.tree(),
+            &declaration.syntax_range,
+            declaration.role,
+        )?;
+        let value = node
+            .child_nodes()
+            .find(|n| crate::callables::is_expression(n.kind()))?;
+        let value = source.location(value.range()).range;
+        let definition = self
+            .definitions?
+            .definitions
+            .iter()
+            .find(|d| d.target == id && d.value.range == value && supported_definition(d))?;
+        Some(known_outcome(self.definition(definition)))
     }
     fn definition(&mut self, definition: &crate::Definition) -> NumericOutcome {
         use NumericOutcome::*;
@@ -3960,6 +4029,68 @@ pub(super) fn invariant_integer(bound: &NumericBound) -> Result<Option<i64>, Str
     }
 }
 
+// MiniZinc rejects a second assignment to an initialized parameter, so a
+// written initializer is the parameter's value in every instance. Unlike
+// invariant_integer, these queries interpret Defined bounds by that value.
+pub(super) fn known_integer(bound: &NumericBound) -> Option<i64> {
+    integer(bound).ok().flatten()
+}
+fn known_bound(bound: &NumericBound) -> NumericBound {
+    known_integer(bound).map_or_else(|| bound.clone(), NumericBound::Integer)
+}
+
+/// Replace each bound resolved by written parameter values with its integer.
+pub(super) fn known_domain(domain: &Domain) -> Domain {
+    match domain {
+        Domain::Range { lower, upper } => Domain::Range {
+            lower: known_bound(lower),
+            upper: known_bound(upper),
+        },
+        Domain::LiteralSet(values) => Domain::LiteralSet(values.iter().map(known_bound).collect()),
+        Domain::Union { left, right } => Domain::Union {
+            left: Box::new(known_domain(left)),
+            right: Box::new(known_domain(right)),
+        },
+        Domain::Named {
+            declaration,
+            domain,
+        } => Domain::Named {
+            declaration: *declaration,
+            domain: Box::new(known_domain(domain)),
+        },
+        Domain::Set(elements) => Domain::Set(Box::new(known_domain(elements))),
+        Domain::Array { indices, element } => Domain::Array {
+            indices: indices.iter().map(known_domain).collect(),
+            element: element.clone(),
+        },
+        other => other.clone(),
+    }
+}
+
+/// Whether written parameter values determine every bound of this domain.
+pub(super) fn has_known_bounds(domain: &Domain) -> bool {
+    match domain {
+        Domain::Range { lower, upper } => {
+            known_integer(lower).is_some() && known_integer(upper).is_some()
+        }
+        Domain::LiteralSet(values) => values.iter().all(|v| known_integer(v).is_some()),
+        Domain::Union { left, right } => has_known_bounds(left) && has_known_bounds(right),
+        Domain::Named { domain, .. } | Domain::Set(domain) => has_known_bounds(domain),
+        _ => false,
+    }
+}
+
+/// Interpret symbolic endpoints by written parameter values when both resolve.
+pub(super) fn known_outcome(outcome: NumericOutcome) -> NumericOutcome {
+    if let NumericOutcome::Symbolic { lower, upper } = &outcome
+        && let (Some(l), Some(u)) = (known_integer(lower), known_integer(upper))
+        && l <= u
+    {
+        return numeric_interval(l, u);
+    }
+    outcome
+}
+
 pub(super) fn bare_index_domain(mut d: &Domain) -> &Domain {
     while let Domain::Named { domain, .. } = d {
         d = domain;
@@ -4057,9 +4188,11 @@ pub(super) fn shift_index_domain(d: &Domain, delta: Option<i64>) -> Domain {
 ///
 /// Supports integer literals, aliases, parentheses/annotations, resolved core
 /// unary +/-, +, -, *, and closed div/mod, plus supported scalar unconditional
-/// definitions. Checked i64 arithmetic never wraps. Parameter defaults retain
-/// identity instead of becoming instance-invariant values; independently known
-/// parameter domains still bound arithmetic. A cycle cannot establish its own
+/// definitions. Checked i64 arithmetic never wraps. Top-level parameters retain
+/// identity instead of becoming instance-invariant values; an initialized one
+/// also retains its written value as a Defined endpoint. Independently known
+/// parameter domains still bound declarations and definitions; expression
+/// outcomes prefer an initialized parameter's written value. A cycle cannot establish its own
 /// value; independent domain or definition anchors remain usable.
 ///
 /// Selected typed integer calls outside the proof families retain Unknown.

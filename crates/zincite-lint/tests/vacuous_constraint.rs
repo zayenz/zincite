@@ -59,7 +59,8 @@ fn empty_filters_and_constant_truth_report_the_exact_context() {
             "exists([false | j in 1..0])",
             "k>3",
             "p=p",
-            "p /\\ not p"
+            "p /\\ not p",
+            "forall(q in 1..N)(p)"
         ]
     );
     assert_eq!(result.status(), 1);
@@ -168,7 +169,7 @@ fn assumptions_inactivity_unknowns_and_item_suppression_preserve_boundaries() {
             .iter()
             .map(|f| spelling(&context, f))
             .collect::<Vec<_>>(),
-        ["not(p=true)", "not r", "false", "i>3"]
+        ["not(p=true)", "not r", "false", "i>3", "k>N"]
     );
     let root = context
         .files
@@ -200,5 +201,24 @@ fn assumptions_inactivity_unknowns_and_item_suppression_preserve_boundaries() {
     );
     assert!(result.limitations.is_empty(), "{result:?}");
     assert_eq!(result.rules[0].outcome, RuleOutcome::Completed);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+#[test]
+fn named_sets_with_known_values_supply_empty_filters() {
+    let source = concat!(
+        "set of int:Days=1..7; array[Days] of var 0..10:staff;\n",
+        "constraint forall(day in Days where day>7)(staff[day]=4);\n",
+        "constraint forall(d in Days where d>6)(staff[d]=4);\n",
+        "set of int:Open; constraint forall(o in Open where o>7)(staff[o]=4); solve satisfy;\n",
+    );
+    let (dir, context, result) = model("named", source, "vacuous-constraint");
+    assert_eq!(
+        result
+            .findings
+            .iter()
+            .map(|f| spelling(&context, f))
+            .collect::<Vec<_>>(),
+        ["day>7"]
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }

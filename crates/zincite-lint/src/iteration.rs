@@ -3,9 +3,9 @@ use crate::callables::{array_concatenation, core_operation, find_node, is_expres
 use crate::definitions::{core_callable, resolved_call};
 use crate::domains::{
     bare_index_domain as bare, core_arithmetic, expression_domain, generator_slots,
-    index_domain_interval as interval, index_domain_member as member,
-    intersect_index_domains as intersection, invariant_integer, resolved_index_domain,
-    same_members, shift_index_domain as shifted, tokens,
+    has_known_bounds, index_domain_interval as interval, index_domain_member as member,
+    intersect_index_domains as intersection, invariant_integer, known_integer, known_outcome,
+    resolved_index_domain, same_members, shift_index_domain as shifted, tokens,
 };
 use crate::{
     BindingFacts, BindingResolution, Cardinality, CollectionCardinality, DeclarationId,
@@ -277,8 +277,9 @@ impl IterationFacts {
 /// numeric, then optional, then resolve_guarded_facts_with_options. No rules run.
 /// Supports invariant integer ranges/sets, immutable aliases, enum identities,
 /// ordered declared array dimensions, resolved standard index-set helpers and
-/// checked constant offsets of generator bindings. Replaceable defaults never
-/// supply invariant membership; sharing a named set identity still proves equality.
+/// checked constant offsets of generator bindings. Initialized parameters and
+/// named sets supply known written values; other parameter sets have unknown
+/// members, though sharing a named set identity still proves equality.
 ///
 /// Direct lexical references include annotations, filters, later sources and
 /// nested scopes. Local aliases and assignment sources retain dependencies;
@@ -448,6 +449,18 @@ impl Producer<'_> {
                     .map(|_| self.bound(value))
                     .unwrap_or_else(NumericBound::Unsupported)
             }
+            // An initialized parameter cannot be reassigned. Its value is used
+            // only when known; otherwise it keeps its identity as before.
+            NumericBound::Defined { declaration, value }
+                if self.bindings.declarations[declaration.0].role == DeclarationRole::Value =>
+            {
+                match known_integer(value) {
+                    Some(n) if self.declaration_math(*declaration).is_ok() => {
+                        NumericBound::Integer(n)
+                    }
+                    _ => NumericBound::Symbol(*declaration),
+                }
+            }
             NumericBound::Defined { declaration, .. } => NumericBound::Symbol(*declaration),
             NumericBound::Arithmetic { operator, operands } => NumericBound::Arithmetic {
                 operator: *operator,
@@ -505,7 +518,10 @@ impl Producer<'_> {
                             | DeclarationRole::Generator
                     )
                     && !(d.role == DeclarationRole::Local
-                        && d.instantiation == Instantiation::Parameter);
+                        && d.instantiation == Instantiation::Parameter)
+                    && !(d.role == DeclarationRole::Value
+                        && d.instantiation == Instantiation::Parameter
+                        && has_known_bounds(&domain));
                 Domain::Named {
                     declaration,
                     domain: Box::new(if replaceable {
@@ -821,7 +837,7 @@ impl Producer<'_> {
                         if op.kind == TokenKind::Minus {
                             delta.checked_neg()
                         } else {
-                            Some(*delta)
+                            Some(delta)
                         },
                     );
                 }
@@ -833,7 +849,7 @@ impl Producer<'_> {
                     )
                     && let Some(base) = known.get(&id.0)
                 {
-                    domain = shifted(base, Some(*delta));
+                    domain = shifted(base, Some(delta));
                 }
             }
         }
@@ -920,13 +936,13 @@ impl Producer<'_> {
         generators.sort_by_key(|node| node.range().start);
         (generators, scope_error)
     }
-    fn numeric_value(&self, file: FileId, node: &SyntaxNode) -> Option<&NumericOutcome> {
+    fn numeric_value(&self, file: FileId, node: &SyntaxNode) -> Option<NumericOutcome> {
         let location = self.location(file, node);
         self.numeric
             .expressions
             .iter()
             .find(|e| e.file == file && e.location.range == location.range)
-            .map(|e| &e.outcome)
+            .map(|e| known_outcome(e.outcome.clone()))
     }
     fn deps(
         &self,
@@ -1448,7 +1464,7 @@ impl Producer<'_> {
     }
     fn assignment_domain(&self, file: FileId, node: &SyntaxNode) -> Domain {
         match self.numeric_value(file, node) {
-            Some(NumericOutcome::Exact(n)) => Domain::LiteralSet(vec![NumericBound::Integer(*n)]),
+            Some(NumericOutcome::Exact(n)) => Domain::LiteralSet(vec![NumericBound::Integer(n)]),
             _ => Domain::Unknown,
         }
     }
@@ -1539,10 +1555,10 @@ impl Producer<'_> {
             };
             let (l, u) = match op {
                 TokenKind::Less => (i64::MIN, n.checked_sub(1)?),
-                TokenKind::LessEqual => (i64::MIN, *n),
+                TokenKind::LessEqual => (i64::MIN, n),
                 TokenKind::Greater => (n.checked_add(1)?, i64::MAX),
-                TokenKind::GreaterEqual => (*n, i64::MAX),
-                _ => (*n, *n),
+                TokenKind::GreaterEqual => (n, i64::MAX),
+                _ => (n, n),
             };
             Domain::Range {
                 lower: NumericBound::Integer(l),

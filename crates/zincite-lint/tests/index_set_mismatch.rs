@@ -896,3 +896,26 @@ fn native_index_set_aliases_retain_domains_and_source_errors() {
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
+#[test]
+fn initialized_parameters_and_named_sets_supply_known_bounds() {
+    let source = concat!(
+        "int:n=3; set of int:I=1..n; array[1..n] of int:a; array[I] of int:b;\n",
+        "int:outside=a[n+1]; int:named=b[4]; constraint forall(i in 1..n)(a[i+1]=0);\n",
+        "int:inside=a[n]; constraint forall(j in 1..n-1)(a[j+1]=0);\n",
+        "constraint forall(k in I where k<3)(b[k+1]=0); int:inactive=if 3<n then a[4] else 0 endif;\n",
+        "1..10:h=3; array[1..h] of int:e; int:bounded=e[h+1]; int:within=e[h];\n",
+        "int:m; int:p=m+1; set of int:J; array[1..p] of int:c; array[J] of int:d;\n",
+        "int:unknown=c[4]; int:data=d[4]; solve satisfy;\n",
+    );
+    let (dir, context, result) = model("named", source);
+    assert_eq!(
+        result
+            .findings
+            .iter()
+            .map(|f| spelling(&context, f))
+            .collect::<Vec<_>>(),
+        ["a[n+1]", "b[4]", "a[i+1]", "e[h+1]"]
+    );
+    assert!(result.limitations.is_empty(), "{:?}", result.limitations);
+    std::fs::remove_dir_all(dir).unwrap();
+}

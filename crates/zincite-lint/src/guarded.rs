@@ -7,8 +7,9 @@ use crate::definitions::{
     transparent_boolean_argument,
 };
 use crate::domains::{
-    bare_index_domain, expression_domain, index_domain_interval, intersect_index_domains,
-    invariant_integer, resolved_index_domain, same_members, shift_index_domain, tokens,
+    bare_index_domain, expression_domain, has_known_bounds, index_domain_interval,
+    intersect_index_domains, invariant_integer, known_domain, known_outcome, resolved_index_domain,
+    same_members, shift_index_domain, tokens,
 };
 use crate::{
     BindingFacts, BindingResolution, CallOutcome, Cardinality, DeclarationId,
@@ -630,13 +631,15 @@ impl<'a> Producer<'a> {
         let range = range.start + offset..range.end + offset;
         if let Some(indices) = &self.numeric_indices {
             let index = *indices.get(&(file, range.start, range.end))?;
-            return Some(self.numeric.expressions[index].outcome.clone());
+            return Some(known_outcome(
+                self.numeric.expressions[index].outcome.clone(),
+            ));
         }
         self.numeric
             .expressions
             .iter()
             .find(|e| e.file == file && e.location.range == range)
-            .map(|e| e.outcome.clone())
+            .map(|e| known_outcome(e.outcome.clone()))
     }
     fn operator(&self, file: FileId, node: &SyntaxNode) -> Option<TokenKind> {
         tokens(&self.context.files[file].parsed, node)
@@ -1455,13 +1458,12 @@ impl<'a> Producer<'a> {
         else {
             return self.unsupported(file, node, "array declaration identity is unavailable");
         };
-        let mut domain = &self.domains.declarations[array.0].domain;
-        while let Domain::Named { domain: inner, .. } = domain {
-            domain = inner;
-        }
-        let Domain::Array { indices, .. } = domain else {
+        let Domain::Array { indices, .. } =
+            bare_index_domain(&self.domains.declarations[array.0].domain)
+        else {
             return self.unsupported(file, node, "array index domains are unavailable");
         };
+        let indices: Vec<_> = indices.iter().map(known_domain).collect();
         if children.len() != indices.len() + 1 {
             return self.unsupported(
                 file,
@@ -1495,7 +1497,7 @@ impl<'a> Producer<'a> {
         }
         let mut result = combine(&values);
         result.numeric = None;
-        for (dimension, (index, domain)) in children[1..].iter().zip(indices).enumerate() {
+        for (dimension, (index, domain)) in children[1..].iter().zip(&indices).enumerate() {
             // A literal full axis selects the source axis itself; only written
             // scalar/range selectors need a separate membership obligation.
             if full_axis(index) {
@@ -2998,7 +3000,9 @@ impl<'a> Producer<'a> {
             file,
             node,
         )?;
-        self.array_domain_error(array).is_none().then_some(domain)
+        self.array_domain_error(array)
+            .is_none()
+            .then(|| known_domain(&domain))
     }
     fn domain(&self, file: FileId, node: &SyntaxNode) -> Domain {
         self.index_domain(file, unwrap(node))
@@ -3011,8 +3015,11 @@ impl<'a> Producer<'a> {
                     (self.domains, Some(self.numeric)),
                     (file, node, &[]),
                 )
+                .map(|domain| known_domain(&domain))
             })
-            .unwrap_or_else(|| expression_domain(self.context, self.bindings, file, node))
+            .unwrap_or_else(|| {
+                known_domain(&expression_domain(self.context, self.bindings, file, node))
+            })
     }
     // Scope retains visible membership headers in lexical evaluation order.
     // An enclosing comprehension header can follow its body in the source.
@@ -3249,7 +3256,7 @@ impl<'a> Producer<'a> {
             }
             Some(Domain::Named {
                 declaration: id,
-                domain: Box::new(row.domain.clone()),
+                domain: Box::new(known_domain(&row.domain)),
             })
         })();
         let Some(domain) = typed_source else {
@@ -3289,6 +3296,8 @@ impl<'a> Producer<'a> {
             _ => domain,
         }
     }
+    /// A parameter set has unknown members, such as those supplied by data,
+    /// unless written parameter values determine its initializer.
     fn replaceable_set(&self, domain: &Domain) -> bool {
         match domain {
             Domain::Named {
@@ -3297,7 +3306,8 @@ impl<'a> Producer<'a> {
             } => {
                 let ty = &self.calls.declarations[declaration.0].ty;
                 (ty.instantiation == Instantiation::Parameter
-                    && matches!(ty.kind, TypeKind::Set(_)))
+                    && matches!(ty.kind, TypeKind::Set(_))
+                    && !has_known_bounds(domain))
                     || self.replaceable_set(domain)
             }
             _ => false,
@@ -3334,14 +3344,14 @@ impl<'a> Producer<'a> {
     ) -> GuardedOutcome {
         let node = unwrap(node);
         if let Some(id) = self.reference(file, node) {
-            let own = &self.domains.declarations[id.0].domain;
+            let own = known_domain(&self.domains.declarations[id.0].domain);
             if let Some(reason) = self
                 .declaration_domain_error(id)
-                .or_else(|| self.domain_error(own))
+                .or_else(|| self.domain_error(&own))
             {
                 return GuardedOutcome::Unsupported(reason);
             }
-            if self.same_domain(own, domain) {
+            if self.same_domain(&own, domain) {
                 return GuardedOutcome::Proven;
             }
             let mut actual = domain;
@@ -4132,7 +4142,8 @@ fn comparison_index_domain(operator: TokenKind, n: i64, expected: bool) -> Optio
 
 /// Interpret actual branch/filter/enforced contexts without enabling a lint.
 /// All prerequisites must belong to this retained ModelContext. Parameter data
-/// and defaults are never substituted; source/declaration identity is retained.
+/// is never substituted; initialized parameters and named sets supply their
+/// written values, and source/declaration identity is retained.
 ///
 /// Follows MiniZinc 2.10.1 [relational partiality](https://docs.minizinc.dev/en/2.10.1/modelling2.html#partiality-and-relational-semantics)
 /// and [conditional/call semantics](https://docs.minizinc.dev/en/2.10.1/spec.html#if-then-else-expressions).

@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-146"
 key = "lint-named-bounds"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "high"
@@ -27,13 +27,23 @@ Read the Lint review follow-up (2026-10-29) section of the brief first. In a cor
 
 ## Done when
 
-- [ ] The named-parameter and named-set examples in Context each produce the same index-set-mismatch or partial-expression finding as their literal counterparts.
-- [ ] vacuous-constraint reports the documented impossible `where` filter when the iteration source is a named set with a known value.
-- [ ] Corrected counterparts, such as an in-range access or an index guarded by a known-valued condition, stay quiet.
-- [ ] Existing tests for the three rules still pass without changing their expected findings, except where a test asserted the old silence and the brief now requires a finding.
+- [x] The named-parameter and named-set examples in Context each produce the same index-set-mismatch or partial-expression finding as their literal counterparts.
+- [x] vacuous-constraint reports the documented impossible `where` filter when the iteration source is a named set with a known value.
+- [x] Corrected counterparts, such as an in-range access or an index guarded by a known-valued condition, stay quiet.
+- [x] Existing tests for the three rules still pass without changing their expected findings, except where a test asserted the old silence and the brief now requires a finding.
 
 ## Validation
 
 - Add a positive and a quiet case for each of the three rules to their existing test files, using named bounds.
 - Run the brief's Rust validation commands and `zdev check base --format json`.
 - Using a current release build, the existing corpus runner (`scripts/check-corpus.py`) or the ad hoc loop used by the lint review, report for the published Challenge corpus at `/Users/zayenz/gecode/dexter/problems/mzn-challenge-a8448864-clean` with the installed 2.10.1 stdlib and a 60 s per-file cutoff: analysed, timed-out and errored root totals, and the rule's finding count before and after the change. Read every finding the change introduces, or a sample of 20 if there are more, against the source. A confirmed false positive introduced by the change blocks completion; findings that existed before the change and unobserved roots are reported separately.
+
+## Result
+
+Index, definedness and vacuity checks now use values from unconditional initializers of parameters and named sets, including declared-range parameters and div/mod arithmetic. Invariant/advice consumers are unchanged.
+
+Validation:
+
+- cargo fmt --check, cargo clippy -D warnings, cargo test --workspace (674 passed), zdev check: all pass
+- Challenge corpus (3 rules): vacuous-constraint +9 true positives (constant config switches, one empty forall), index-set-mismatch/partial-expression 0 -> 0, no other added findings or limitations
+- Independent Codex verifier: rework (2 findings, both fixed) then focused recheck pass; snapshot Wc35e1323ed0e9458
