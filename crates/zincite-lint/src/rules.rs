@@ -117,6 +117,7 @@ pub enum Rule {
     PairwiseSelfComparison,
     DeprecatedCall,
     PreferAssertion,
+    AmbiguousPrecedence,
 }
 
 impl Rule {
@@ -174,6 +175,7 @@ impl Rule {
             Self::PairwiseSelfComparison,
             Self::DeprecatedCall,
             Self::PreferAssertion,
+            Self::AmbiguousPrecedence,
         ])
     }
 
@@ -181,6 +183,13 @@ impl Rule {
     /// registering a rule; CLI explanations and the existing accessors use it.
     pub fn metadata(self) -> RuleMetadata {
         let (id, family, purpose, requirements, limitations) = match self {
+            Self::AmbiguousPrecedence => (
+                "ambiguous-precedence",
+                RuleFamily::Suspicious,
+                "Report unparenthesized Boolean operators whose MiniZinc grouping is easy to misread.",
+                "Binary expression syntax and explicit parentheses.",
+                "Reports /\\ mixed with \\/ or xor at one level, and chains of two or more -> or <-, which group from the left. Other operators, not, <-> chains and backquoted infix calls stay quiet. No fix is offered.",
+            ),
             Self::PreferAssertion => (
                 "prefer-assertion",
                 RuleFamily::Style,
@@ -424,7 +433,10 @@ impl Rule {
             purpose,
             requirements,
             limitations,
-            requires_model: !matches!(self, Self::Naming | Self::MissingConstraintLabel),
+            requires_model: !matches!(
+                self,
+                Self::Naming | Self::MissingConstraintLabel | Self::AmbiguousPrecedence
+            ),
             available: true,
             fix_support: if matches!(
                 self,
@@ -479,6 +491,7 @@ const SEMANTIC_PRESETS: &[(&str, &[Rule])] = &[
             Rule::ArrayIndexStart,
             Rule::DeprecatedCall,
             Rule::PreferAssertion,
+            Rule::AmbiguousPrecedence,
         ],
     ),
     (

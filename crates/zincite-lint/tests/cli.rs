@@ -205,7 +205,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 32);
+    assert_eq!(list.lines().count(), 33);
     assert!(list.contains("naming\tstyle\twarning\tavailable\tnone\tconventions,all"));
     assert!(list.contains("search-coverage\tmodelling\tinfo\tavailable\tnone\tthesis,search,all"));
     assert!(
@@ -237,6 +237,11 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
         "deprecated-call\tsuspicious\twarning\tavailable\tnone\tdefault,conventions,all"
     ));
     assert!(list.contains("prefer-assertion\tstyle\twarning\tavailable\tnone\tconventions,all"));
+    assert!(
+        list.contains(
+            "ambiguous-precedence\tsuspicious\twarning\tavailable\tnone\tconventions,all"
+        )
+    );
     let advisory = run(&["--explain", "prefer-enum"], "invalid");
     assert!(advisory.status.success() && advisory.stderr.is_empty());
     let advisory = String::from_utf8(advisory.stdout).unwrap();
@@ -1443,7 +1448,7 @@ fn semantic_presets_work_in_cli_selection_and_personal_configuration() {
     assert!(
         String::from_utf8(shown.stdout)
             .unwrap()
-            .contains("Rules: missing-constraint-label,array-index-start,deprecated-call,prefer-assertion,index-set-mismatch,pairwise-self-comparison\n")
+            .contains("Rules: missing-constraint-label,array-index-start,deprecated-call,prefer-assertion,ambiguous-precedence,index-set-mismatch,pairwise-self-comparison\n")
     );
     let selected = run(
         &[

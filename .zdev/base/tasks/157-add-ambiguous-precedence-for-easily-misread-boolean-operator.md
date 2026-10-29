@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-157"
 key = "ambiguous-precedence"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "low"
@@ -32,13 +32,23 @@ The 2.10.1 specification's operator table (https://docs.minizinc.dev/en/2.10.1/s
 
 ## Done when
 
-- [ ] Each positive example in Context reports one finding at the operator, naming its actual grouping.
-- [ ] Each quiet example in Context, including `a /\ b -> c`, reports nothing.
-- [ ] The rule is suspicious family, warning severity, not in the default, and a member of the conventions preset.
-- [ ] `docs/lint-conventions.md` documents the rule, its two patterns and the specification basis.
-- [ ] The conventions row of the preset table in `docs/linting.md` lists the rule.
+- [x] Each positive example in Context reports one finding at the operator, naming its actual grouping.
+- [x] Each quiet example in Context, including `a /\ b -> c`, reports nothing.
+- [x] The rule is suspicious family, warning severity, not in the default, and a member of the conventions preset.
+- [x] `docs/lint-conventions.md` documents the rule, its two patterns and the specification basis.
+- [x] The conventions row of the preset table in `docs/linting.md` lists the rule.
 
 ## Validation
 
 - Add a focused test with each positive and quiet example in Context.
 - Run the brief's Rust validation commands and `zdev check base --format json`.
+
+## Result
+
+Added ambiguous-precedence, an opt-in source-only suspicious rule in the conventions preset that reports an unparenthesized /\ inside \/ or xor and chains of two or more ->/<-, naming the actual grouping.
+
+Validation:
+
+- cargo fmt --check, cargo clippy -D warnings, cargo test --workspace (681 passed), zdev check: all pass
+- Release CLI: both patterns report with grouping messages; parenthesized forms, a /\ b -> c, <-> chains and backquoted calls stay quiet; groupings confirmed against the MiniZinc 2.10.1 compiler
+- Independent Codex verifier: pass on snapshot Wa3bad4154058017b

@@ -1,8 +1,9 @@
 # Naming, labels and index conventions
 
 These rules make names, constraint intent and numeric array indices easier to
-read, point out standard-library calls that MiniZinc has deprecated and suggest
-assertions for input checks. Select the group with `--rules preset:conventions`.
+read, point out standard-library calls that MiniZinc has deprecated, suggest
+assertions for input checks and flag Boolean operators whose grouping is easy
+to misread. Select the group with `--rules preset:conventions`.
 See [linting](linting.md) for configuration, suppressions and diagnostic output.
 
 | Rule | Family | Severity | Default | Automatic fix |
@@ -12,6 +13,7 @@ See [linting](linting.md) for configuration, suppressions and diagnostic output.
 | [`array-index-start`](#array-index-start) | `style` | Warning | No | No |
 | [`deprecated-call`](#deprecated-call) | `suspicious` | Warning | Yes | No |
 | [`prefer-assertion`](#prefer-assertion) | `style` | Warning | No | No |
+| [`ambiguous-precedence`](#ambiguous-precedence) | `suspicious` | Warning | No | No |
 
 ## naming
 
@@ -140,3 +142,39 @@ When Zincite cannot determine whether the expression depends on decisions, it
 records an analysis limitation instead of a finding. The rule checks top-level
 constraint items only, not constraints in `let` expressions. Rewriting the
 constraint is manual.
+
+## ambiguous-precedence
+
+Reports two unparenthesized Boolean operator patterns whose grouping is easy to
+misread. The [MiniZinc 2.10.1 operator
+table](https://docs.minizinc.dev/en/2.10.1/spec.html#operators) defines the
+grouping:
+
+- `/\` binds tighter than `\/` and `xor`, so `a \/ b /\ c` means
+  `a \/ (b /\ c)`. The rule reports `/\` and `\/` or `xor` at one level.
+- `->` and `<-` share one precedence level and group from the left, so
+  `a -> b -> c` means `(a -> b) -> c`. The rule reports a chain of two or more
+  of these operators.
+
+```minizinc
+var bool: rain;
+var bool: wind;
+var bool: stay_in;
+constraint rain \/ wind /\ stay_in;
+```
+
+<!-- zincite-lint: ambiguous-precedence -->
+
+The warning points at the operator and shows the grouping MiniZinc uses. Add
+parentheses to state the grouping you mean:
+
+```minizinc
+constraint (rain \/ wind) /\ stay_in;
+```
+
+Parenthesized forms such as `a -> (b -> c)` and `(a -> b) -> c` stay quiet, and
+so does `a /\ b -> c`, where conjunction binding tighter than implication
+matches the usual reading. Unicode spellings such as `∨`, `∧` and `→` count as
+the same operators. Other operators, `not`, `<->` chains and backquoted infix
+calls are not checked. The rule needs no model context or standard library.
+Adding parentheses is manual; the formatter never adds them.

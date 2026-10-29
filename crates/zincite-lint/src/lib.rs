@@ -3,6 +3,7 @@
 use std::ops::Range;
 use zincite_syntax::{Diagnostic, NodeKind, ParsedFile, SyntaxElement, SyntaxNode, TokenKind};
 
+mod ambiguous_precedence;
 mod analysis;
 mod array_indices;
 mod bindings;
@@ -210,6 +211,11 @@ fn lint_items(
             && !suppressed.contains(&Rule::MissingConstraintLabel)
         {
             missing_labels(item, parsed, &mut warnings);
+        }
+        if options.rules.contains(&Rule::AmbiguousPrecedence)
+            && !suppressed.contains(&Rule::AmbiguousPrecedence)
+        {
+            ambiguous_precedence::check_precedence(item, parsed, false, &mut warnings);
         }
     }
     warnings.sort_by_key(|warning| warning.range.start);

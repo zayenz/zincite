@@ -407,6 +407,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
                 "pairwise-self-comparison",
                 "deprecated-call",
                 "prefer-assertion",
+                "ambiguous-precedence",
             ])
             .collect(),
         ),
@@ -506,6 +507,7 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
                         Rule::SuspiciousDomain,
                         Rule::PairwiseSelfComparison,
                         Rule::DeprecatedCall,
+                        Rule::AmbiguousPrecedence,
                     ])
                     .filter(|rule| !style.contains(rule))
             )
@@ -633,6 +635,7 @@ fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
                 "array-index-start",
                 "deprecated-call",
                 "prefer-assertion",
+                "ambiguous-precedence",
             ],
         ),
         (
@@ -713,7 +716,7 @@ fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
     catalogue.sort_unstable();
     covered.sort_unstable();
     assert_eq!(covered, catalogue);
-    assert_eq!(covered.len(), 31);
+    assert_eq!(covered.len(), 32);
 
     let settings = LintSettings::from_toml(
         r#"
@@ -740,6 +743,7 @@ fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
             Rule::ArrayIndexStart,
             Rule::DeprecatedCall,
             Rule::PreferAssertion,
+            Rule::AmbiguousPrecedence,
         ]
     );
     let fixes = settings.resolve_fixes().unwrap();

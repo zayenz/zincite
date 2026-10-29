@@ -6,6 +6,7 @@
 - Add the `pairwise-self-comparison` rule to the end of the default and to the `formulation` preset. It warns when an enforced `!=`, `<` or `>` compares two generator bindings over the same source and nothing excludes their equal pair, as in `forall (i, j in S) (x[i] != x[j])`. Such a constraint cannot be satisfied.
 - Add the `deprecated-call` rule to the end of the default and to the `conventions` preset. It warns when a call selects a standard-library callable marked `mzn_deprecated`, such as the integer form of `at_most`, and quotes the version and explanation from the library. Zincite now also reads the standard library's `.deprecated.mzn` companion files, as the MiniZinc compiler does.
 - Add the opt-in `prefer-assertion` style rule to the `conventions` preset. It warns when a constraint item depends only on parameters, as in `constraint n > 0;`, and suggests `assert` with a message so failed input is explained.
+- Add the opt-in `ambiguous-precedence` suspicious rule to the `conventions` preset. It warns about unparenthesized `/\` mixed with `\/` or `xor`, as in `a \/ b /\ c`, and about chains of two or more `->` or `<-`, as in `a -> b -> c`, and shows the grouping MiniZinc uses. It needs no model context.
 
 ## 0.4.0
 
