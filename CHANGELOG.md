@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Change the default lint rules to likely-mistake checks: `prefer-array-comprehension`, `index-set-mismatch`, `suspicious-shadowing`, `partial-expression`, `hidden-optionality`, `vacuous-constraint`, `unbounded-variable` and `unused-declaration`. `naming` and `missing-constraint-label` now run only when selected; add them with `select = ["default", "preset:conventions"]` in `zincite.toml` or `--rules default,preset:conventions`.
+- Add the `pairwise-self-comparison` rule to the end of the default and to the `formulation` preset. It warns when an enforced `!=`, `<` or `>` compares two generator bindings over the same source and nothing excludes their equal pair, as in `forall (i, j in S) (x[i] != x[j])`. Such a constraint cannot be satisfied.
 
 ## 0.4.0
 

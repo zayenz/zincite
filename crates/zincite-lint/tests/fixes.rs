@@ -420,7 +420,7 @@ fn selected_unsuppressed_findings_supply_groups_and_conversion_keeps_bom_coordin
         } else {
             FixSupport::None
         }));
-    assert_eq!(Rule::DEFAULT.len(), 8);
+    assert_eq!(Rule::DEFAULT.len(), 9);
     assert_eq!(Rule::THESIS.len(), 14);
     assert_eq!(snapshot.source_bytes(), source.as_bytes());
 }

@@ -405,6 +405,23 @@ pub fn analyze_model_with_facts(
             result.findings.extend(findings);
             result.limitations.extend(limitations);
         }
+        if options.rules.contains(&Rule::PairwiseSelfComparison) {
+            let comparisons = crate::global_patterns::resolve_self_comparisons_view(
+                context,
+                bindings,
+                &facts.source_view(),
+                facts.optional(),
+                facts.guarded(),
+                facts.iteration(),
+            );
+            result
+                .findings
+                .extend(crate::global_patterns::check_self_comparisons(
+                    context,
+                    bindings,
+                    &comparisons,
+                ));
+        }
         if options.rules.contains(&Rule::UnusedGeneratorBinding) {
             let (findings, limitations) = crate::unused_generator::check_unused_generators(
                 context,

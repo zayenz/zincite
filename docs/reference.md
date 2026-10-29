@@ -1636,8 +1636,8 @@ presets and explicit IDs; `lint_with_options(&parsed, &options)` runs a selected
 set. `Rule::DEFAULT` and `Rule::THESIS` expose preset membership. The default
 selects `prefer-array-comprehension`, `index-set-mismatch`,
 `suspicious-shadowing`, `partial-expression`, `hidden-optionality`,
-`vacuous-constraint`, `unbounded-variable` and `unused-declaration`, in that
-order. Omitted selection, `default` and `preset:default` are equivalent. Other
+`vacuous-constraint`, `unbounded-variable`, `unused-declaration` and
+`pairwise-self-comparison`, in that order. Omitted selection, `default` and `preset:default` are equivalent. Other
 rules stay opt-in; `naming` and `missing-constraint-label` belong to the
 `conventions` preset, `thesis` selects fourteen rules and `all` selects every
 registered rule. Every default rule requires a model, so the `lint` convenience

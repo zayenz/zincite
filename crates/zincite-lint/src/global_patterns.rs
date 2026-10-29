@@ -1,13 +1,15 @@
 //! Two bounded decomposition facts, independent of advisory policy.
 //! Actual index membership, selected core identities and raw totality are required;
 //! these facts authorize neither source edits nor claims about solving speed.
+//! The same producer also proves self-comparison facts for pairwise-self-comparison.
 use crate::callables::core_operation;
 use crate::definitions::{annotations_safe, resolved_reference};
 use crate::domains::tokens;
 use crate::{
     BindingFacts, DeclarationId, DefinitionEnforcement, FileFinding, FileId, GuardActivation,
-    GuardedFacts, GuardedOutcome, Instantiation, IterationFacts, IterationIndexSet, ModelContext,
-    OptionalFacts, Rule, SourceDiagnostic, SourceLocation, TypeInst, TypeKind,
+    GuardedFacts, GuardedOutcome, Instantiation, IterationCoverage, IterationFacts,
+    IterationIndexSet, ModelContext, OptionalFacts, Rule, SourceDiagnostic, SourceLocation,
+    TypeInst, TypeKind,
 };
 use zincite_syntax::{NodeKind, SyntaxNode, TokenKind};
 
@@ -35,6 +37,18 @@ pub enum GlobalPatternOutcome {
     Incomplete(String),
     Unknown(String),
     Unsupported(String),
+}
+/// An enforced `!=`, `<` or `>` whose operands denote one array element when
+/// two independent binders over the same source are equal.
+#[derive(Clone, Debug)]
+pub(crate) struct SelfComparisonFact {
+    pub file: FileId,
+    pub item: usize,
+    pub location: SourceLocation,
+    /// The compared binders in generator order.
+    pub binders: [DeclarationId; 2],
+    /// Every enclosing traversal is known nonempty, so the equal pair is evaluated.
+    pub evaluated: bool,
 }
 #[derive(Clone, Debug)]
 pub struct GlobalPatternFact {
@@ -64,6 +78,30 @@ pub(crate) fn resolve_global_patterns_view(
     for (file, source) in context.files.iter().enumerate() {
         for (item, node) in source.parsed.tree().child_nodes().enumerate() {
             producer.walk(file, item, node, &mut facts);
+        }
+    }
+    facts
+}
+pub(crate) fn resolve_self_comparisons_view(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    calls: &crate::callables::CallableView<'_>,
+    optional: &OptionalFacts,
+    guarded: &GuardedFacts,
+    iteration: &IterationFacts,
+) -> Vec<SelfComparisonFact> {
+    let producer = Producer {
+        context,
+        bindings,
+        calls,
+        optional,
+        guarded,
+        iteration,
+    };
+    let mut facts = Vec::new();
+    for (file, source) in context.files.iter().enumerate() {
+        for (item, node) in source.parsed.tree().child_nodes().enumerate() {
+            producer.walk_self_comparisons(file, item, node, &mut facts);
         }
     }
     facts
@@ -133,6 +171,114 @@ impl Producer<'_> {
         for child in node.child_nodes() {
             self.walk(file, item, child, facts);
         }
+    }
+    fn walk_self_comparisons(
+        &self,
+        file: FileId,
+        item: usize,
+        node: &SyntaxNode,
+        facts: &mut Vec<SelfComparisonFact>,
+    ) {
+        if node.kind() == NodeKind::GeneratorCallExpression
+            && self.head_is(file, node, "forall")
+            && let Some(body) = node
+                .child_nodes()
+                .find(|n| n.kind() != NodeKind::GeneratorList)
+        {
+            let mut comparisons = Vec::new();
+            self.conjuncts(file, unwrap(body), &mut comparisons);
+            for comparison in comparisons {
+                if let Ok((binders, evaluated)) = self.self_comparison(file, node, comparison) {
+                    facts.push(SelfComparisonFact {
+                        file,
+                        item,
+                        location: self.location(file, comparison),
+                        binders,
+                        evaluated,
+                    });
+                }
+            }
+        }
+        for child in node.child_nodes() {
+            self.walk_self_comparisons(file, item, child, facts);
+        }
+    }
+    fn conjuncts<'n>(&self, file: FileId, node: &'n SyntaxNode, out: &mut Vec<&'n SyntaxNode>) {
+        if self.operator(file, node) == Some(TokenKind::And) {
+            for c in node.child_nodes() {
+                self.conjuncts(file, unwrap(c), out);
+            }
+        } else {
+            out.push(node);
+        }
+    }
+    /// Substituting equal binders makes both operands the same element of one
+    /// array, so the comparison is false for that pair. Returns the binders and
+    /// whether the pair is known to be evaluated.
+    fn self_comparison(
+        &self,
+        file: FileId,
+        forall: &SyntaxNode,
+        comparison: &SyntaxNode,
+    ) -> Check<([DeclarationId; 2], bool)> {
+        let name = match self.operator(file, comparison) {
+            Some(TokenKind::NotEqual) => "!=",
+            Some(TokenKind::Less) => "<",
+            Some(TokenKind::Greater) => ">",
+            _ => return incomplete("comparison is not !=, < or >"),
+        };
+        let Some(g) = self
+            .guarded
+            .expression(file, &self.location(file, comparison))
+        else {
+            return unknown("enforced context is unavailable");
+        };
+        if g.context.enforcement != DefinitionEnforcement::Enforced
+            || g.context.activation == GuardActivation::Inactive
+        {
+            return incomplete("comparison is not enforced whenever evaluated");
+        }
+        let children: Vec<_> = comparison.child_nodes().collect();
+        if children.len() != 2 {
+            return incomplete("comparison arity differs from two");
+        }
+        let (array, a) = self.access(file, children[0])?;
+        let (other, b) = self.access(file, children[1])?;
+        if array != other || a == b {
+            return incomplete("operands do not access one array with distinct binders");
+        }
+        // Optional elements are excluded: absent < absent and absent > absent hold.
+        if !matches!(
+            self.array_type(array)?.kind,
+            TypeKind::Int | TypeKind::Enum(_) | TypeKind::Bool | TypeKind::Float
+        ) {
+            return incomplete("comparison is not proved irreflexive for this element type");
+        }
+        self.core(file, comparison, name)?;
+        self.core(file, forall, "forall")?;
+        let i = self.traversal(file, forall, 2)?;
+        let binders: Vec<_> = i
+            .generators
+            .iter()
+            .flat_map(|g| g.bindings.iter().copied())
+            .collect();
+        if !i.filters.is_empty() || !binders.contains(&a) || !binders.contains(&b) {
+            return incomplete("the equal pair may be excluded");
+        }
+        if let [first, second] = i.generators.as_slice() {
+            self.equal_indices(&first.index_set, &second.index_set)?;
+        }
+        let range = &self.location(file, comparison).range;
+        if self.iteration.iterations.iter().any(|f| {
+            f.file == file
+                && f.location.range.start <= range.start
+                && range.end <= f.location.range.end
+                && f.coverage == IterationCoverage::Empty
+        }) {
+            return incomplete("a known-empty source never evaluates the pair");
+        }
+        let ordered = if binders[0] == a { [a, b] } else { [b, a] };
+        Ok((ordered, g.context.activation == GuardActivation::Active))
     }
     // Syntax only admits candidates here; selected core identities below prove them.
     fn count_bound_shape(&self, file: FileId, node: &SyntaxNode) -> bool {
@@ -624,6 +770,41 @@ pub(super) fn check_global_patterns(
         });
     }
     (findings, limitations)
+}
+
+pub(super) fn check_self_comparisons(
+    context: &ModelContext,
+    bindings: &BindingFacts,
+    facts: &[SelfComparisonFact],
+) -> Vec<FileFinding> {
+    let mut findings = Vec::new();
+    for fact in facts {
+        let file = &context.files[fact.file];
+        if !file.warnings_enabled()
+            || file
+                .suppressions
+                .as_ref()
+                .is_none_or(|s| s[fact.item].contains(&Rule::PairwiseSelfComparison))
+        {
+            continue;
+        }
+        let [a, b] = fact.binders.map(|b| &bindings.declarations[b.0].name);
+        let outcome = if fact.evaluated {
+            "the constraint cannot be satisfied"
+        } else {
+            "the constraint cannot be satisfied whenever it is evaluated over a nonempty source"
+        };
+        findings.push(FileFinding {
+            fix: None,
+            location: fact.location.clone(),
+            rule: Rule::PairwiseSelfComparison,
+            severity: Rule::PairwiseSelfComparison.severity(),
+            message: format!(
+                "'{a}' and '{b}' range over the same source and the pair {a} = {b} is never excluded; this comparison is false for that pair, so {outcome}. Exclude it, for example with 'where {a} < {b}'"
+            ),
+        });
+    }
+    findings
 }
 
 /// Inspect the supported generator-forall forms using prerequisites from the

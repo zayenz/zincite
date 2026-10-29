@@ -93,7 +93,7 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
             .rules
             .contains(&Rule::PartialExpression)
     );
-    assert_eq!(Rule::DEFAULT.len(), 8);
+    assert_eq!(Rule::DEFAULT.len(), 9);
     assert_eq!(Rule::THESIS.len(), 14);
     assert!(Rule::from_id("unknown-rule").is_none());
 }
@@ -357,6 +357,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
         "vacuous-constraint",
         "unbounded-variable",
         "unused-declaration",
+        "pairwise-self-comparison",
     ];
     assert_eq!(
         LintOptions::default().rules,
@@ -402,6 +403,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
                 "missing-input-precondition",
                 "suspicious-domain",
                 "prefer-enum",
+                "pairwise-self-comparison",
             ])
             .collect(),
         ),
@@ -497,7 +499,8 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
                         Rule::VacuousConstraint,
                         Rule::GlobalConstraintOpportunity,
                         Rule::MissingInputPrecondition,
-                        Rule::SuspiciousDomain
+                        Rule::SuspiciousDomain,
+                        Rule::PairwiseSelfComparison,
                     ])
                     .filter(|rule| !style.contains(rule))
             )
@@ -517,7 +520,7 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
         LintOptions::from_selection("family:correctness")
             .unwrap()
             .rules,
-        [Rule::IndexSetMismatch]
+        [Rule::IndexSetMismatch, Rule::PairwiseSelfComparison]
     );
     for bad in [
         "family:",
@@ -555,7 +558,8 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
             Rule::HiddenOptionality,
             Rule::VacuousConstraint,
             Rule::UnboundedVariable,
-            Rule::UnusedDeclaration
+            Rule::UnusedDeclaration,
+            Rule::PairwiseSelfComparison
         ]
     );
     assert_eq!(
@@ -654,6 +658,7 @@ fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
                 "global-constraint-opportunity",
                 "prefer-enum",
                 "vacuous-constraint",
+                "pairwise-self-comparison",
             ],
         ),
         (
@@ -695,7 +700,7 @@ fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
     catalogue.sort_unstable();
     covered.sort_unstable();
     assert_eq!(covered, catalogue);
-    assert_eq!(covered.len(), 28);
+    assert_eq!(covered.len(), 29);
 
     let settings = LintSettings::from_toml(
         r#"
@@ -717,6 +722,7 @@ fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
         [
             Rule::HiddenOptionality,
             Rule::PreferArrayComprehension,
+            Rule::PairwiseSelfComparison,
             Rule::MissingConstraintLabel,
             Rule::ArrayIndexStart,
         ]
@@ -812,7 +818,8 @@ fn personal_presets_merge_typed_options_and_reject_ambiguous_or_invalid_settings
             Rule::SuspiciousShadowing,
             Rule::PartialExpression,
             Rule::HiddenOptionality,
-            Rule::VacuousConstraint
+            Rule::VacuousConstraint,
+            Rule::PairwiseSelfComparison
         ]
     );
     let bundles = LintSettings::from_toml("[lint]\nselect=['preset:a']\n[lint.presets.a]\nselect=['naming']\n[lint.presets.a.options.suspicious-shadowing]\nignore-names=['a']\n[lint.presets.b]\nselect=['naming']\n[lint.presets.b.options.suspicious-shadowing]\nignore-names=['b']").unwrap();

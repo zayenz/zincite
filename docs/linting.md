@@ -23,10 +23,11 @@ them. Passing those checks does not establish that the model has a solution.
 The default reports likely mistakes and stays quiet on well-written models, so
 exit status 1 means a finding needs review. It checks array-construction
 wrappers, index compatibility, shadowing, partial expressions, optional-value
-counts, vacuous constraints, unbounded variables and unused declarations. Their
-rule IDs are `prefer-array-comprehension`, `index-set-mismatch`,
-`suspicious-shadowing`, `partial-expression`, `hidden-optionality`,
-`vacuous-constraint`, `unbounded-variable` and `unused-declaration`.
+counts, vacuous constraints, unbounded variables, unused declarations and
+pairwise comparisons that cannot hold for an equal pair. Their rule IDs are
+`prefer-array-comprehension`, `index-set-mismatch`, `suspicious-shadowing`,
+`partial-expression`, `hidden-optionality`, `vacuous-constraint`,
+`unbounded-variable`, `unused-declaration` and `pairwise-self-comparison`.
 
 Naming and constraint-label checks run only when you select them. The
 `conventions` preset contains them. To add them to the default, run
@@ -46,7 +47,7 @@ only once.
 | [`scope`](lint-scope.md) | `suspicious-shadowing`, `unused-declaration`, `unused-generator-binding`, `global-variable-in-function` |
 | [`arrays`](lint-arrays.md) | `index-set-mismatch`, `hidden-optionality`, `prefer-array-comprehension` |
 | [`domains`](lint-domains.md) | `unbounded-variable`, `suspicious-domain`, `partial-expression`, `missing-input-precondition` |
-| [`formulation`](lint-formulation.md) | `constant-variable`, `compact-if`, `effective-zero-one`, `element-predicate`, `global-constraint-opportunity`, `prefer-enum`, `vacuous-constraint` |
+| [`formulation`](lint-formulation.md) | `constant-variable`, `compact-if`, `effective-zero-one`, `element-predicate`, `global-constraint-opportunity`, `prefer-enum`, `vacuous-constraint`, `pairwise-self-comparison` |
 | [`flattening`](lint-flattening.md) | `expensive-comprehension`, `decision-variable-operator`, `decision-variable-generator`, `decision-variable-condition`, `reified-global` |
 | [`search`](lint-search.md) | `search-coverage`, `unmarked-symmetry-breaking` |
 
@@ -195,7 +196,7 @@ trigger other rules when you select a broader preset.
 | [Scope](lint-scope.md) | Hidden names and dependencies, unused declarations and generator bindings. |
 | [Arrays](lint-arrays.md) | Index compatibility, optional elements and array-construction wrappers. |
 | [Domains](lint-domains.md) | Variable bounds, conflicting definitions and conditions required by expressions. |
-| [Formulation](lint-formulation.md) | Constant decisions, Boolean formulations, globals, identity sets and vacuous constraints. |
+| [Formulation](lint-formulation.md) | Constant decisions, Boolean formulations, globals, identity sets, vacuous constraints and pairwise self-comparisons. |
 | [Flattening](lint-flattening.md) | Comprehension size and decision-dependent operations, generators, conditions and globals. |
 | [Search](lint-search.md) | Search coverage and possible symmetry-breaking intent. |
 

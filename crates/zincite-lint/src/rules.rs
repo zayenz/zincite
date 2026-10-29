@@ -114,10 +114,11 @@ pub enum Rule {
     SuspiciousDomain,
     PreferArrayComprehension,
     PreferEnum,
+    PairwiseSelfComparison,
 }
 
 impl Rule {
-    pub const DEFAULT: [Self; 8] = [
+    pub const DEFAULT: [Self; 9] = [
         Self::PreferArrayComprehension,
         Self::IndexSetMismatch,
         Self::SuspiciousShadowing,
@@ -126,6 +127,7 @@ impl Rule {
         Self::VacuousConstraint,
         Self::UnboundedVariable,
         Self::UnusedDeclaration,
+        Self::PairwiseSelfComparison,
     ];
     pub const THESIS: [Self; 14] = [
         Self::ArrayIndexStart,
@@ -166,6 +168,7 @@ impl Rule {
             Self::MissingInputPrecondition,
             Self::SuspiciousDomain,
             Self::PreferEnum,
+            Self::PairwiseSelfComparison,
         ])
     }
 
@@ -173,6 +176,13 @@ impl Rule {
     /// registering a rule; CLI explanations and the existing accessors use it.
     pub fn metadata(self) -> RuleMetadata {
         let (id, family, purpose, requirements, limitations) = match self {
+            Self::PairwiseSelfComparison => (
+                "pairwise-self-comparison",
+                RuleFamily::Correctness,
+                "Report an enforced !=, < or > between two bindings over one source that never excludes their equal pair.",
+                "Resolved core comparisons and forall, proved-total array accesses, enforced guarded context and independent unfiltered iteration bindings.",
+                "One core forall with two unfiltered bindings over the same parameter source, comparing elements of one one-dimensional nonoptional int, enum, bool or float array. Filters, dependent sources, nested foralls, disjunctions, conditionals, different arrays, unknown facts and known-empty sources stay quiet. No fix is offered.",
+            ),
             Self::PreferEnum => (
                 "prefer-enum",
                 RuleFamily::Style,
@@ -486,6 +496,7 @@ const SEMANTIC_PRESETS: &[(&str, &[Rule])] = &[
             Rule::GlobalConstraintOpportunity,
             Rule::PreferEnum,
             Rule::VacuousConstraint,
+            Rule::PairwiseSelfComparison,
         ],
     ),
     (

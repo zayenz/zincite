@@ -14,6 +14,7 @@ See [linting](linting.md) for selection and fix settings.
 | [`global-constraint-opportunity`](#global-constraint-opportunity) | `modelling` | Informational | No | No |
 | [`prefer-enum`](#prefer-enum) | `style` | Warning | No | No |
 | [`vacuous-constraint`](#vacuous-constraint) | `suspicious` | Warning | Yes | No |
+| [`pairwise-self-comparison`](#pairwise-self-comparison) | `correctness` | Warning | Yes | No |
 
 ## constant-variable
 
@@ -184,3 +185,37 @@ identities only when evaluation leading up to them is defined. Facts established
 under a guard remain conditional on that guard. Unknown parameter values do not
 prove vacuity, and the rule does not remove constraints or claim that the entire
 model is feasible or infeasible.
+
+## pairwise-self-comparison
+
+Reports an enforced `!=`, `<` or `>` between two generator bindings over the
+same source when nothing excludes the pair where both bindings are equal.
+
+```minizinc
+array[1 .. 3] of var 1 .. 3: assigned_shift;
+constraint forall (i, j in 1 .. 3) (
+    assigned_shift[i] != assigned_shift[j]
+);
+```
+
+<!-- zincite-lint: pairwise-self-comparison -->
+
+The generator also produces pairs with `i = j`. The pair `i = j = 1` requires
+`assigned_shift[1] != assigned_shift[1]`. No assignment satisfies that, so the
+model has no solution. Exclude the equal pair with `where i < j` or
+`where i != j`, or start the second generator after the first, as in
+`forall (i in 1 .. 3, j in i + 1 .. 3)`. With `where i < j`, the constraint is
+the complete pairwise disequality that
+[`global-constraint-opportunity`](#global-constraint-opportunity) recognises.
+
+The same applies to `forall (i in S, j in S)` when both generators range over
+the same set. When the rule cannot tell whether the source is empty, the
+finding says that the constraint cannot be satisfied whenever the source is
+nonempty. A known-empty source stays quiet.
+
+The rule reports only when both sides access the same one-dimensional array of
+nonoptional integers, enums, Booleans or floats, indexed directly by the two
+bindings. It stays quiet for a comparison inside a disjunction, implication or
+condition, under any filter, between different arrays, in nested `forall`
+calls, and whenever it cannot prove the required facts. No automatic fix is
+offered.

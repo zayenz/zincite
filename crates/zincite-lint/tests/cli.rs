@@ -205,7 +205,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 29);
+    assert_eq!(list.lines().count(), 30);
     assert!(list.contains("naming\tstyle\twarning\tavailable\tnone\tconventions,all"));
     assert!(list.contains("search-coverage\tmodelling\tinfo\tavailable\tnone\tthesis,search,all"));
     assert!(
@@ -230,6 +230,9 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
         "global-constraint-opportunity\tmodelling\tinfo\tavailable\tnone\tformulation,all"
     ));
     assert!(list.contains("prefer-enum\tstyle\twarning\tavailable\tnone\tformulation,all"));
+    assert!(list.contains(
+        "pairwise-self-comparison\tcorrectness\twarning\tavailable\tnone\tdefault,formulation,all"
+    ));
     let advisory = run(&["--explain", "prefer-enum"], "invalid");
     assert!(advisory.status.success() && advisory.stderr.is_empty());
     let advisory = String::from_utf8(advisory.stdout).unwrap();
@@ -497,7 +500,7 @@ fn rule_selection_preserves_defaults_and_runs_available_catalogue_rules() {
     for selection in [
         "default",
         "preset:default",
-        "prefer-array-comprehension,index-set-mismatch,suspicious-shadowing,partial-expression,hidden-optionality,vacuous-constraint,unbounded-variable,unused-declaration",
+        "prefer-array-comprehension,index-set-mismatch,suspicious-shadowing,partial-expression,hidden-optionality,vacuous-constraint,unbounded-variable,unused-declaration,pairwise-self-comparison",
     ] {
         let output = run(&["--rules", selection], source);
         assert_eq!(output.status.code(), Some(0));
@@ -1436,7 +1439,7 @@ fn semantic_presets_work_in_cli_selection_and_personal_configuration() {
     assert!(
         String::from_utf8(shown.stdout)
             .unwrap()
-            .contains("Rules: missing-constraint-label,array-index-start,index-set-mismatch\n")
+            .contains("Rules: missing-constraint-label,array-index-start,index-set-mismatch,pairwise-self-comparison\n")
     );
     let selected = run(
         &[

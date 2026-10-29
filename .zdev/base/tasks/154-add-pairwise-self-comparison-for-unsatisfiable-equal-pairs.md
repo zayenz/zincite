@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-154"
 key = "pairwise-self-comparison"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "normal"
@@ -28,13 +28,23 @@ Read the New rules table in the brief's Lint review follow-up (2026-10-29). `con
 
 ## Done when
 
-- [ ] The two forms in Context report one finding each at the comparison, naming both bindings.
-- [ ] Forms filtered by `i < j`, `i != j` or `j in i + 1 .. n`, comparisons inside a disjunction, comparisons of different arrays and a known-empty source stay quiet.
-- [ ] The rule is correctness family, warning severity, appended to the end of the default preset, and a member of the formulation preset.
-- [ ] `docs/lint-formulation.md` documents the rule with an example. The preset table and default description in `docs/linting.md`, and the CLI help listing of the default, include it.
+- [x] The two forms in Context report one finding each at the comparison, naming both bindings.
+- [x] Forms filtered by `i < j`, `i != j` or `j in i + 1 .. n`, comparisons inside a disjunction, comparisons of different arrays and a known-empty source stay quiet.
+- [x] The rule is correctness family, warning severity, appended to the end of the default preset, and a member of the formulation preset.
+- [x] `docs/lint-formulation.md` documents the rule with an example. The preset table and default description in `docs/linting.md`, and the CLI help listing of the default, include it.
 
 ## Validation
 
 - Add a focused test file with the positive and quiet cases above.
 - Run the brief's Rust validation commands and `zdev check base --format json`.
 - Using a current release build, the existing corpus runner (`scripts/check-corpus.py`) or the ad hoc loop used by the lint review, report for the published Challenge corpus at `/Users/zayenz/gecode/dexter/problems/mzn-challenge-a8448864-clean` with the installed 2.10.1 stdlib and a 60 s per-file cutoff: analysed, timed-out and errored root totals, and the rule's finding count before and after the change. Read every finding the change introduces, or a sample of 20 if there are more, against the source. A confirmed false positive introduced by the change blocks completion; findings that existed before the change and unobserved roots are reported separately.
+
+## Result
+
+Added pairwise-self-comparison, a default correctness rule that reports an enforced !=, < or > between two bindings over one source that never excludes the equal pair. Known-empty sources, filters excluding the pair, conditional contexts, different arrays and optional elements stay quiet.
+
+Validation:
+
+- cargo fmt --check, cargo clippy -D warnings, cargo test --workspace, zdev check: all pass
+- Release CLI: docs example exits 1 with the warning; empty-enum and index_set forms exit 0 with no limitation; Challenge corpus 413 analysed, 0 findings
+- Independent Codex verifier: rework (empty-enum false positive), one correction, focused recheck pass on snapshot Wa1f1f874453b889d

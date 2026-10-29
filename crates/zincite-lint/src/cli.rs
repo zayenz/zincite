@@ -58,7 +58,8 @@ Other advice, and these rules when required facts are unproved, remains diagnost
 The thesis preset selects its fourteen rules; all includes every registered rule,
 including unavailable rules that fail execution. Default selects prefer-array-comprehension,
 index-set-mismatch, suspicious-shadowing, partial-expression, hidden-optionality,
-vacuous-constraint, unbounded-variable and unused-declaration, in that order.
+vacuous-constraint, unbounded-variable, unused-declaration and pairwise-self-comparison,
+in that order.
 Naming and missing-constraint-label run only when selected, for example with
 --rules default,preset:conventions or select = [\"default\", \"preset:conventions\"] in zincite.toml.
 --list-rules lists rule IDs, families, severities, availability, fix support and preset membership.
