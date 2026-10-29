@@ -54,7 +54,10 @@ Zincite does not delete declarations.
 
 Uses through other declarations count. Explicit and default output also matter,
 so a variable printed as part of the solution is not unused just because no
-constraint refers to it. Underscore-prefixed names are exempt. Fragments without
+constraint refers to it. `let` declarations are checked too. Generator names
+are left to [`unused-generator-binding`](#unused-generator-binding), so each
+unused generator name is reported once. Underscore-prefixed names are exempt.
+Fragments without
 a solve item are skipped; unknown reachable dependencies can prevent an unused
 claim.
 

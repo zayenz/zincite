@@ -680,7 +680,11 @@ pub(super) fn check_unused_declarations(
             || d.name.starts_with('_')
             || matches!(
                 d.role,
-                DeclarationRole::TypeAlias | DeclarationRole::Enum | DeclarationRole::EnumMember
+                DeclarationRole::TypeAlias
+                    | DeclarationRole::Enum
+                    | DeclarationRole::EnumMember
+                    // unused-generator-binding reports these.
+                    | DeclarationRole::Generator
             )
         {
             continue;

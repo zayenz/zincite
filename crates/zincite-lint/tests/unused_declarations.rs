@@ -135,7 +135,7 @@ fn complete_roots_follow_selected_dependencies_without_conflating_containment() 
         "int: _discarded=1; int: search_seed=2;\n",
         "function int: chosen(int: value)=live_cycle_a(value)+standard_bridge(value);\n",
         "function float: chosen(float: value)=value;\n",
-        "constraint live_value=chosen(1); solve :: search_marker(search_seed) satisfy; output [show(live_value)];\n"
+        "constraint live_value=chosen(1); constraint {1 | unused_index in 1..2}={1}; solve :: search_marker(search_seed) satisfy; output [show(live_value)];\n"
     );
     let included = concat!(
         "\u{feff}% é\r\nint: used_global=1; int: unused_global=9;\r\n",

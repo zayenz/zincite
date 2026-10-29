@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-149"
 key = "unused-declaration-skip-generators"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -26,11 +26,21 @@ unused-declaration no longer reports generator bindings; unused-generator-bindin
 
 ## Done when
 
-- [ ] The example in Context produces one unused-generator-binding finding and no unused-declaration finding.
-- [ ] Unused top-level parameters, decisions and functions are still reported.
-- [ ] `docs/lint-scope.md` states which rule reports generator bindings.
+- [x] The example in Context produces one unused-generator-binding finding and no unused-declaration finding.
+- [x] Unused top-level parameters, decisions and functions are still reported.
+- [x] `docs/lint-scope.md` states which rule reports generator bindings.
 
 ## Validation
 
 - Update the existing unused-declaration tests with the generator case.
 - Run the brief's Rust validation commands and `zdev check base --format json`.
+
+## Result
+
+unused-declaration no longer reports generator bindings; unused-generator-binding is their only reporter. Top-level declarations, callables and let-locals are still reported.
+
+Validation:
+
+- cargo fmt --check, cargo clippy -D warnings, cargo test --workspace, zdev check: all pass
+- Release CLI: forall (j in 1..n) with unused j gives one unused-generator-binding finding and none from unused-declaration
+- Independent Codex verifier: pass on snapshot W11f9d3754cb1480f
