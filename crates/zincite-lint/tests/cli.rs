@@ -205,7 +205,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 31);
+    assert_eq!(list.lines().count(), 32);
     assert!(list.contains("naming\tstyle\twarning\tavailable\tnone\tconventions,all"));
     assert!(list.contains("search-coverage\tmodelling\tinfo\tavailable\tnone\tthesis,search,all"));
     assert!(
@@ -236,6 +236,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     assert!(list.contains(
         "deprecated-call\tsuspicious\twarning\tavailable\tnone\tdefault,conventions,all"
     ));
+    assert!(list.contains("prefer-assertion\tstyle\twarning\tavailable\tnone\tconventions,all"));
     let advisory = run(&["--explain", "prefer-enum"], "invalid");
     assert!(advisory.status.success() && advisory.stderr.is_empty());
     let advisory = String::from_utf8(advisory.stdout).unwrap();
@@ -1442,7 +1443,7 @@ fn semantic_presets_work_in_cli_selection_and_personal_configuration() {
     assert!(
         String::from_utf8(shown.stdout)
             .unwrap()
-            .contains("Rules: missing-constraint-label,array-index-start,deprecated-call,index-set-mismatch,pairwise-self-comparison\n")
+            .contains("Rules: missing-constraint-label,array-index-start,deprecated-call,prefer-assertion,index-set-mismatch,pairwise-self-comparison\n")
     );
     let selected = run(
         &[
@@ -1502,7 +1503,7 @@ fn personal_settings_inspect_effective_options_and_keep_cli_replacement_read_onl
     assert_eq!(output.status.code(), Some(0));
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains(
-        "Rules: missing-constraint-label,prefer-array-comprehension,array-index-start,element-predicate,global-variable-in-function,unused-generator-binding,prefer-enum,compact-if"
+        "Rules: missing-constraint-label,prefer-array-comprehension,array-index-start,element-predicate,global-variable-in-function,unused-generator-binding,prefer-enum,prefer-assertion,compact-if"
     ));
     let names = text
         .lines()
@@ -2628,7 +2629,7 @@ fn fix_modes_validate_all_explicit_paths_and_settings_before_analysis() {
     let text = String::from_utf8(settings.stdout).unwrap();
     assert!(text.contains("Rules: naming\n"));
     assert!(text.contains(
-        "fixable: naming,missing-constraint-label,prefer-array-comprehension,array-index-start,element-predicate,global-variable-in-function,unused-generator-binding,prefer-enum\n"
+        "fixable: naming,missing-constraint-label,prefer-array-comprehension,array-index-start,element-predicate,global-variable-in-function,unused-generator-binding,prefer-enum,prefer-assertion\n"
     ));
     assert!(text.contains("unfixable: naming\n"));
     let result = run(&["--fix", "--rules", "naming", a], "");

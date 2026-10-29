@@ -235,6 +235,7 @@ pub fn analyze_model_with_facts(
     let mut unused_generator_incomplete = false;
     let mut patterns_incomplete = false;
     let mut deprecated_incomplete = false;
+    let mut assertion_incomplete = false;
     let mut comprehension_incomplete = false;
     let mut input_incomplete = false;
     let mut domain_contract_incomplete = false;
@@ -433,6 +434,13 @@ pub fn analyze_model_with_facts(
             result.findings.extend(findings);
             result.limitations.extend(limitations);
         }
+        if options.rules.contains(&Rule::PreferAssertion) {
+            let (findings, limitations) =
+                crate::prefer_assertion::check_prefer_assertion(context, facts.instantiations());
+            assertion_incomplete = !limitations.is_empty();
+            result.findings.extend(findings);
+            result.limitations.extend(limitations);
+        }
         if options.rules.contains(&Rule::UnusedGeneratorBinding) {
             let (findings, limitations) = crate::unused_generator::check_unused_generators(
                 context,
@@ -570,6 +578,7 @@ pub fn analyze_model_with_facts(
                     || (rule == Rule::UnusedGeneratorBinding && unused_generator_incomplete)
                     || (rule == Rule::GlobalConstraintOpportunity && patterns_incomplete)
                     || (rule == Rule::DeprecatedCall && deprecated_incomplete)
+                    || (rule == Rule::PreferAssertion && assertion_incomplete)
                     || (rule == Rule::ExpensiveComprehension && comprehension_incomplete)
                     || (rule == Rule::MissingInputPrecondition && input_incomplete)
                     || (rule == Rule::SuspiciousDomain && domain_contract_incomplete)

@@ -44,6 +44,7 @@ mod naming;
 mod optional;
 mod partial_expression;
 mod prefer_array_comprehension;
+mod prefer_assertion;
 mod prefer_enum;
 mod rules;
 mod search;

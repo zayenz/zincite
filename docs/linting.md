@@ -44,7 +44,7 @@ only once.
 
 | Preset | Rules |
 | --- | --- |
-| [`conventions`](lint-conventions.md) | `naming`, `missing-constraint-label`, `array-index-start`, `deprecated-call` |
+| [`conventions`](lint-conventions.md) | `naming`, `missing-constraint-label`, `array-index-start`, `deprecated-call`, `prefer-assertion` |
 | [`scope`](lint-scope.md) | `suspicious-shadowing`, `unused-declaration`, `unused-generator-binding`, `global-variable-in-function` |
 | [`arrays`](lint-arrays.md) | `index-set-mismatch`, `hidden-optionality`, `prefer-array-comprehension` |
 | [`domains`](lint-domains.md) | `unbounded-variable`, `suspicious-domain`, `partial-expression`, `missing-input-precondition` |
@@ -193,7 +193,7 @@ trigger other rules when you select a broader preset.
 
 | Group | What to review |
 | --- | --- |
-| [Conventions](lint-conventions.md) | Names, constraint labels, numeric index origins and deprecated standard-library calls. |
+| [Conventions](lint-conventions.md) | Names, constraint labels, numeric index origins, deprecated standard-library calls and input checks written as constraints. |
 | [Scope](lint-scope.md) | Hidden names and dependencies, unused declarations and generator bindings. |
 | [Arrays](lint-arrays.md) | Index compatibility, optional elements and array-construction wrappers. |
 | [Domains](lint-domains.md) | Variable bounds, conflicting definitions and conditions required by expressions. |

@@ -116,6 +116,7 @@ pub enum Rule {
     PreferEnum,
     PairwiseSelfComparison,
     DeprecatedCall,
+    PreferAssertion,
 }
 
 impl Rule {
@@ -172,6 +173,7 @@ impl Rule {
             Self::PreferEnum,
             Self::PairwiseSelfComparison,
             Self::DeprecatedCall,
+            Self::PreferAssertion,
         ])
     }
 
@@ -179,6 +181,13 @@ impl Rule {
     /// registering a rule; CLI explanations and the existing accessors use it.
     pub fn metadata(self) -> RuleMetadata {
         let (id, family, purpose, requirements, limitations) = match self {
+            Self::PreferAssertion => (
+                "prefer-assertion",
+                RuleFamily::Style,
+                "Suggest assert for a constraint item whose expression depends only on parameters, so failed input is explained.",
+                "Constraint item syntax and expression instantiation.",
+                "Top-level constraint items only; constraints in let expressions are not checked. An item that already is an assert call, depends on a decision or has unknown instantiation stays quiet; unknown instantiation reports a limitation. No fix is offered.",
+            ),
             Self::DeprecatedCall => (
                 "deprecated-call",
                 RuleFamily::Suspicious,
@@ -469,6 +478,7 @@ const SEMANTIC_PRESETS: &[(&str, &[Rule])] = &[
             Rule::MissingConstraintLabel,
             Rule::ArrayIndexStart,
             Rule::DeprecatedCall,
+            Rule::PreferAssertion,
         ],
     ),
     (

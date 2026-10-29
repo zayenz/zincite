@@ -406,6 +406,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
                 "prefer-enum",
                 "pairwise-self-comparison",
                 "deprecated-call",
+                "prefer-assertion",
             ])
             .collect(),
         ),
@@ -485,6 +486,7 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
         Rule::GlobalVariableInFunction,
         Rule::UnusedGeneratorBinding,
         Rule::PreferEnum,
+        Rule::PreferAssertion,
     ];
     assert_eq!(
         expanded.rules,
@@ -555,6 +557,7 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
             Rule::GlobalVariableInFunction,
             Rule::UnusedGeneratorBinding,
             Rule::PreferEnum,
+            Rule::PreferAssertion,
             Rule::IndexSetMismatch,
             Rule::SuspiciousShadowing,
             Rule::PartialExpression,
@@ -629,6 +632,7 @@ fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
                 "missing-constraint-label",
                 "array-index-start",
                 "deprecated-call",
+                "prefer-assertion",
             ],
         ),
         (
@@ -709,7 +713,7 @@ fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
     catalogue.sort_unstable();
     covered.sort_unstable();
     assert_eq!(covered, catalogue);
-    assert_eq!(covered.len(), 30);
+    assert_eq!(covered.len(), 31);
 
     let settings = LintSettings::from_toml(
         r#"
@@ -735,6 +739,7 @@ fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
             Rule::MissingConstraintLabel,
             Rule::ArrayIndexStart,
             Rule::DeprecatedCall,
+            Rule::PreferAssertion,
         ]
     );
     let fixes = settings.resolve_fixes().unwrap();

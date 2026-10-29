@@ -1,7 +1,8 @@
 # Naming, labels and index conventions
 
 These rules make names, constraint intent and numeric array indices easier to
-read, and point out standard-library calls that MiniZinc has deprecated. Select the group with `--rules preset:conventions`.
+read, point out standard-library calls that MiniZinc has deprecated and suggest
+assertions for input checks. Select the group with `--rules preset:conventions`.
 See [linting](linting.md) for configuration, suppressions and diagnostic output.
 
 | Rule | Family | Severity | Default | Automatic fix |
@@ -10,6 +11,7 @@ See [linting](linting.md) for configuration, suppressions and diagnostic output.
 | [`missing-constraint-label`](#missing-constraint-label) | `style` | Warning | No | No |
 | [`array-index-start`](#array-index-start) | `style` | Warning | No | No |
 | [`deprecated-call`](#deprecated-call) | `suspicious` | Warning | Yes | No |
+| [`prefer-assertion`](#prefer-assertion) | `style` | Warning | No | No |
 
 ## naming
 
@@ -109,3 +111,32 @@ not deprecated, so a call with set arguments stays quiet. So does a call to
 your own predicate with the same name. When Zincite cannot select one
 overload and a deprecated candidate remains, it records an analysis limitation
 instead of a finding. Replacing the call is manual.
+
+## prefer-assertion
+
+Reports a constraint item whose expression depends only on parameters. Such a
+constraint usually checks the input data. When it fails, MiniZinc reports only
+that the model is inconsistent. An `assert` names the failed condition instead.
+
+```minizinc
+int: n;
+array[1 .. n] of var 0 .. 9: digit;
+constraint n > 0;
+```
+
+<!-- zincite-lint: prefer-assertion -->
+
+Write the check as an assertion with a message:
+
+```minizinc
+constraint assert(n > 0, "n must be positive");
+```
+
+A constraint item that already is an `assert` call stays quiet, also when
+written infix, parenthesized or annotated, as does one that depends on a decision variable or
+contains a `let` with local constraints. Constant conditions and deliberate
+infeasibility checks over parameters also warn; suppress the rule for those.
+When Zincite cannot determine whether the expression depends on decisions, it
+records an analysis limitation instead of a finding. The rule checks top-level
+constraint items only, not constraints in `let` expressions. Rewriting the
+constraint is manual.

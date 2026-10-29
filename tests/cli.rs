@@ -139,7 +139,7 @@ fn lint_selection_and_settings_keep_standalone_behavior() {
     assert!(
         String::from_utf8(shown.stdout)
             .unwrap()
-            .contains("Rules: missing-constraint-label,array-index-start,deprecated-call,index-set-mismatch,pairwise-self-comparison\n")
+            .contains("Rules: missing-constraint-label,array-index-start,deprecated-call,prefer-assertion,index-set-mismatch,pairwise-self-comparison\n")
     );
     let selected = run(
         &[
