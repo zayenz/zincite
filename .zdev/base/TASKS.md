@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 159
-- Ready: 6
+- Ready: 5
 - Blocked: 6
-- Done: 147
+- Done: 148
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -156,7 +156,7 @@
 | [base-145](tasks/145-grow-wedding-data-through-an-introduced-query-language-walkt.md) | Grow wedding data through an introduced query-language walkthrough | done | base-144 |
 | [base-146](tasks/146-resolve-known-named-bounds-in-index-definedness-and-vacuity.md) | Resolve known named bounds in index, definedness and vacuity checks | done | — |
 | [base-147](tasks/147-prove-symbolic-offset-mismatches-for-every-parameter-value.md) | Prove symbolic offset mismatches for every parameter value | done | base-146 |
-| [base-148](tasks/148-apply-search-coverage-only-to-annotated-searches.md) | Apply search-coverage only to annotated searches | ready | — |
+| [base-148](tasks/148-apply-search-coverage-only-to-annotated-searches.md) | Apply search-coverage only to annotated searches | done | — |
 | [base-149](tasks/149-leave-unused-generator-bindings-to-their-own-rule.md) | Leave unused generator bindings to their own rule | ready | — |
 | [base-150](tasks/150-exempt-callable-parameters-that-share-a-top-level-name.md) | Exempt callable parameters that share a top-level name | ready | — |
 | [base-151](tasks/151-limit-decision-variable-operator-to-arithmetic-operators.md) | Limit decision-variable-operator to arithmetic operators | ready | — |

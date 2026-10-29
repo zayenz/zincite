@@ -246,7 +246,7 @@ impl Rule {
             Self::SearchCoverage => (
                 "search-coverage",
                 RuleFamily::Modelling,
-                "Advise on solve-visible decisions not searched or derivable through supported unconditional definitions.",
+                "Advise on solve-visible decisions that an explicit solve search neither names nor derives through supported unconditional definitions.",
                 "Complete model root, resolved typed searches/aliases, whole-array views, definitions and dependency closure.",
                 "Nested seq_search, simple annotation aliases, array1d views and supported callable output guarantees are followed. Partial selections, unseeded cycles, opaque/optional bodies and unknown annotations withhold affected coverage claims. Computed outputs are not inverted; scoped decisions without a retained definition remain Unknown. Advice does not certify search completeness.",
             ),

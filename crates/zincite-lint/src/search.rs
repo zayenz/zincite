@@ -36,6 +36,9 @@ pub struct SearchDeclaration {
 pub struct SearchFacts {
     pub root_state: ModelRootState,
     pub searched: Vec<SearchValue>,
+    /// The solve annotations contain a standard search; without one the
+    /// solver chooses the search and coverage advice does not apply.
+    pub explicit_search: bool,
     pub declarations: Vec<SearchDeclaration>,
     pub limitations: Vec<SourceDiagnostic>,
 }
@@ -77,6 +80,7 @@ pub(super) fn resolve_search_with_callable(
         facts: SearchFacts {
             root_state: ModelRootState::Complete,
             searched: Vec::new(),
+            explicit_search: false,
             declarations: bindings
                 .declarations
                 .iter()
@@ -387,6 +391,7 @@ impl<'a> Producer<'a> {
                 d.name.as_str(),
                 "int_search" | "bool_search" | "float_search" | "set_search"
             ) {
+                self.facts.explicit_search = true;
                 if let Some((value_file, value)) = self.argument(file, node, id, 0) {
                     if usage == AnnotationUse::Candidate {
                         if !mapping.is_empty() {

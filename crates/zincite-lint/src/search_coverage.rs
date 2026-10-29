@@ -8,7 +8,7 @@ pub(super) fn check_search_coverage(
     bindings: &BindingFacts,
     facts: &SearchFacts,
 ) -> Vec<FileFinding> {
-    if facts.root_state != ModelRootState::Complete {
+    if facts.root_state != ModelRootState::Complete || !facts.explicit_search {
         return Vec::new();
     }
     let mut findings = Vec::new();

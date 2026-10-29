@@ -30,6 +30,10 @@ possible explicit search:
 solve :: int_search([morning_staff, evening_staff], input_order, indomain_min, complete) satisfy;
 ```
 
+A solve item without a search annotation leaves the search to the solver, so
+the rule reports nothing for it. Annotations such as `warm_start` and
+`constraint_name` are not searches.
+
 Zincite follows supported nested `seq_search` annotations, simple annotation
 aliases, whole-array views and unconditional definition dependencies. A computed
 value does not determine all of its inputs: searching a total alone does not

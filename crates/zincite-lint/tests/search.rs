@@ -3109,7 +3109,7 @@ fn complete_enum2int_search_projection_keeps_shared_include_roots_distinct() {
             "",
             SearchCoverage::Uncovered,
             SearchCoverage::Uncovered,
-            vec!["other", "selected"],
+            vec![],
         ),
         (
             "other-search",
@@ -3689,7 +3689,13 @@ fn unknown_annotations_computed_values_and_fragments_remain_explicit() {
             "none",
             "var 0..9: value; solve satisfy;",
             SearchCoverage::Uncovered,
-            1,
+            0,
+        ),
+        (
+            "none-objective",
+            "var 0..9: value; var 0..9: other; constraint value + other = 8; solve minimize value;",
+            SearchCoverage::Uncovered,
+            0,
         ),
         (
             "computed",
@@ -11797,14 +11803,8 @@ fn integer_array_reflection_inspects_sources_without_value_proof() {
                     SearchCoverage::Uncovered,
                     "{name}"
                 );
-                assert_eq!(result.findings.len(), 1, "{name}: {result:?}");
-                assert!(
-                    result.findings[0].message.contains("'values'"),
-                    "{name}: {result:?}"
-                );
-            } else {
-                assert!(result.findings.is_empty(), "{name}: {result:?}");
             }
+            assert!(result.findings.is_empty(), "{name}: {result:?}");
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -14617,8 +14617,7 @@ fn enum_collection_binders_inspect_sources_without_search_certificates() {
                 SearchCoverage::Uncovered
             );
             assert!(search.searched.is_empty());
-            assert_eq!(result.findings.len(), 1);
-            assert_eq!(&source[result.findings[0].location.range.clone()], "choice");
+            assert!(result.findings.is_empty());
         } else {
             assert!(matches!(
                 result.rules[0].outcome,
@@ -17407,14 +17406,7 @@ fn optional_parameter_matrices_inspect_sources_without_output_proof() {
                 coverage(&bindings, &search, "decision"),
                 SearchCoverage::Uncovered
             );
-            assert!(
-                result
-                    .findings
-                    .iter()
-                    .any(|finding| finding.rule == zincite_lint::Rule::SearchCoverage
-                        && finding.location.path == context.root
-                        && finding.message.contains("decision"))
-            );
+            assert!(result.findings.is_empty());
         }
         std::fs::remove_dir_all(dir).unwrap();
     }
