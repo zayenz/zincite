@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 159
-- Ready: 1
+- Ready: 0
 - Blocked: 0
-- Done: 158
+- Done: 159
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -166,5 +166,5 @@
 | [base-155](tasks/155-add-deprecated-call-for-deprecated-standard-library-callable.md) | Add deprecated-call for deprecated standard-library callables | done | base-153, base-152, base-154 |
 | [base-156](tasks/156-add-prefer-assertion-for-parameter-only-constraints.md) | Add prefer-assertion for parameter-only constraints | done | base-152 |
 | [base-157](tasks/157-add-ambiguous-precedence-for-easily-misread-boolean-operator.md) | Add ambiguous-precedence for easily misread Boolean operators | done | base-152 |
-| [base-158](tasks/158-add-float-equality-for-parameter-float-comparisons.md) | Add float-equality for parameter float comparisons | ready | base-152 |
+| [base-158](tasks/158-add-float-equality-for-parameter-float-comparisons.md) | Add float-equality for parameter float comparisons | done | base-152 |
 | [base-159](tasks/159-reduce-shared-semantic-lint-cost.md) | Reduce shared semantic lint cost | done | — |

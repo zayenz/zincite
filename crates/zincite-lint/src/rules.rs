@@ -118,6 +118,7 @@ pub enum Rule {
     DeprecatedCall,
     PreferAssertion,
     AmbiguousPrecedence,
+    FloatEquality,
 }
 
 impl Rule {
@@ -176,6 +177,7 @@ impl Rule {
             Self::DeprecatedCall,
             Self::PreferAssertion,
             Self::AmbiguousPrecedence,
+            Self::FloatEquality,
         ])
     }
 
@@ -183,6 +185,13 @@ impl Rule {
     /// registering a rule; CLI explanations and the existing accessors use it.
     pub fn metadata(self) -> RuleMetadata {
         let (id, family, purpose, requirements, limitations) = match self {
+            Self::FloatEquality => (
+                "float-equality",
+                RuleFamily::Suspicious,
+                "Report = and != between parameter float expressions, which rarely compare equal exactly after computation.",
+                "Expression types, expression instantiation and the selected comparison operation.",
+                "Both operands must be proved non-optional parameter floats. Decision, integer, optional and unknown-typed comparisons and user-defined comparison operators stay quiet without a limitation. No fix is offered.",
+            ),
             Self::AmbiguousPrecedence => (
                 "ambiguous-precedence",
                 RuleFamily::Suspicious,
@@ -518,6 +527,7 @@ const SEMANTIC_PRESETS: &[(&str, &[Rule])] = &[
             Rule::SuspiciousDomain,
             Rule::PartialExpression,
             Rule::MissingInputPrecondition,
+            Rule::FloatEquality,
         ],
     ),
     (

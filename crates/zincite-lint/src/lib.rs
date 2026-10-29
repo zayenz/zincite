@@ -22,6 +22,7 @@ mod element;
 pub use element::{ElementRewrite, resolve_element_rewrites};
 mod expensive_comprehension;
 mod fix_files;
+mod float_equality;
 mod semantic_fixes;
 pub use fix_files::{FileFixError, replace_fixed_file, replace_source_file, write_fix_diff};
 mod fixes;

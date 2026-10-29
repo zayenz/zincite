@@ -441,6 +441,16 @@ pub fn analyze_model_with_facts(
             result.findings.extend(findings);
             result.limitations.extend(limitations);
         }
+        if options.rules.contains(&Rule::FloatEquality) {
+            result
+                .findings
+                .extend(crate::float_equality::check_float_equality(
+                    context,
+                    bindings,
+                    &facts.source_view(),
+                    facts.instantiations(),
+                ));
+        }
         if options.rules.contains(&Rule::UnusedGeneratorBinding) {
             let (findings, limitations) = crate::unused_generator::check_unused_generators(
                 context,

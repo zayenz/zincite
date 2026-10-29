@@ -205,7 +205,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     let list = run(&["--list-rules"], "not valid MiniZinc");
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
-    assert_eq!(list.lines().count(), 33);
+    assert_eq!(list.lines().count(), 34);
     assert!(list.contains("naming\tstyle\twarning\tavailable\tnone\tconventions,all"));
     assert!(list.contains("search-coverage\tmodelling\tinfo\tavailable\tnone\tthesis,search,all"));
     assert!(
@@ -242,6 +242,7 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
             "ambiguous-precedence\tsuspicious\twarning\tavailable\tnone\tconventions,all"
         )
     );
+    assert!(list.contains("float-equality\tsuspicious\twarning\tavailable\tnone\tdomains,all"));
     let advisory = run(&["--explain", "prefer-enum"], "invalid");
     assert!(advisory.status.success() && advisory.stderr.is_empty());
     let advisory = String::from_utf8(advisory.stdout).unwrap();

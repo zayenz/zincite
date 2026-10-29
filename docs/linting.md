@@ -47,7 +47,7 @@ only once.
 | [`conventions`](lint-conventions.md) | `naming`, `missing-constraint-label`, `array-index-start`, `deprecated-call`, `prefer-assertion`, `ambiguous-precedence` |
 | [`scope`](lint-scope.md) | `suspicious-shadowing`, `unused-declaration`, `unused-generator-binding`, `global-variable-in-function` |
 | [`arrays`](lint-arrays.md) | `index-set-mismatch`, `hidden-optionality`, `prefer-array-comprehension` |
-| [`domains`](lint-domains.md) | `unbounded-variable`, `suspicious-domain`, `partial-expression`, `missing-input-precondition` |
+| [`domains`](lint-domains.md) | `unbounded-variable`, `suspicious-domain`, `partial-expression`, `missing-input-precondition`, `float-equality` |
 | [`formulation`](lint-formulation.md) | `constant-variable`, `compact-if`, `effective-zero-one`, `element-predicate`, `global-constraint-opportunity`, `prefer-enum`, `vacuous-constraint`, `pairwise-self-comparison` |
 | [`flattening`](lint-flattening.md) | `expensive-comprehension`, `decision-variable-operator`, `decision-variable-generator`, `decision-variable-condition`, `reified-global` |
 | [`search`](lint-search.md) | `search-coverage`, `unmarked-symmetry-breaking` |
@@ -196,7 +196,7 @@ trigger other rules when you select a broader preset.
 | [Conventions](lint-conventions.md) | Names, constraint labels, numeric index origins, deprecated standard-library calls, input checks written as constraints and easily misread Boolean operator grouping. |
 | [Scope](lint-scope.md) | Hidden names and dependencies, unused declarations and generator bindings. |
 | [Arrays](lint-arrays.md) | Index compatibility, optional elements and array-construction wrappers. |
-| [Domains](lint-domains.md) | Variable bounds, conflicting definitions and conditions required by expressions. |
+| [Domains](lint-domains.md) | Variable bounds, conflicting definitions, conditions required by expressions and exact parameter float comparisons. |
 | [Formulation](lint-formulation.md) | Constant decisions, Boolean formulations, globals, identity sets, vacuous constraints and pairwise self-comparisons. |
 | [Flattening](lint-flattening.md) | Comprehension size and decision-dependent operations, generators, conditions and globals. |
 | [Search](lint-search.md) | Search coverage and possible symmetry-breaking intent. |

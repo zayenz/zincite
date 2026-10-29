@@ -1,7 +1,8 @@
 # Domains and expression preconditions
 
-These rules review variable bounds and the conditions needed for operations such
-as indexing and division. Select them with `--rules preset:domains`.
+These rules review variable bounds, the conditions needed for operations such
+as indexing and division, and exact comparisons of computed floats. Select them
+with `--rules preset:domains`.
 See [linting](linting.md) for model setup and diagnostic limitations.
 
 | Rule | Family | Severity | Default | Automatic fix |
@@ -10,6 +11,7 @@ See [linting](linting.md) for model setup and diagnostic limitations.
 | [`suspicious-domain`](#suspicious-domain) | `suspicious` | Warning | No | No |
 | [`partial-expression`](#partial-expression) | `suspicious` | Warning | Yes | No |
 | [`missing-input-precondition`](#missing-input-precondition) | `modelling` | Informational | No | No |
+| [`float-equality`](#float-equality) | `suspicious` | Warning | No | No |
 
 ## unbounded-variable
 
@@ -110,3 +112,28 @@ nonempty inputs to `min` and `max`, nonzero divisors and positive integer inputs
 to scalar `ln`, `log10` and `log2`, including through `int2float`. Guards and
 successful local assertions can satisfy a condition. General floating-point
 logarithm contracts and unresolved operations remain outside this analysis.
+
+## float-equality
+
+Reports `=`, `==` and `!=` when both operands are parameter floats. Rounding
+makes computed floats rarely equal exactly, so such a test can fail although
+the values agree on paper.
+
+```minizinc
+float: total = 1.0;
+int: n = 10;
+float: rate = if total / n = 0.1 then 1.0 else 2.0 endif;
+```
+
+<!-- zincite-lint: float-equality -->
+
+Compare within a tolerance that suits the data:
+
+```minizinc
+float: rate = if abs(total / n - 0.1) < 1e-9 then 1.0 else 2.0 endif;
+```
+
+A comparison with a decision float, as in `var float: x; constraint x = 1.5;`,
+is an ordinary constraint and stays quiet. So do integer comparisons, optional
+or unknown-typed operands and comparisons that select a user-defined `=` or
+`!=`. Choosing the tolerance is manual.

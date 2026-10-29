@@ -7,6 +7,7 @@
 - Add the `deprecated-call` rule to the end of the default and to the `conventions` preset. It warns when a call selects a standard-library callable marked `mzn_deprecated`, such as the integer form of `at_most`, and quotes the version and explanation from the library. Zincite now also reads the standard library's `.deprecated.mzn` companion files, as the MiniZinc compiler does.
 - Add the opt-in `prefer-assertion` style rule to the `conventions` preset. It warns when a constraint item depends only on parameters, as in `constraint n > 0;`, and suggests `assert` with a message so failed input is explained.
 - Add the opt-in `ambiguous-precedence` suspicious rule to the `conventions` preset. It warns about unparenthesized `/\` mixed with `\/` or `xor`, as in `a \/ b /\ c`, and about chains of two or more `->` or `<-`, as in `a -> b -> c`, and shows the grouping MiniZinc uses. It needs no model context.
+- Add the opt-in `float-equality` suspicious rule to the `domains` preset. It warns when `=` or `!=` compares two parameter floats, as in `total / n = 0.5`, since computed floats rarely compare equal exactly. Comparisons with decision floats stay quiet.
 
 ## 0.4.0
 

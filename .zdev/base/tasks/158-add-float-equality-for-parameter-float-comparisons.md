@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-158"
 key = "float-equality"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "low"
@@ -26,13 +26,23 @@ Computed floats rarely compare equal exactly, so `if total / n = 0.5 then ... en
 
 ## Done when
 
-- [ ] A par float `=` and `!=` each report a finding.
-- [ ] `var float: x; constraint x = 1.5;` and an integer equality stay quiet.
-- [ ] The rule is suspicious family, warning severity, not in the default, and a member of the domains preset.
-- [ ] `docs/lint-domains.md` documents the rule with an example.
-- [ ] The domains row of the preset table in `docs/linting.md` lists the rule.
+- [x] A par float `=` and `!=` each report a finding.
+- [x] `var float: x; constraint x = 1.5;` and an integer equality stay quiet.
+- [x] The rule is suspicious family, warning severity, not in the default, and a member of the domains preset.
+- [x] `docs/lint-domains.md` documents the rule with an example.
+- [x] The domains row of the preset table in `docs/linting.md` lists the rule.
 
 ## Validation
 
 - Add a focused test with the cases above.
 - Run the brief's Rust validation commands and `zdev check base --format json`.
+
+## Result
+
+Added float-equality, an opt-in suspicious rule in the domains preset that reports =, == or != between two proved parameter floats. Decision, integer, optional, unknown-typed and user-overloaded comparisons stay quiet.
+
+Validation:
+
+- cargo fmt --check, cargo clippy -D warnings, cargo test --workspace, zdev check: all pass
+- Release CLI with 2.10.1 stdlib: par float comparisons in initializers, filters, lets, function bodies and array accesses warn; decision and integer comparisons quiet; docs example renders
+- Independent Codex verifier: pass on snapshot W1ca63a0d5c526b13
