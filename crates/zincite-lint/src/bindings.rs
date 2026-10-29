@@ -1,5 +1,6 @@
 //! Declaration identity and lexical references, independent of lint policy.
 use std::collections::BTreeMap;
+use std::ops::Range;
 use zincite_syntax::{NodeKind, SyntaxElement, SyntaxNode, TokenKind};
 
 use crate::{FileId, ModelContext, SourceLocation};
@@ -97,6 +98,29 @@ pub struct Reference {
 pub struct BindingFacts {
     pub declarations: Vec<Declaration>,
     pub references: Vec<Reference>,
+    /// Value reference rows per file, ordered by start offset and row.
+    value_references: Vec<Vec<usize>>,
+}
+
+impl BindingFacts {
+    /// The first recorded value reference in `file` lying within `range`.
+    pub(crate) fn value_reference_within(
+        &self,
+        file: FileId,
+        range: &Range<usize>,
+    ) -> Option<&Reference> {
+        let rows = self.value_references.get(file)?;
+        let first =
+            rows.partition_point(|&row| self.references[row].location.range.start < range.start);
+        let last =
+            rows.partition_point(|&row| self.references[row].location.range.start <= range.end);
+        rows[first..last]
+            .iter()
+            .copied()
+            .filter(|&row| self.references[row].location.range.end <= range.end)
+            .min()
+            .map(|row| &self.references[row])
+    }
 }
 
 /// Resolve retained sources without enabling rules or producing diagnostics.
@@ -130,7 +154,17 @@ pub fn resolve_bindings(context: &ModelContext) -> BindingFacts {
             builder.walk(file, item, node, &mut Vec::new(), None);
         }
     }
-    builder.facts
+    let mut facts = builder.facts;
+    facts.value_references = vec![Vec::new(); context.files.len()];
+    for (row, reference) in facts.references.iter().enumerate() {
+        if reference.kind == ReferenceKind::Value {
+            facts.value_references[reference.file].push(row);
+        }
+    }
+    for rows in &mut facts.value_references {
+        rows.sort_unstable_by_key(|&row| (facts.references[row].location.range.start, row));
+    }
+    facts
 }
 
 type Namespace = BTreeMap<String, Vec<DeclarationId>>;

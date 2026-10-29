@@ -108,12 +108,7 @@ impl<'a> SourceInspector<'a> {
                 .min()
                 .map(|row| &self.bindings.references[row])
         } else {
-            self.bindings.references.iter().find(|r| {
-                r.file == file
-                    && range.start <= r.location.range.start
-                    && r.location.range.end <= range.end
-                    && r.kind == ReferenceKind::Value
-            })
+            self.bindings.value_reference_within(file, &range)
         };
         reference.and_then(|r| match r.resolution {
             BindingResolution::Resolved(id) => Some(id),
@@ -137,10 +132,7 @@ impl<'a> SourceInspector<'a> {
                 .get(&(file, range.start, range.end))
                 .map(|&row| &facts.expressions[row]);
         }
-        facts
-            .expressions
-            .iter()
-            .find(|e| e.file == file && e.location.range == range)
+        facts.expression(file, &range)
     }
     pub(in crate::callable_definitions) fn operation_fact<'b>(
         &'b self,

@@ -325,14 +325,7 @@ impl ClosedSourceErrors<'_> {
     fn reference(&self, file: FileId, node: &SyntaxNode) -> Option<crate::DeclarationId> {
         let range = self.context.files[file].location(node.range()).range;
         self.bindings
-            .references
-            .iter()
-            .find(|reference| {
-                reference.file == file
-                    && reference.kind == crate::ReferenceKind::Value
-                    && range.start <= reference.location.range.start
-                    && reference.location.range.end <= range.end
-            })
+            .value_reference_within(file, &range)
             .and_then(|reference| match reference.resolution {
                 crate::BindingResolution::Resolved(id) => Some(id),
                 _ => None,

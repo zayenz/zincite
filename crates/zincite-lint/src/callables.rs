@@ -134,12 +134,37 @@ impl CallableFacts {
         }
     }
 }
-impl CallableView<'_> {
+impl<'a> CallableView<'a> {
     pub(crate) fn same_observations(&self, other: &Self) -> bool {
         std::ptr::eq(self.declarations, other.declarations)
             && std::ptr::eq(self.signatures, other.signatures)
             && std::ptr::eq(self.expressions, other.expressions)
             && std::ptr::eq(self.calls, other.calls)
+    }
+
+    /// The first observation of `range` in `file`. Prepared views hold the
+    /// engine's (file, start, end) map in key order, so they can be searched.
+    pub(crate) fn expression(
+        &self,
+        file: FileId,
+        range: &std::ops::Range<usize>,
+    ) -> Option<&'a ExpressionType> {
+        if self.preparation.is_some() {
+            self.expressions
+                .binary_search_by(|e| {
+                    (e.file, e.location.range.start, e.location.range.end).cmp(&(
+                        file,
+                        range.start,
+                        range.end,
+                    ))
+                })
+                .ok()
+                .map(|row| &self.expressions[row])
+        } else {
+            self.expressions
+                .iter()
+                .find(|e| e.file == file && e.location.range == *range)
+        }
     }
 
     pub fn to_owned(self) -> CallableFacts {
