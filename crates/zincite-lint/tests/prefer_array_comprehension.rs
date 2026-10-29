@@ -154,7 +154,7 @@ fn exclusions_keep_unknown_effects_filters_dependencies_and_wrapper_comments() {
 
 #[test]
 fn standalone_cli_default_diff_fix_selection_and_suppression() {
-    let source = "set of int: Index=2..3; array[Index] of int:values=array1d(Index,[i /* keep */ | i in Index]); solve satisfy;\n";
+    let source = "set of int: Index=2..3; array[Index] of int:values=array1d(Index,[i /* keep */ | i in Index]); constraint values[2] = 2; solve satisfy;\n";
     let (dir, _) = model("cli", source);
     let root = dir.join("root.mzn");
     let library = dir.join("library");

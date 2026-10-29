@@ -334,7 +334,8 @@ fn core_origin_suppressions_and_dependency_errors_remain_file_local() {
         .unwrap();
     assert_eq!(user.kind, SourceKind::User);
     assert!(!user.implicit && user.warnings_enabled());
-    let result = analyze_model(&context, &LintOptions::default());
+    let naming = LintOptions::from_selection("naming").unwrap();
+    let result = analyze_model(&context, &naming);
     assert_eq!(result.findings.len(), 1, "{:?}", result.findings);
     assert_eq!(result.findings[0].location.path, user.path);
     assert_eq!(
@@ -345,12 +346,7 @@ fn core_origin_suppressions_and_dependency_errors_remain_file_local() {
     let selected = &explicit.files[explicit.root_file.unwrap()];
     assert_eq!(selected.kind, SourceKind::StandardLibrary);
     assert!(selected.explicit && selected.warnings_enabled());
-    assert_eq!(
-        analyze_model(&explicit, &LintOptions::default())
-            .findings
-            .len(),
-        1
-    );
+    assert_eq!(analyze_model(&explicit, &naming).findings.len(), 1);
 
     write(
         directory.join("broken.mzn"),
@@ -420,7 +416,10 @@ fn incomplete_context_and_shared_reporter_keep_rule_execution_and_status_distinc
     assert!(message.contains("analysis limitation") && message.contains("requires evaluation"));
 
     write(&root, "include \"dynamic \\(1).mzn\"; int: BadName = 1;");
-    let warning = analyze_model(&load_model(&root, &options), &defaults);
+    let warning = analyze_model(
+        &load_model(&root, &options),
+        &LintOptions::from_selection("naming").unwrap(),
+    );
     let mut stderr = Vec::new();
     assert_eq!(write_analysis(&warning, &mut stderr).unwrap(), 1);
     assert!(

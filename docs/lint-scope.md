@@ -7,7 +7,7 @@ See [linting](linting.md) for configuration and suppressions.
 | Rule | Default | Automatic fix |
 | --- | --- | --- |
 | [`suspicious-shadowing`](#suspicious-shadowing) | Yes | No |
-| [`unused-declaration`](#unused-declaration) | No | No |
+| [`unused-declaration`](#unused-declaration) | Yes | No |
 | [`unused-generator-binding`](#unused-generator-binding) | No | Sometimes |
 | [`global-variable-in-function`](#global-variable-in-function) | No | No |
 

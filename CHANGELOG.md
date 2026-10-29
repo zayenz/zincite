@@ -1,5 +1,9 @@
 # Release notes
 
+## Unreleased
+
+- Change the default lint rules to likely-mistake checks: `prefer-array-comprehension`, `index-set-mismatch`, `suspicious-shadowing`, `partial-expression`, `hidden-optionality`, `vacuous-constraint`, `unbounded-variable` and `unused-declaration`. `naming` and `missing-constraint-label` now run only when selected; add them with `select = ["default", "preset:conventions"]` in `zincite.toml` or `--rules default,preset:conventions`.
+
 ## 0.4.0
 
 - Add `zincite check`, the standalone `zincite-check` command and a reusable Rust checker for MiniZinc 2.10.1 text FlatZinc and official FlatZinc-JSON.

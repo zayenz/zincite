@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-153"
 key = "quieter-default-preset"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "high"
@@ -26,12 +26,22 @@ Read the Default preset paragraph of the brief's Lint review follow-up (2026-10-
 
 ## Done when
 
-- [ ] Omitted selection and both default selectors return the eight rules in the brief's order.
-- [ ] A model with an unlabeled constraint and a camelCase name lints clean under the default and reports both under `--rules preset:conventions`.
-- [ ] The CLI help, `docs/linting.md`, the group page Default columns and the first-model walkthrough's explanation describe the new default and show how to enable conventions, for example `select = ["default", "preset:conventions"]` in `zincite.toml`. `docs/linting.md` refers to every registered rule instead of a hard-coded rule count.
-- [ ] CHANGELOG.md records the default change under unreleased changes.
+- [x] Omitted selection and both default selectors return the eight rules in the brief's order.
+- [x] A model with an unlabeled constraint and a camelCase name lints clean under the default and reports both under `--rules preset:conventions`.
+- [x] The CLI help, `docs/linting.md`, the group page Default columns and the first-model walkthrough's explanation describe the new default and show how to enable conventions, for example `select = ["default", "preset:conventions"]` in `zincite.toml`. `docs/linting.md` refers to every registered rule instead of a hard-coded rule count.
+- [x] CHANGELOG.md records the default change under unreleased changes.
 
 ## Validation
 
 - Update the existing default-selection checks in `crates/zincite-lint/tests/linting.rs` and `tests/cli.rs`, and run the first-model walkthrough's documented lint command by hand to confirm its output still matches the page.
 - Run the brief's Rust validation commands and `zdev check base --format json`.
+
+## Result
+
+The default preset now selects prefer-array-comprehension, index-set-mismatch, suspicious-shadowing, partial-expression, hidden-optionality, vacuous-constraint, unbounded-variable and unused-declaration; naming and missing-constraint-label run through preset:conventions. CLI help, docs, README text and CHANGELOG describe the change.
+
+Validation:
+
+- cargo fmt --check, cargo clippy -D warnings, cargo test --workspace, zdev check: all pass
+- Release CLI: camelCase name plus unlabeled constraint is clean under the default and reports both under --rules preset:conventions; first-model walkthrough command unchanged and matching
+- Independent Codex verifier: rework (stale README claims), two corrections (second user-authorized), final recheck pass on snapshot W9f8d78a11f88a38d

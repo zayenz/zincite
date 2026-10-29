@@ -377,9 +377,12 @@ hooks still reject unavailable history. The checker performs no external
 execution, search or random value selection.
 
 The authored model, candidates and compatibility files pass formatting and local
-naming/label checks. Default linting of the complete include closure reports
-the upstream naming warning for Gecode's parameter `S` and 44 explicit analysis
-limitations. The pinned sources are unchanged. These diagnostics do not establish
+naming/label checks. Linting the complete include closure with the earlier
+six-rule default, which included `naming`, reported the upstream naming warning
+for Gecode's parameter `S` and 44 explicit analysis limitations. The current
+default excludes `naming`; select it with `--rules default,preset:conventions`.
+These counts have not been re-measured with the current default. The pinned
+sources are unchanged. These diagnostics do not establish
 complete semantic lint analysis.
 
 ## Shared-bench workshop example
@@ -2074,7 +2077,9 @@ the derived results are gcd `3`, product `-54`, both residues `1`, floor root `-
 the derived minimum is still zero. No solver runs. This control does not settle
 the compiler annotation and decomposition limits documented above.
 
-The control passes Zincite formatting. Default linting reports the pinned
-`gecode.mzn:140` parameter `S` naming warning and 44 analysis limitations.
-These diagnostics describe upstream source and incomplete static analysis;
+The control passes Zincite formatting. Linting with the earlier six-rule
+default, which included `naming`, reported the pinned `gecode.mzn:140`
+parameter `S` naming warning and 44 analysis limitations. The current default
+excludes `naming`, and these counts have not been re-measured. These
+diagnostics describe upstream source and incomplete static analysis;
 the pinned library files are unchanged.

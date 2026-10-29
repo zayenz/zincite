@@ -267,7 +267,7 @@ fn joint_selection_deduplicates_emitted_accesses_and_preserves_suppression() {
         result.rules[0].outcome,
         RuleOutcome::Limited { .. }
     ));
-    assert_eq!(Rule::DEFAULT.len(), 6);
+    assert_eq!(Rule::DEFAULT.len(), 8);
     assert_eq!(Rule::THESIS.len(), 14);
 }
 

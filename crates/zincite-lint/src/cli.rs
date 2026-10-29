@@ -56,8 +56,11 @@ Every candidate must parse and its original file must still match before replace
 Unused-generator-binding and element-predicate offer Safe edits only when their conditions hold.
 Other advice, and these rules when required facts are unproved, remains diagnostic-only.
 The thesis preset selects its fourteen rules; all includes every registered rule,
-including unavailable rules that fail execution. Default selects naming, missing-constraint-label,
-prefer-array-comprehension, index-set-mismatch, suspicious-shadowing and partial-expression, in that order.
+including unavailable rules that fail execution. Default selects prefer-array-comprehension,
+index-set-mismatch, suspicious-shadowing, partial-expression, hidden-optionality,
+vacuous-constraint, unbounded-variable and unused-declaration, in that order.
+Naming and missing-constraint-label run only when selected, for example with
+--rules default,preset:conventions or select = [\"default\", \"preset:conventions\"] in zincite.toml.
 --list-rules lists rule IDs, families, availability, fix support and preset membership.
 --explain RULE describes a rule's purpose, required facts, limitations and options.
 These inspection commands run alone, write to stdout and do not read input.
@@ -69,7 +72,8 @@ The root must contain std/stdlib.mzn. Missing library dependencies suggest this 
 On macOS, MiniZincIDE commonly uses /Applications/MiniZincIDE.app/Contents/Resources/share/minizinc.
 Zincite does not discover installations or run a MiniZinc compiler or solver.
 Default model analysis loads the root and include closure for comprehension advice,
-index-set checks, lexical shadowing and partial expressions. Supply matching include
+index-set checks, lexical shadowing, partial expressions, optional-value counts,
+vacuous constraints, unbounded variables and unused declarations. Supply matching include
 and standard-library paths when the model needs them. Unsupported required semantics
 remain explicit analysis limitations.
 Select naming,missing-constraint-label for source-local analysis.

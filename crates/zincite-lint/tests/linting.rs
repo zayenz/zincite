@@ -1,5 +1,13 @@
-use zincite_lint::{Rule, Severity, lint};
-use zincite_syntax::parse;
+use zincite_lint::{LintDiagnostic, LintOptions, Rule, Severity, lint, lint_with_options};
+use zincite_syntax::{Diagnostic, ParsedFile, parse};
+
+/// Lint naming and missing-constraint-label, which the default does not select.
+fn lint_names_and_labels(parsed: &ParsedFile) -> Result<Vec<LintDiagnostic>, Vec<Diagnostic>> {
+    lint_with_options(
+        parsed,
+        &LintOptions::from_selection("naming,missing-constraint-label").unwrap(),
+    )
+}
 
 #[test]
 fn catalogue_exposes_current_capabilities_and_preserves_presets() {
@@ -74,7 +82,7 @@ fn catalogue_exposes_current_capabilities_and_preserves_presets() {
             .rules
             .contains(&Rule::PartialExpression)
     );
-    assert_eq!(Rule::DEFAULT.len(), 6);
+    assert_eq!(Rule::DEFAULT.len(), 8);
     assert_eq!(Rule::THESIS.len(), 14);
     assert!(Rule::from_id("unknown-rule").is_none());
 }
@@ -97,7 +105,7 @@ fn compiler_item_families_keep_binding_names_labels_and_suppressions() {
         "{:?}",
         parsed.diagnostics()
     );
-    let warnings = lint(&parsed).unwrap();
+    let warnings = lint_names_and_labels(&parsed).unwrap();
     let names = warnings
         .iter()
         .filter(|warning| warning.rule == Rule::Naming)
@@ -132,7 +140,7 @@ fn labels_are_direct_and_suppressions_cover_the_next_complete_item() {
         "{:?}",
         parsed.diagnostics()
     );
-    let warnings = lint(&parsed).unwrap();
+    let warnings = lint_names_and_labels(&parsed).unwrap();
     let expected = [
         "constraint assert",
         "constraint (",
@@ -152,7 +160,7 @@ fn labels_are_direct_and_suppressions_cover_the_next_complete_item() {
     assert_eq!(parsed.source(), source);
     // Naming is a valid suppression ID but does not suppress this rule.
     assert_eq!(
-        lint(&parse("% zincite-lint: ignore naming\nconstraint true;"))
+        lint_names_and_labels(&parse("% zincite-lint: ignore naming\nconstraint true;"))
             .unwrap()
             .len(),
         1
@@ -164,11 +172,11 @@ fn naming_skips_unnamed_parameters_and_type_or_annotation_references() {
     let parsed = parse(include_str!(
         "../../../tests/fixtures/library-parameters.mzn"
     ));
-    assert!(lint(&parsed).unwrap().is_empty());
+    assert!(lint_names_and_labels(&parsed).unwrap().is_empty());
     let source =
         "predicate library_signature(MissingType, int: BadParameter :: MissingAnnotation);";
     let parsed = parse(source);
-    let warnings = lint(&parsed).unwrap();
+    let warnings = lint_names_and_labels(&parsed).unwrap();
     assert_eq!(warnings.len(), 1);
     assert_eq!(warnings[0].rule, Rule::Naming);
     let start = source.find("BadParameter").unwrap();
@@ -226,7 +234,7 @@ fn naming_checks_declared_roles_without_matching_references_or_resolving_aliases
         "{:?}",
         parsed.diagnostics()
     );
-    let warnings = lint(&parsed).unwrap();
+    let warnings = lint_names_and_labels(&parsed).unwrap();
     let expected = [
         "bad_enum",
         "bad_case",
@@ -273,9 +281,9 @@ fn naming_checks_declared_roles_without_matching_references_or_resolving_aliases
         "{:?}",
         parsed.diagnostics()
     );
-    assert!(lint(&parsed).unwrap().is_empty());
+    assert!(lint_names_and_labels(&parsed).unwrap().is_empty());
     let data = zincite_syntax::parse_with_mode("BAD_TARGET = 1;", zincite_syntax::FileMode::Data);
-    assert!(lint(&data).unwrap().is_empty());
+    assert!(lint_names_and_labels(&data).unwrap().is_empty());
 }
 
 #[test]
@@ -290,7 +298,7 @@ fn naming_and_label_suppressions_are_independent_and_stop_at_the_next_item() {
         "function bool: SuppressedBadName = let { constraint true; int: SuppressedBadLocal; } in true;\n",
         "int: NextBadName;\n",
     );
-    let warnings = lint(&parse(source)).unwrap();
+    let warnings = lint_names_and_labels(&parse(source)).unwrap();
     assert_eq!(warnings.len(), 4, "{warnings:?}");
     assert_eq!(warnings[0].rule, Rule::MissingConstraintLabel);
     for (warning, name) in warnings[1..]
@@ -311,7 +319,7 @@ fn compiler_source_extensions_reach_nested_naming_and_constraint_checks() {
         "{:?}",
         parsed.diagnostics()
     );
-    let warnings = lint(&parsed).unwrap();
+    let warnings = lint_names_and_labels(&parsed).unwrap();
     let names = warnings
         .iter()
         .filter(|warning| warning.rule == Rule::Naming)
@@ -329,14 +337,15 @@ fn compiler_source_extensions_reach_nested_naming_and_constraint_checks() {
 
 #[test]
 fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
-    use zincite_lint::{LintOptions, lint_with_options};
     let defaults = [
-        "naming",
-        "missing-constraint-label",
         "prefer-array-comprehension",
         "index-set-mismatch",
         "suspicious-shadowing",
         "partial-expression",
+        "hidden-optionality",
+        "vacuous-constraint",
+        "unbounded-variable",
+        "unused-declaration",
     ];
     assert_eq!(
         LintOptions::default().rules,
@@ -398,13 +407,8 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
     }
     let source = "function bool: BadName = let { constraint true; } in true;";
     let parsed = parse(source);
-    assert_eq!(
-        lint(&parsed),
-        lint_with_options(
-            &parsed,
-            &LintOptions::from_selection("naming,missing-constraint-label").unwrap()
-        )
-    );
+    assert!(lint(&parsed).unwrap().is_empty());
+    assert_eq!(lint_names_and_labels(&parsed).unwrap().len(), 2);
     for (selection, rule) in [
         ("naming", Rule::Naming),
         ("missing-constraint-label", Rule::MissingConstraintLabel),
@@ -419,7 +423,9 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
         .map(|id| format!("% zincite-lint: ignore {id}\n"))
         .collect();
     assert_eq!(
-        lint(&parse(format!("{comments}{source}"))).unwrap().len(),
+        lint_names_and_labels(&parse(format!("{comments}{source}")))
+            .unwrap()
+            .len(),
         2
     );
     let naming = LintOptions::from_selection("naming,naming").unwrap();
@@ -435,7 +441,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
         assert_eq!(errors[0].range, 0..0);
     }
     assert_eq!(
-        LintOptions::from_selection("default,naming").unwrap(),
+        LintOptions::from_selection("default,prefer-array-comprehension").unwrap(),
         LintOptions::default()
     );
     for selection in ["", "unknown", "naming,"] {
@@ -451,7 +457,7 @@ fn selections_keep_exact_presets_and_disabled_suppressions_independent() {
 
 #[test]
 fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
-    use zincite_lint::{LintOptions, settings::LintSettings};
+    use zincite_lint::settings::LintSettings;
     let expanded =
         LintOptions::from_selection("missing-constraint-label,family:style,preset:thesis,all")
             .unwrap();
@@ -523,7 +529,11 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
             Rule::PreferEnum,
             Rule::IndexSetMismatch,
             Rule::SuspiciousShadowing,
-            Rule::PartialExpression
+            Rule::PartialExpression,
+            Rule::HiddenOptionality,
+            Rule::VacuousConstraint,
+            Rule::UnboundedVariable,
+            Rule::UnusedDeclaration
         ]
     );
     assert_eq!(
@@ -580,7 +590,7 @@ fn family_selection_and_explicit_settings_keep_order_and_ignore_precedence() {
 
 #[test]
 fn semantic_presets_cover_the_catalogue_and_keep_selection_contracts() {
-    use zincite_lint::{LintOptions, settings::LintSettings};
+    use zincite_lint::settings::LintSettings;
     let groups: &[(&str, &[&str])] = &[
         (
             "conventions",
@@ -771,14 +781,16 @@ fn personal_presets_merge_typed_options_and_reject_ambiguous_or_invalid_settings
             "{source}"
         );
     }
-    let exclusions = LintSettings::from_toml("[lint]\nselect=['default']\nignore=['preset:a','preset:b']\n[lint.presets.a]\nselect=['naming']\n[lint.presets.b]\nselect=['missing-constraint-label']").unwrap();
+    let exclusions = LintSettings::from_toml("[lint]\nselect=['default']\nignore=['preset:a','preset:b']\n[lint.presets.a]\nselect=['unbounded-variable']\n[lint.presets.b]\nselect=['unused-declaration']").unwrap();
     assert_eq!(
         exclusions.resolve().unwrap().rules,
         [
             Rule::PreferArrayComprehension,
             Rule::IndexSetMismatch,
             Rule::SuspiciousShadowing,
-            Rule::PartialExpression
+            Rule::PartialExpression,
+            Rule::HiddenOptionality,
+            Rule::VacuousConstraint
         ]
     );
     let bundles = LintSettings::from_toml("[lint]\nselect=['preset:a']\n[lint.presets.a]\nselect=['naming']\n[lint.presets.a.options.suspicious-shadowing]\nignore-names=['a']\n[lint.presets.b]\nselect=['naming']\n[lint.presets.b.options.suspicious-shadowing]\nignore-names=['b']").unwrap();

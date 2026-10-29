@@ -6,8 +6,8 @@ See [linting](linting.md) for configuration, suppressions and diagnostic output.
 
 | Rule | Default | Automatic fix |
 | --- | --- | --- |
-| [`naming`](#naming) | Yes | No |
-| [`missing-constraint-label`](#missing-constraint-label) | Yes | No |
+| [`naming`](#naming) | No | No |
+| [`missing-constraint-label`](#missing-constraint-label) | No | No |
 | [`array-index-start`](#array-index-start) | No | No |
 
 ## naming

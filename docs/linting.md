@@ -1,7 +1,7 @@
 # Linting MiniZinc with Zincite
 
 Linting finds concerns such as mismatched array indices, names that hide other
-names and division by zero. It also checks modelling conventions. Each finding
+names and division by zero. When selected, it also checks modelling conventions. Each finding
 names a rule and points to a source location. Ordinary runs leave the files alone;
 explicit `--fix` applies eligible edits as described below.
 
@@ -20,10 +20,19 @@ them. Passing those checks does not establish that the model has a solution.
 
 ## Choose the checks
 
-The default checks naming, constraint labels, array-construction wrappers,
-index compatibility, shadowing and partial expressions. Their rule IDs are
-`naming`, `missing-constraint-label`, `prefer-array-comprehension`,
-`index-set-mismatch`, `suspicious-shadowing` and `partial-expression`.
+The default reports likely mistakes and stays quiet on well-written models, so
+exit status 1 means a finding needs review. It checks array-construction
+wrappers, index compatibility, shadowing, partial expressions, optional-value
+counts, vacuous constraints, unbounded variables and unused declarations. Their
+rule IDs are `prefer-array-comprehension`, `index-set-mismatch`,
+`suspicious-shadowing`, `partial-expression`, `hidden-optionality`,
+`vacuous-constraint`, `unbounded-variable` and `unused-declaration`.
+
+Naming and constraint-label checks run only when you select them. The
+`conventions` preset contains them. To add them to the default, run
+`zincite lint --rules default,preset:conventions model.mzn` or put
+`select = ["default", "preset:conventions"]` in the `[lint]` table of
+[`zincite.toml`](#project-settings).
 
 Use `--rules` to select individual IDs or a preset. For example,
 `--rules naming,missing-constraint-label` runs only the two checks in the
@@ -42,8 +51,8 @@ only once.
 | [`search`](lint-search.md) | `search-coverage`, `unmarked-symmetry-breaking` |
 
 `--rules default` selects the default rules, `--rules thesis` selects the
-fourteen rules based on Erik Rimskog's thesis, and `--rules all` selects all
-28 rules. The presets above organise them by modelling concern. Use
+fourteen rules based on Erik Rimskog's thesis, and `--rules all` selects every
+registered rule. The presets above organise them by modelling concern. Use
 `--list-rules` to see their membership and `--explain RULE` for a rule's
 meaning and limits.
 
@@ -99,8 +108,7 @@ zincite lint --rules all \
 ```
 
 `--stdlib-dir` overrides `MZN_STDLIB_DIR`; `-I` adds ordered include directories.
-The default rules need this context for array comprehensions, indices, shadowing
-and partial expressions. If required information is unavailable, Zincite reports
+Every default rule needs this context. If required information is unavailable, Zincite reports
 a limitation instead of guessing the result. Selecting only `naming,missing-constraint-label`
 keeps analysis local to the source.
 Standalone `.dzn` files use assignment-only syntax and mark semantic rules

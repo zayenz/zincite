@@ -7,7 +7,7 @@ contains and whether an array constructor is needed. Select them with
 | Rule | Default | Automatic fix |
 | --- | --- | --- |
 | [`index-set-mismatch`](#index-set-mismatch) | Yes | No |
-| [`hidden-optionality`](#hidden-optionality) | No | No |
+| [`hidden-optionality`](#hidden-optionality) | Yes | No |
 | [`prefer-array-comprehension`](#prefer-array-comprehension) | Yes | Sometimes |
 
 ## index-set-mismatch

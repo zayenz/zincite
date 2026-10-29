@@ -112,13 +112,15 @@ pub enum Rule {
 }
 
 impl Rule {
-    pub const DEFAULT: [Self; 6] = [
-        Self::Naming,
-        Self::MissingConstraintLabel,
+    pub const DEFAULT: [Self; 8] = [
         Self::PreferArrayComprehension,
         Self::IndexSetMismatch,
         Self::SuspiciousShadowing,
         Self::PartialExpression,
+        Self::HiddenOptionality,
+        Self::VacuousConstraint,
+        Self::UnboundedVariable,
+        Self::UnusedDeclaration,
     ];
     pub const THESIS: [Self; 14] = [
         Self::ArrayIndexStart,
@@ -498,7 +500,7 @@ pub(crate) fn preset_memberships(rule: Rule) -> Vec<&'static str> {
     .collect()
 }
 
-/// Selected rules. The default includes syntax rules and bounded model-backed checks.
+/// Selected rules. The default selects bounded model-backed likely-mistake checks.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LintOptions {
     pub rules: Vec<Rule>,

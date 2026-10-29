@@ -123,10 +123,11 @@ Run the same lint command again. It produces no warnings and exits 0. This
 only establishes that these two checks pass; the data still has a shortage.
 
 `--isolated` ignores project lint settings, and `--rules` selects exactly the
-checks used here. Ordinary `zincite lint staffing.mzn` also checks array
-comprehensions, index compatibility, shadowing and partial expressions. Those
-checks use model context; the [linting guide](linting.md) explains library
-configuration and the other rule presets.
+checks used here. Ordinary `zincite lint staffing.mzn` does not run them. It
+checks for likely mistakes such as incompatible indices, shadowed names, partial
+expressions, vacuous constraints and unused declarations. Those checks use model
+context; the [linting guide](linting.md) explains library configuration, how to
+add the naming and label checks to every run, and the other rule presets.
 
 ## Selecting constraints
 

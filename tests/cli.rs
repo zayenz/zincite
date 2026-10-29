@@ -181,7 +181,7 @@ fn default_lint_checks_included_shadowing_without_writing() {
     std::fs::write(&shared, outer).unwrap();
     for (parameter, status) in [("value", 1), ("item", 0)] {
         let source = format!(
-            "include \"shared.mzn\";\r\nfunction int: identity(int: {parameter}) = {parameter};\r\nsolve satisfy;\r\n"
+            "include \"shared.mzn\";\r\nfunction int: identity(int: {parameter}) = {parameter};\r\nvar 0..2: chosenValue;\r\nconstraint chosenValue = identity(value);\r\nsolve satisfy;\r\n"
         );
         std::fs::write(&root, &source).unwrap();
         for selection in [None, Some("default"), Some("preset:default")] {
@@ -207,6 +207,22 @@ fn default_lint_checks_included_shadowing_without_writing() {
             assert_eq!(std::fs::read(&shared).unwrap(), outer.as_bytes());
         }
     }
+    let conventions = run(
+        &[
+            "lint",
+            "--isolated",
+            "--stdlib-dir",
+            library.to_str().unwrap(),
+            "--rules",
+            "preset:conventions",
+            root.to_str().unwrap(),
+        ],
+        "",
+    );
+    let diagnostics = String::from_utf8_lossy(&conventions.stderr);
+    assert_eq!(conventions.status.code(), Some(1), "{diagnostics}");
+    assert!(diagnostics.contains("warning [naming]") && diagnostics.contains("chosenValue"));
+    assert!(diagnostics.contains("warning [missing-constraint-label]"));
     std::fs::remove_dir_all(directory).unwrap();
 }
 
@@ -412,7 +428,7 @@ fn default_lint_previews_and_applies_direct_comprehensions() {
         std::env::temp_dir().join(format!("zincite-root-comprehension-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("library/std")).unwrap();
     std::fs::write(dir.join("library/std/stdlib.mzn"), "function set of int: '..'(int:a,int:b); function array[int] of int: array1d(set of int:s,array[int] of int:a);").unwrap();
-    let source = "array[int] of int:values=array1d(1..3,[i | i in 1..3]); solve satisfy;\n";
+    let source = "array[int] of int:values=array1d(1..3,[i | i in 1..3]); constraint values[1] = 1; solve satisfy;\n";
     let root = dir.join("root.mzn");
     let library = dir.join("library");
     std::fs::write(&root, source).unwrap();

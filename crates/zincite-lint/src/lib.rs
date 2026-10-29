@@ -148,8 +148,10 @@ pub struct LintDiagnostic {
 
 /// Lint the source-local default rules in a parsed file. Model-backed defaults
 /// require analyze_model. Syntax or suppression errors omit all warnings.
-/// Suppressions apply independently throughout the next top-level item. Naming
-/// checks declared syntax roles; missing-label warnings are modelling advice.
+/// Suppressions apply independently throughout the next top-level item. Every
+/// default rule currently requires a model, so this validates syntax and
+/// suppressions only; select naming or missing-constraint-label with
+/// lint_with_options.
 pub fn lint(parsed: &ParsedFile) -> Result<Vec<LintDiagnostic>, Vec<Diagnostic>> {
     let mut options = LintOptions::default();
     options.rules.retain(|rule| !rule.requires_model());

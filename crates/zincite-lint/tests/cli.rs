@@ -206,12 +206,14 @@ fn catalogue_commands_inspect_metadata_without_reading_or_analyzing_inputs() {
     assert!(list.status.success() && list.stderr.is_empty());
     let list = String::from_utf8(list.stdout).unwrap();
     assert_eq!(list.lines().count(), 29);
-    assert!(list.contains("naming\tstyle\tavailable\tnone\tdefault,conventions,all"));
+    assert!(list.contains("naming\tstyle\tavailable\tnone\tconventions,all"));
     assert!(list.contains("search-coverage\tmodelling\tavailable\tnone\tthesis,search,all"));
     assert!(list.contains("index-set-mismatch\tcorrectness\tavailable\tnone\tdefault,arrays,all"));
-    assert!(list.contains("hidden-optionality\tsuspicious\tavailable\tnone\tarrays,all"));
+    assert!(list.contains("hidden-optionality\tsuspicious\tavailable\tnone\tdefault,arrays,all"));
     assert!(list.contains("partial-expression\tsuspicious\tavailable\tnone\tdefault,domains,all"));
-    assert!(list.contains("vacuous-constraint\tsuspicious\tavailable\tnone\tformulation,all"));
+    assert!(
+        list.contains("vacuous-constraint\tsuspicious\tavailable\tnone\tdefault,formulation,all")
+    );
     assert!(
         list.contains("global-constraint-opportunity\tmodelling\tavailable\tnone\tformulation,all")
     );
@@ -305,7 +307,13 @@ fn source_only_selection_stays_independent_and_semantic_selection_loads_inputs()
 #[test]
 fn cli_reports_located_advice_errors_and_processes_independent_files_without_writes() {
     let warning = run(
-        &["--stdin-filepath", "model.mzn", "-"],
+        &[
+            "--rules",
+            "missing-constraint-label",
+            "--stdin-filepath",
+            "model.mzn",
+            "-",
+        ],
         "% é\r\nconstraint true;",
     );
     assert_eq!(warning.status.code(), Some(1));
@@ -347,7 +355,9 @@ fn cli_reports_located_advice_errors_and_processes_independent_files_without_wri
     ] {
         assert_eq!(run(&arguments, "").status.code(), Some(2));
     }
-    let naming = run(&[], "int: BadName = 1;");
+    let quiet = run(&[], "int: BadName = 1;");
+    assert!(quiet.status.success());
+    let naming = run(&["--rules", "naming"], "int: BadName = 1;");
     assert_eq!(naming.status.code(), Some(1));
     assert!(naming.stdout.is_empty());
     assert!(
@@ -367,7 +377,15 @@ fn cli_reports_located_advice_errors_and_processes_independent_files_without_wri
     let good = directory.join("good.mzn");
     std::fs::write(&bad, b"\xff").unwrap();
     std::fs::write(&good, b"constraint true;").unwrap();
-    let output = run(&[bad.to_str().unwrap(), good.to_str().unwrap()], "");
+    let output = run(
+        &[
+            "--rules",
+            "missing-constraint-label",
+            bad.to_str().unwrap(),
+            good.to_str().unwrap(),
+        ],
+        "",
+    );
     assert_eq!(output.status.code(), Some(2));
     assert!(output.stdout.is_empty());
     let diagnostic = String::from_utf8(output.stderr).unwrap();
@@ -463,14 +481,14 @@ fn directory_inputs_include_hidden_ignored_files_and_continue_after_errors() {
 fn rule_selection_preserves_defaults_and_runs_available_catalogue_rules() {
     let source = "int: BadName = 1; constraint true;";
     let default = run(&[], source);
-    assert_eq!(default.status.code(), Some(1));
+    assert_eq!(default.status.code(), Some(0));
     for selection in [
         "default",
         "preset:default",
-        "naming,missing-constraint-label,prefer-array-comprehension,index-set-mismatch,suspicious-shadowing,partial-expression",
+        "prefer-array-comprehension,index-set-mismatch,suspicious-shadowing,partial-expression,hidden-optionality,vacuous-constraint,unbounded-variable,unused-declaration",
     ] {
         let output = run(&["--rules", selection], source);
-        assert_eq!(output.status.code(), Some(1));
+        assert_eq!(output.status.code(), Some(0));
         assert_eq!(output.stderr, default.stderr);
         assert!(output.stdout.is_empty());
     }
@@ -1268,10 +1286,7 @@ fn nearest_settings_cli_replacement_and_stdin_anchors_share_one_preflight() {
         assert!(!text.contains("missing-constraint-label"));
     }
     let isolated = String::from_utf8(run(&["--isolated", child_path], "").stderr).unwrap();
-    assert!(
-        isolated.contains("warning [naming]")
-            && isolated.contains("warning [missing-constraint-label]")
-    );
+    assert!(!isolated.contains("[naming]") && !isolated.contains("[missing-constraint-label]"));
     let unconfigured = dir.join("unconfigured");
     std::fs::create_dir_all(unconfigured.join("unrelated")).unwrap();
     std::fs::write(
@@ -1297,7 +1312,7 @@ fn nearest_settings_cli_replacement_and_stdin_anchors_share_one_preflight() {
     );
     let plain = run(&[], source);
     assert!(
-        String::from_utf8(plain.stderr)
+        !String::from_utf8(plain.stderr)
             .unwrap()
             .contains("warning [naming]")
     );
@@ -1335,7 +1350,7 @@ fn nearest_settings_cli_replacement_and_stdin_anchors_share_one_preflight() {
     assert!(shown.contains("array-index-start") && shown.contains("decision-variable-condition"));
     // Plain library calls use explicit options regardless of nearby files.
     let parsed = zincite_syntax::parse(source);
-    assert_eq!(zincite_lint::lint(&parsed).unwrap().len(), 2);
+    assert!(zincite_lint::lint(&parsed).unwrap().is_empty());
     assert_eq!(std::fs::read_to_string(&parent).unwrap(), source);
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -2080,12 +2095,8 @@ fn unused_generator_selection_suppression_and_metadata_preserve_source_and_statu
         1
     );
     assert!(text.contains("'term'") && text.contains("does not make iterations removable"));
-    assert_eq!(
-        run(&["--rules", "default", args[2], args[3], args[4]], "")
-            .status
-            .code(),
-        Some(0)
-    );
+    let default = run(&["--rules", "default", args[2], args[3], args[4]], "");
+    assert!(!String::from_utf8_lossy(&default.stderr).contains("unused-generator-binding"));
     let explain = run(&["--explain", "unused-generator-binding"], "invalid input");
     assert!(explain.status.success());
     let text = String::from_utf8(explain.stdout).unwrap();
@@ -2287,7 +2298,7 @@ fn expensive_comprehension_threshold_selection_and_source_are_explicit() {
         ],
         "",
     );
-    assert_eq!(default.status.code(), Some(0));
+    assert!(!String::from_utf8_lossy(&default.stderr).contains("expensive-comprehension"));
     let list = run(&["--list-rules"], "invalid");
     assert!(
         String::from_utf8(list.stdout)

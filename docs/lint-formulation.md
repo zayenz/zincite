@@ -13,7 +13,7 @@ See [linting](linting.md) for selection and fix settings.
 | [`element-predicate`](#element-predicate) | No | Sometimes |
 | [`global-constraint-opportunity`](#global-constraint-opportunity) | No | No |
 | [`prefer-enum`](#prefer-enum) | No | No |
-| [`vacuous-constraint`](#vacuous-constraint) | No | No |
+| [`vacuous-constraint`](#vacuous-constraint) | Yes | No |
 
 ## constant-variable
 

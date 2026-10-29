@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 159
-- Ready: 5
+- Ready: 4
 - Blocked: 5
-- Done: 149
+- Done: 150
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -161,7 +161,7 @@
 | [base-150](tasks/150-exempt-callable-parameters-that-share-a-top-level-name.md) | Exempt callable parameters that share a top-level name | ready | — |
 | [base-151](tasks/151-limit-decision-variable-operator-to-arithmetic-operators.md) | Limit decision-variable-operator to arithmetic operators | ready | — |
 | [base-152](tasks/152-record-default-severity-per-rule-and-reassign-style-families.md) | Record default severity per rule and reassign style families | ready | — |
-| [base-153](tasks/153-switch-the-default-preset-to-likely-mistake-checks.md) | Switch the default preset to likely-mistake checks | ready | base-149 |
+| [base-153](tasks/153-switch-the-default-preset-to-likely-mistake-checks.md) | Switch the default preset to likely-mistake checks | done | base-149 |
 | [base-154](tasks/154-add-pairwise-self-comparison-for-unsatisfiable-equal-pairs.md) | Add pairwise-self-comparison for unsatisfiable equal pairs | blocked | base-153, base-152 |
 | [base-155](tasks/155-add-deprecated-call-for-deprecated-standard-library-callable.md) | Add deprecated-call for deprecated standard-library callables | blocked | base-153, base-152, base-154 |
 | [base-156](tasks/156-add-prefer-assertion-for-parameter-only-constraints.md) | Add prefer-assertion for parameter-only constraints | blocked | base-152 |

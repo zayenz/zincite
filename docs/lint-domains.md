@@ -6,7 +6,7 @@ See [linting](linting.md) for model setup and diagnostic limitations.
 
 | Rule | Default | Automatic fix |
 | --- | --- | --- |
-| [`unbounded-variable`](#unbounded-variable) | No | No |
+| [`unbounded-variable`](#unbounded-variable) | Yes | No |
 | [`suspicious-domain`](#suspicious-domain) | No | No |
 | [`partial-expression`](#partial-expression) | Yes | No |
 | [`missing-input-precondition`](#missing-input-precondition) | No | No |
