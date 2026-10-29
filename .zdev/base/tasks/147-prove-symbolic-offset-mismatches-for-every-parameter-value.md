@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-147"
 key = "lint-symbolic-offsets"
 area = "base"
-status = "open"
+status = "done"
 complexity = "advanced"
 afk = true
 priority = "high"
@@ -27,13 +27,23 @@ Read the Lint review follow-up (2026-10-29) section of the brief and the semanti
 
 ## Done when
 
-- [ ] The two symbolic examples in Context report index-set-mismatch.
-- [ ] `forall (i in 1..n - 1) (x[i] < x[i + 1])`, `forall (i in 1..n where i < n) (x[i] < x[i + 1])` and `forall (i in index_set(x)) (x[i] < y[i])` with matching declarations stay quiet.
-- [ ] A symbolic access that only fails for some parameter values, such as `x[k]` with an unassigned `k`, stays quiet.
-- [ ] The rule documentation in `docs/lint-arrays.md` describes symbolic offsets and the every-value condition.
+- [x] The two symbolic examples in Context report index-set-mismatch.
+- [x] `forall (i in 1..n - 1) (x[i] < x[i + 1])`, `forall (i in 1..n where i < n) (x[i] < x[i + 1])` and `forall (i in index_set(x)) (x[i] < y[i])` with matching declarations stay quiet.
+- [x] A symbolic access that only fails for some parameter values, such as `x[k]` with an unassigned `k`, stays quiet.
+- [x] The rule documentation in `docs/lint-arrays.md` describes symbolic offsets and the every-value condition.
 
 ## Validation
 
 - Add the positive and quiet cases above to the existing index-set-mismatch tests, plus one partial-expression case.
 - Run the brief's Rust validation commands and `zdev check base --format json`.
 - Using a current release build, the existing corpus runner (`scripts/check-corpus.py`) or the ad hoc loop used by the lint review, report for the published Challenge corpus at `/Users/zayenz/gecode/dexter/problems/mzn-challenge-a8448864-clean` with the installed 2.10.1 stdlib and a 60 s per-file cutoff: analysed, timed-out and errored root totals, and the rule's finding count before and after the change. Read every finding the change introduces, or a sample of 20 if there are more, against the source. A confirmed false positive introduced by the change blocks completion; findings that existed before the change and unobserved roots are reported separately.
+
+## Result
+
+index-set-mismatch and partial-expression now report accesses whose index escapes the array's index set for every parameter value making the traversal active and nonempty, for bounds that are one parameter plus or minus a constant.
+
+Validation:
+
+- cargo fmt --check, cargo clippy -D warnings, cargo test --workspace (676 passed), zdev check: all pass
+- Challenge corpus: 413/22/1 before and after; index-set-mismatch 0 -> 3 (step1_aes real defect; jp-encoding x2 consistent with the literal contract), partial-expression 0 -> 0
+- Independent Codex verifier: pass on snapshot W5beb8646e77d5d7b

@@ -2,10 +2,11 @@
 use crate::callables::{array_concatenation, core_operation, find_node, is_expression};
 use crate::definitions::{core_callable, resolved_call};
 use crate::domains::{
-    bare_index_domain as bare, core_arithmetic, expression_domain, generator_slots,
-    has_known_bounds, index_domain_interval as interval, index_domain_member as member,
-    intersect_index_domains as intersection, invariant_integer, known_integer, known_outcome,
-    resolved_index_domain, same_members, shift_index_domain as shifted, tokens,
+    bare_index_domain as bare, core_arithmetic, escapes_whenever_nonempty, expression_domain,
+    generator_slots, has_known_bounds, index_domain_interval as interval,
+    index_domain_member as member, intersect_index_domains as intersection, invariant_integer,
+    known_integer, known_outcome, resolved_index_domain, same_members,
+    shift_index_domain as shifted, tokens,
 };
 use crate::{
     BindingFacts, BindingResolution, Cardinality, CollectionCardinality, DeclarationId,
@@ -229,31 +230,18 @@ impl IterationFacts {
             return false;
         };
         if !selection.exact
-            || !self
-                .iterations
-                .iter()
-                .filter(|i| {
-                    i.file == obligation.file
-                        && i.location.range.start <= obligation.operation.range.start
-                        && obligation.operation.range.end <= i.location.range.end
-                })
-                .all(|i| {
-                    matches!(i.candidates,CandidateCount::Exact(n) if n>0)
-                        && matches!(i.selected,CandidateCount::Exact(n) if n>0)
-                        && matches!(
-                            i.coverage,
-                            IterationCoverage::Full | IterationCoverage::ProperPartial
-                        )
-                })
+            || !self.enclosing_iterations(obligation).all(|i| {
+                matches!(i.candidates,CandidateCount::Exact(n) if n>0)
+                    && matches!(i.selected,CandidateCount::Exact(n) if n>0)
+                    && matches!(
+                        i.coverage,
+                        IterationCoverage::Full | IterationCoverage::ProperPartial
+                    )
+            })
         {
             return false;
         }
-        let Some(target) = self
-            .arrays
-            .iter()
-            .find(|a| a.declaration == *array)
-            .and_then(|a| a.dimensions.get(dimension - 1))
-        else {
+        let Some(target) = self.array_dimension(*array, *dimension) else {
             return false;
         };
         let candidate = IterationIndexSet {
@@ -265,6 +253,53 @@ impl IterationFacts {
             array_dimension: None,
         };
         candidate.subset_of(target) == GuardedOutcome::Refuted
+    }
+    /// Whether the index traversal includes an index outside this dimension for
+    /// every parameter value that makes it nonempty while it is active.
+    /// Requires an exact selection, at least one enclosing traversal, full
+    /// coverage of every enclosing traversal, and selection and dimension
+    /// ranges whose endpoints are constants or offsets of one declaration.
+    /// This does not claim that every evaluated index is outside.
+    /// The obligation and these facts must come from the same ModelContext.
+    pub fn has_index_outside_whenever_nonempty(&self, obligation: &GuardObligation) -> bool {
+        let GuardObligationKind::Index {
+            array,
+            dimension,
+            selection: Some(selection),
+            ..
+        } = &obligation.kind
+        else {
+            return false;
+        };
+        let mut enclosing = self.enclosing_iterations(obligation).peekable();
+        if !selection.exact
+            || enclosing.peek().is_none()
+            || !enclosing.all(|i| i.coverage == IterationCoverage::Full)
+        {
+            return false;
+        }
+        self.array_dimension(*array, *dimension)
+            .is_some_and(|target| escapes_whenever_nonempty(&selection.domain, &target.domain))
+    }
+    fn enclosing_iterations<'a>(
+        &'a self,
+        obligation: &'a GuardObligation,
+    ) -> impl Iterator<Item = &'a IterationFact> {
+        self.iterations.iter().filter(|i| {
+            i.file == obligation.file
+                && i.location.range.start <= obligation.operation.range.start
+                && obligation.operation.range.end <= i.location.range.end
+        })
+    }
+    fn array_dimension(
+        &self,
+        array: DeclarationId,
+        dimension: usize,
+    ) -> Option<&IterationIndexSet> {
+        self.arrays
+            .iter()
+            .find(|a| a.declaration == array)
+            .and_then(|a| a.dimensions.get(dimension - 1))
     }
     pub fn index_set(&self, file: FileId, location: &SourceLocation) -> Option<&IterationIndexSet> {
         self.index_sets

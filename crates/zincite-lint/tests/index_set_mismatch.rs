@@ -919,3 +919,33 @@ fn initialized_parameters_and_named_sets_supply_known_bounds() {
     assert!(result.limitations.is_empty(), "{:?}", result.limitations);
     std::fs::remove_dir_all(dir).unwrap();
 }
+#[test]
+fn symbolic_offsets_report_only_escapes_for_every_nonempty_traversal() {
+    let source = concat!(
+        "int:n; int:k; array[1..n] of int:x; array[1..n] of int:y; array[0..n-1] of int:z;\n",
+        "constraint forall(i in 1..n)(x[i]<x[i+1]); constraint forall(i in 1..n)(z[i]=0);\n",
+        "constraint forall(i in 1..n-1)(x[i]<x[i+1]); constraint forall(i in 1..n where i<n)(x[i]<x[i+1]);\n",
+        "constraint forall(i in index_set(x))(x[i]<y[i]); int:picked=x[k]; solve satisfy;\n",
+    );
+    let (dir, context, result) = model("symbolic", source);
+    assert_eq!(
+        result
+            .findings
+            .iter()
+            .map(|f| spelling(&context, f))
+            .collect::<Vec<_>>(),
+        ["x[i+1]", "z[i]"]
+    );
+    for finding in &result.findings {
+        assert!(
+            finding
+                .message
+                .contains("whenever the traversal is active and nonempty")
+                && !finding.message.contains("runtime")
+                && !finding.message.contains("every"),
+            "{}",
+            finding.message
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

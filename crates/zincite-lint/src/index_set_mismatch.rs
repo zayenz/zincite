@@ -1,4 +1,5 @@
 //! Diagnostic policy over interpreted index spaces; no condition interpretation.
+use crate::domains::OffsetBound;
 use crate::{
     BindingFacts, Cardinality, Domain, FileFinding, FileId, GuardActivation, GuardObligationKind,
     GuardedFacts, GuardedOutcome, IterationCoverage, IterationFacts, IterationIndexSet,
@@ -149,7 +150,9 @@ pub(super) fn check_index_set_mismatches(
                     });
                     let refuted = obligation.outcome == GuardedOutcome::Refuted;
                     let coarse = iteration.has_incompatible_index_candidates(obligation);
-                    if enum_mismatch || refuted || coarse {
+                    let symbolic = !(enum_mismatch || refuted || coarse)
+                        && iteration.has_index_outside_whenever_nonempty(obligation);
+                    if enum_mismatch || refuted || coarse || symbolic {
                         let declaration = &bindings.declarations[array.0];
                         let space = candidate
                             .as_ref()
@@ -157,6 +160,8 @@ pub(super) fn check_index_set_mismatches(
                             .unwrap_or_else(|| text(context, file, &obligation.operand).to_owned());
                         let concern = if enum_mismatch {
                             "has an incompatible enum index type"
+                        } else if symbolic {
+                            "includes an index outside the index set whenever the traversal is active and nonempty"
                         } else if refuted
                             || candidate
                                 .as_ref()
@@ -249,7 +254,20 @@ fn bound(b: &NumericBound, bindings: &BindingFacts) -> String {
         NumericBound::Symbol(d) | NumericBound::Defined { declaration: d, .. } => {
             bindings.declarations[d.0].name.clone()
         }
-        _ => "symbolic bound".into(),
+        _ => match crate::domains::offset_bound(b) {
+            Some(OffsetBound {
+                declaration: Some(d),
+                offset,
+            }) => {
+                let name = &bindings.declarations[d.0].name;
+                match offset {
+                    0 => name.clone(),
+                    o if o > 0 => format!("{name} + {o}"),
+                    o => format!("{name} - {}", o.unsigned_abs()),
+                }
+            }
+            _ => "symbolic bound".into(),
+        },
     }
 }
 fn text<'a>(context: &'a ModelContext, file: FileId, location: &SourceLocation) -> &'a str {

@@ -58,7 +58,10 @@ overflow do not justify a conflict claim.
 ## partial-expression
 
 Reports an operation whose required condition is known to fail, or an access
-with incompatible candidate indices.
+with incompatible candidate indices. An access in a traversal over symbolic
+bounds, such as `data[i + 1]` for `i in 1 .. m` over `array[1 .. m]`, reports
+when the traversal includes an outside index whenever it is active and
+nonempty.
 
 ```minizinc
 array[1 .. 7] of int: required;

@@ -4116,6 +4116,81 @@ pub(super) fn index_domain_interval(d: &Domain) -> Option<(i64, i64)> {
     }
 }
 
+/// A bound written as one declaration plus a constant, or as a constant alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct OffsetBound {
+    pub(super) declaration: Option<DeclarationId>,
+    pub(super) offset: i64,
+}
+
+/// The offset form of a bound. A declaration keeps its identity even when its
+/// initializer is known. Products, extrema and sums of two declarations have
+/// no offset form; checked arithmetic overflow has none either.
+pub(super) fn offset_bound(b: &NumericBound) -> Option<OffsetBound> {
+    match b {
+        NumericBound::Integer(n) => Some(OffsetBound {
+            declaration: None,
+            offset: *n,
+        }),
+        NumericBound::Symbol(d) | NumericBound::Defined { declaration: d, .. } => {
+            Some(OffsetBound {
+                declaration: Some(*d),
+                offset: 0,
+            })
+        }
+        NumericBound::Arithmetic { operator, operands } => {
+            let [left, right] = operands.as_slice() else {
+                return None;
+            };
+            let left = offset_bound(left)?;
+            let right = offset_bound(right)?;
+            match operator {
+                TokenKind::Plus if left.declaration.is_none() || right.declaration.is_none() => {
+                    Some(OffsetBound {
+                        declaration: left.declaration.or(right.declaration),
+                        offset: left.offset.checked_add(right.offset)?,
+                    })
+                }
+                TokenKind::Minus if right.declaration.is_none() => Some(OffsetBound {
+                    declaration: left.declaration,
+                    offset: left.offset.checked_sub(right.offset)?,
+                }),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn has_offset_bounds(d: &Domain) -> bool {
+    matches!(bare_index_domain(d), Domain::Range { lower, upper }
+        if offset_bound(lower).is_some() && offset_bound(upper).is_some())
+}
+
+/// Whether a nonempty `selection` range always contains an endpoint outside
+/// `target`: an endpoint offset of the same declaration lies strictly beyond
+/// the target's, whatever that declaration's value.
+pub(super) fn escapes_whenever_nonempty(selection: &Domain, target: &Domain) -> bool {
+    let (
+        Domain::Range {
+            lower: selection_lower,
+            upper: selection_upper,
+        },
+        Domain::Range {
+            lower: target_lower,
+            upper: target_upper,
+        },
+    ) = (bare_index_domain(selection), bare_index_domain(target))
+    else {
+        return false;
+    };
+    let exceeds = |greater: &NumericBound, lesser: &NumericBound| {
+        matches!((offset_bound(greater), offset_bound(lesser)),
+            (Some(g), Some(l)) if g.declaration == l.declaration && g.offset > l.offset)
+    };
+    exceeds(selection_upper, target_upper) || exceeds(target_lower, selection_lower)
+}
+
 pub(super) fn index_domain_member(d: &Domain, n: i64) -> Option<bool> {
     match bare_index_domain(d) {
         Domain::Range { .. } => index_domain_interval(d).map(|(l, u)| l <= n && n <= u),

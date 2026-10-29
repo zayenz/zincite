@@ -159,10 +159,14 @@ pub(super) fn check_partial_expressions(
                         continue;
                     }
                     let failed = obligation.outcome == GuardedOutcome::Refuted;
-                    let candidate = matches!(obligation.kind, GuardObligationKind::Index { .. })
-                        && obligation.outcome != GuardedOutcome::Proven
-                        && iteration.has_incompatible_index_candidates(obligation);
-                    if !failed && !candidate {
+                    let index = matches!(obligation.kind, GuardObligationKind::Index { .. })
+                        && obligation.outcome != GuardedOutcome::Proven;
+                    let candidate =
+                        index && iteration.has_incompatible_index_candidates(obligation);
+                    let symbolic = index
+                        && !candidate
+                        && iteration.has_index_outside_whenever_nonempty(obligation);
+                    if !failed && !candidate && !symbolic {
                         continue;
                     }
                     let requirement = match &obligation.kind {
@@ -190,6 +194,8 @@ pub(super) fn check_partial_expressions(
                     };
                     let proof = if failed {
                         "the requirement is refuted when this operation is evaluated"
+                    } else if symbolic {
+                        "the traversal includes an index outside it whenever the traversal is active and nonempty"
                     } else {
                         "some exact interpreted candidate indices do not fit this dimension; this does not establish that any candidate is executed or feasible"
                     };

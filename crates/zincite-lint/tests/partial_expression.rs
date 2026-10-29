@@ -356,3 +356,20 @@ fn initialized_parameters_supply_known_requirements() {
     assert!(result.limitations.is_empty(), "{:?}", result.limitations);
     std::fs::remove_dir_all(dir).unwrap();
 }
+#[test]
+fn symbolic_offset_traversals_report_every_nonempty_escape() {
+    let source = concat!(
+        "int:m; array[1..m] of int:data; constraint forall(i in 1..m)(data[i+1]=0);\n",
+        "constraint forall(i in 1..m where i!=m)(data[i+1]=0); solve satisfy;\n",
+    );
+    let (dir, context, result) = model("symbolic", source, "partial-expression");
+    assert_eq!(spellings(&context, &result), ["data[i+1]"]);
+    assert!(
+        result.findings[0]
+            .message
+            .contains("the traversal includes an index outside it whenever the traversal is active and nonempty"),
+        "{}",
+        result.findings[0].message
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}

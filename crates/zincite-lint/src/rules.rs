@@ -290,7 +290,7 @@ impl Rule {
                 RuleFamily::Correctness,
                 "Report proved incompatible array index spaces and neighbour offsets.",
                 "Resolved array dimensions, iteration membership and scoped guarded index obligations.",
-                "Closed scalar/range indices, enum identities and checked neighbour offsets are supported. Guarded subsets and non-one-based arrays are valid. Unknown restricting guards, parameter relations and overapproximations stay quiet; unsupported required accesses report limitations. A candidate mismatch is not a guaranteed runtime error. No source rewrite is offered.",
+                "Closed scalar/range indices, enum identities and checked neighbour offsets are supported. Traversal bounds of one parameter plus or minus a constant report when an outside index occurs whenever the traversal is active and nonempty. Guarded subsets and non-one-based arrays are valid. Unknown restricting guards, parameter relations and overapproximations stay quiet; unsupported required accesses report limitations. A candidate mismatch is not a guaranteed runtime error. No source rewrite is offered.",
             ),
             Self::HiddenOptionality => (
                 "hidden-optionality",
@@ -302,7 +302,7 @@ impl Rule {
             Self::PartialExpression => (
                 "partial-expression",
                 RuleFamily::Suspicious,
-                "Explain failed definedness requirements and incompatible candidate indices in their guarded and Boolean context.",
+                "Explain failed definedness requirements, incompatible candidate indices and symbolic traversals that leave an index set in their guarded and Boolean context.",
                 "Scoped nonzero, index, nonempty and presence obligations; exact iteration membership and resolved default capture.",
                 "Supported div/mod, array indexing, empty min/max and absent deopt are considered. Unknown facts alone stay quiet. Advice distinguishes failure when evaluated from incompatible candidates, without claiming execution, runtime crashes or infeasibility. Guards, assertions, inactive/empty iterations and supported default capture protect operations; relational Boolean collapse alone does not. Joint indexing advice is deduplicated at the same unsuppressed access. Unsupported required facts report limitations. No fix or rewrite is offered.",
             ),

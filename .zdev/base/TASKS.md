@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 159
-- Ready: 7
+- Ready: 6
 - Blocked: 6
-- Done: 146
+- Done: 147
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -155,7 +155,7 @@
 | [base-144](tasks/144-copy-enum-backed-source-collections-in-one-query-edit-batch.md) | Copy enum-backed source collections in one query edit batch | done | — |
 | [base-145](tasks/145-grow-wedding-data-through-an-introduced-query-language-walkt.md) | Grow wedding data through an introduced query-language walkthrough | done | base-144 |
 | [base-146](tasks/146-resolve-known-named-bounds-in-index-definedness-and-vacuity.md) | Resolve known named bounds in index, definedness and vacuity checks | done | — |
-| [base-147](tasks/147-prove-symbolic-offset-mismatches-for-every-parameter-value.md) | Prove symbolic offset mismatches for every parameter value | ready | base-146 |
+| [base-147](tasks/147-prove-symbolic-offset-mismatches-for-every-parameter-value.md) | Prove symbolic offset mismatches for every parameter value | done | base-146 |
 | [base-148](tasks/148-apply-search-coverage-only-to-annotated-searches.md) | Apply search-coverage only to annotated searches | ready | — |
 | [base-149](tasks/149-leave-unused-generator-bindings-to-their-own-rule.md) | Leave unused generator bindings to their own rule | ready | — |
 | [base-150](tasks/150-exempt-callable-parameters-that-share-a-top-level-name.md) | Exempt callable parameters that share a top-level name | ready | — |

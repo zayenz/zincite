@@ -7,9 +7,9 @@ use crate::definitions::{
     transparent_boolean_argument,
 };
 use crate::domains::{
-    bare_index_domain, expression_domain, has_known_bounds, index_domain_interval,
-    intersect_index_domains, invariant_integer, known_domain, known_outcome, resolved_index_domain,
-    same_members, shift_index_domain, tokens,
+    bare_index_domain, expression_domain, has_known_bounds, has_offset_bounds,
+    index_domain_interval, intersect_index_domains, invariant_integer, known_domain, known_outcome,
+    resolved_index_domain, same_members, shift_index_domain, tokens,
 };
 use crate::{
     BindingFacts, BindingResolution, CallOutcome, Cardinality, DeclarationId,
@@ -97,7 +97,8 @@ pub enum GuardObligationKind {
     Assertion,
 }
 /// A scoped index space. Exact means supported membership/condition operations
-/// retain its members; it does not prove a traversal is executed or nonempty.
+/// retain its members, including a range whose endpoints are offsets of one
+/// declaration; it does not prove a traversal is executed or nonempty.
 #[derive(Clone, Debug)]
 pub struct GuardedIndexSpace {
     pub domain: Domain,
@@ -3668,7 +3669,8 @@ impl<'a> Producer<'a> {
             _ => None,
         })?;
         let mut exact = matches!(bare_index_domain(&domain), Domain::Enum(_))
-            || (!self.replaceable_set(&domain) && index_domain_interval(&domain).is_some());
+            || (!self.replaceable_set(&domain)
+                && (index_domain_interval(&domain).is_some() || has_offset_bounds(&domain)));
         for assumption in scope.assumptions.iter() {
             let Assumption::Condition {
                 file: f,
