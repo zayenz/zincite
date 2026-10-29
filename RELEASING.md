@@ -1,6 +1,6 @@
-# Release Zincite 0.4.0
+# Release Zincite 0.5.0
 
-The six workspace crates share version 0.4.0. The query library uses the
+The six workspace crates share version 0.5.0. The query library uses the
 already published Zirql 0.3.0; this release does not change that dependency.
 
 ## Prepare the source
@@ -37,9 +37,9 @@ release assurance.
 Publish only the intended tag and short release notes after the uploads:
 
 ```sh
-git tag -a v0.4.0 -m "Zincite 0.4.0"
-git push origin v0.4.0
-gh release create v0.4.0 --title "Zincite 0.4.0" --notes-file /path/to/release-notes.md
+git tag -a v0.5.0 -m "Zincite 0.5.0"
+git push origin v0.5.0
+gh release create v0.5.0 --title "Zincite 0.5.0" --notes-file /path/to/release-notes.md
 ```
 
 Do not use `git push --tags`. Report the version and public package/release URLs.

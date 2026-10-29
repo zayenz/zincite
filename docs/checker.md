@@ -48,7 +48,7 @@ cargo run -p zincite -- check --format json delivery.fzn candidate.dzn
 ```
 
 Install the standalone command with
-`cargo install --locked --version '=0.4.0' zincite-check`, or install `zincite`
+`cargo install --locked --version '=0.5.0' zincite-check`, or install `zincite`
 at the same version for `zincite check`. The `cargo run` examples above use a
 source checkout; the shorter commands below use the installed binaries.
 
@@ -74,7 +74,7 @@ each edit. Add the library to the application's `Cargo.toml`:
 
 ```toml
 [dependencies]
-zincite-check = "0.4.0"
+zincite-check = "0.5.0"
 ```
 
 With the FlatZinc above beside `src/main.rs` as `src/delivery.fzn`, this is a

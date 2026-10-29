@@ -1,13 +1,22 @@
 # Release notes
 
-## Unreleased
+## 0.5.0
 
-- Change the default lint rules to likely-mistake checks: `prefer-array-comprehension`, `index-set-mismatch`, `suspicious-shadowing`, `partial-expression`, `hidden-optionality`, `vacuous-constraint`, `unbounded-variable` and `unused-declaration`. `naming` and `missing-constraint-label` now run only when selected; add them with `select = ["default", "preset:conventions"]` in `zincite.toml` or `--rules default,preset:conventions`.
-- Add the `pairwise-self-comparison` rule to the end of the default and to the `formulation` preset. It warns when an enforced `!=`, `<` or `>` compares two generator bindings over the same source and nothing excludes their equal pair, as in `forall (i, j in S) (x[i] != x[j])`. Such a constraint cannot be satisfied.
-- Add the `deprecated-call` rule to the end of the default and to the `conventions` preset. It warns when a call selects a standard-library callable marked `mzn_deprecated`, such as the integer form of `at_most`, and quotes the version and explanation from the library. Zincite now also reads the standard library's `.deprecated.mzn` companion files, as the MiniZinc compiler does.
-- Add the opt-in `prefer-assertion` style rule to the `conventions` preset. It warns when a constraint item depends only on parameters, as in `constraint n > 0;`, and suggests `assert` with a message so failed input is explained.
-- Add the opt-in `ambiguous-precedence` suspicious rule to the `conventions` preset. It warns about unparenthesized `/\` mixed with `\/` or `xor`, as in `a \/ b /\ c`, and about chains of two or more `->` or `<-`, as in `a -> b -> c`, and shows the grouping MiniZinc uses. It needs no model context.
-- Add the opt-in `float-equality` suspicious rule to the `domains` preset. It warns when `=` or `!=` compares two parameter floats, as in `total / n = 0.5`, since computed floats rarely compare equal exactly. Comparisons with decision floats stay quiet.
+Linting changes its defaults so that a failing run points at a likely mistake.
+
+- Change the default lint rules to `prefer-array-comprehension`, `index-set-mismatch`, `suspicious-shadowing`, `partial-expression`, `hidden-optionality`, `vacuous-constraint`, `unbounded-variable`, `unused-declaration`, `pairwise-self-comparison` and `deprecated-call`. `naming` and `missing-constraint-label` now run only when selected; add them with `select = ["default", "preset:conventions"]` in `zincite.toml` or `--rules default,preset:conventions`.
+- Record a fixed severity for each rule. Advice that proposes another formulation now reports `info` findings, which do not fail a run: `constant-variable`, `compact-if`, `effective-zero-one`, `reified-global`, `search-coverage`, the three `decision-variable-*` rules, `unmarked-symmetry-breaking`, `global-constraint-opportunity`, `missing-input-precondition` and `unused-declaration`. `--list-rules` and `--explain` show the severity.
+- Move `array-index-start`, `element-predicate`, `global-variable-in-function` and `unused-generator-binding` to the `style` family.
+- Resolve initialized parameters and named sets in `index-set-mismatch`, `partial-expression` and `vacuous-constraint`, so `int: n = 3; array[1..n] ...; x[4]` reports like the literal form. Report symbolic offsets such as `forall (i in 1..n) (x[i + 1])` over `array[1..n]` when the access leaves the index set for every value of `n`.
+- Add `pairwise-self-comparison`, a default correctness rule. It warns when an enforced `!=`, `<` or `>` compares two generator bindings over the same source and nothing excludes their equal pair, as in `forall (i, j in S) (x[i] != x[j])`. Such a constraint cannot be satisfied.
+- Add `deprecated-call`, a default rule in the `conventions` preset. It warns when a call selects a standard-library callable marked `mzn_deprecated` and quotes the version and explanation. Zincite now reads the standard library's `.deprecated.mzn` companion files, as the MiniZinc compiler does.
+- Add three opt-in rules: `prefer-assertion` (conventions) suggests `assert` for constraints over parameters only; `ambiguous-precedence` (conventions) warns about unparenthesized `/\` mixed with `\/` or `xor` and about chains of `->` or `<-`; `float-equality` (domains) warns when `=` or `!=` compares two parameter floats.
+- Run `search-coverage` only when the solve item has a search annotation.
+- Report unused generator names only through `unused-generator-binding`, not also through `unused-declaration`.
+- Stop `suspicious-shadowing` from reporting a function or predicate parameter that shares a top-level name.
+- Limit `decision-variable-operator` to `^`, `div`, `mod` and `/`; Boolean connectives no longer report.
+- Speed up the shared analysis behind the default rules. On two large Challenge models the five slowest default rules drop from about 62 s to 2.4 s and from 130 s to 8.7 s, with identical output.
+- Count warnings and informational findings separately in the corpus scripts, and accept informational findings in the documentation example checks.
 
 ## 0.4.0
 

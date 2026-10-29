@@ -9,7 +9,7 @@ non-UTF-8 bytes in comments are preserved.
 
 ## Versions and Rust support
 
-Zincite 0.4.0 supports the current stable Rust toolchain. No separate minimum
+Zincite 0.5.0 supports the current stable Rust toolchain. No separate minimum
 Rust version is promised. The command-line tools and library crates share the
 same release version. Formatting and interfaces may change in the 0.x series;
 review the [release notes](../CHANGELOG.md) when upgrading.
@@ -62,7 +62,7 @@ parser-free Rust API and [Wasm bindings](../examples/checker-wasm/README.md) use
 same loader and checking runtime. The [graphical example](../examples/checker-browser/README.md)
 demonstrates ordinary edits. The
 [2026-10-28 performance report](../scripts/checker-performance.md) records
-measurements for its named build and workload. The checker ships in Zincite 0.4.0
+measurements for its named build and workload. The checker ships in Zincite 0.5.0
 and the standalone `zincite-check` package.
 
 ## Unknown facts and incomplete analysis

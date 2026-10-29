@@ -36,10 +36,10 @@ meet the demand.
 
 ## Installation
 
-Install Zincite 0.4.0 with a current stable Rust toolchain:
+Install Zincite 0.5.0 with a current stable Rust toolchain:
 
 ```sh
-cargo install --locked --version '=0.4.0' zincite
+cargo install --locked --version '=0.5.0' zincite
 ```
 
 The root command supplies `zincite fmt`, `zincite lint`, `zincite query` and
@@ -117,18 +117,18 @@ fresh-process runtime, memory and analysis completeness for five model roots.
 
 | Rust crate | Guide | Rust API |
 | --- | --- | --- |
-| `zincite-syntax` | [Source, CST and parsing APIs](https://zayenz.se/zincite/guides/reference/#syntax-library) | [0.4.0](https://docs.rs/zincite-syntax/0.4.0) |
-| `zincite-fmt` | [Formatting APIs](https://zayenz.se/zincite/guides/reference/#formatter-library) | [0.4.0](https://docs.rs/zincite-fmt/0.4.0) |
-| `zincite-lint` | [Analysis, settings and fix APIs](https://zayenz.se/zincite/guides/reference/#lint-library) | [0.4.0](https://docs.rs/zincite-lint/0.4.0) |
-| `zincite-query` | [Inspection and data-edit APIs](https://zayenz.se/zincite/guides/reference/#query-library) | [0.4.0](https://docs.rs/zincite-query/0.4.0) |
-| `zincite-check` | [Candidate checking APIs](https://zayenz.se/zincite/guides/reference/#checker-library) | [0.4.0](https://docs.rs/zincite-check/0.4.0) |
+| `zincite-syntax` | [Source, CST and parsing APIs](https://zayenz.se/zincite/guides/reference/#syntax-library) | [0.5.0](https://docs.rs/zincite-syntax/0.5.0) |
+| `zincite-fmt` | [Formatting APIs](https://zayenz.se/zincite/guides/reference/#formatter-library) | [0.5.0](https://docs.rs/zincite-fmt/0.5.0) |
+| `zincite-lint` | [Analysis, settings and fix APIs](https://zayenz.se/zincite/guides/reference/#lint-library) | [0.5.0](https://docs.rs/zincite-lint/0.5.0) |
+| `zincite-query` | [Inspection and data-edit APIs](https://zayenz.se/zincite/guides/reference/#query-library) | [0.5.0](https://docs.rs/zincite-query/0.5.0) |
+| `zincite-check` | [Candidate checking APIs](https://zayenz.se/zincite/guides/reference/#checker-library) | [0.5.0](https://docs.rs/zincite-check/0.5.0) |
 
-The library crates are available at version `0.4.0`. From a checkout, use `cargo doc --workspace --no-deps --open` for local API documentation.
+The library crates are available at version `0.5.0`. From a checkout, use `cargo doc --workspace --no-deps --open` for local API documentation.
 
 ## Development
 
-Read [AGENTS.md](https://github.com/zayenz/zincite/blob/v0.4.0/AGENTS.md) for repository guidance and the
-[project brief](https://github.com/zayenz/zincite/blob/v0.4.0/.zdev/base/brief.md) for behavior contracts and planned work.
+Read [AGENTS.md](https://github.com/zayenz/zincite/blob/v0.5.0/AGENTS.md) for repository guidance and the
+[project brief](https://github.com/zayenz/zincite/blob/v0.5.0/.zdev/base/brief.md) for behavior contracts and planned work.
 Run the workspace checks with:
 
 ```sh
@@ -138,14 +138,14 @@ RUSTDOCFLAGS="-D warnings" cargo test --workspace --locked
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 ```
 
-The [developer scripts](https://github.com/zayenz/zincite/blob/v0.4.0/scripts/README.md) document corpus checks and performance
-measurements. The [semantic processing plan](https://github.com/zayenz/zincite/blob/v0.4.0/docs/semantic-processing-plan.md)
+The [developer scripts](https://github.com/zayenz/zincite/blob/v0.5.0/scripts/README.md) document corpus checks and performance
+measurements. The [semantic processing plan](https://github.com/zayenz/zincite/blob/v0.5.0/docs/semantic-processing-plan.md)
 is developer material; it does not establish completed support. Reader
 documentation lives in this README and `docs/*.md`. The
-[Astro documentation site](https://github.com/zayenz/zincite/blob/v0.4.0/site/README.md) renders these same guides.
+[Astro documentation site](https://github.com/zayenz/zincite/blob/v0.5.0/site/README.md) renders these same guides.
 Website build commands are separate from the Rust workspace checks.
 
-See the [0.4.0 release notes](CHANGELOG.md) and
+See the [0.5.0 release notes](CHANGELOG.md) and
 [release procedure](RELEASING.md) for package verification and publication order.
 
 ## License

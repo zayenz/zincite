@@ -25,7 +25,7 @@ Its [shared native reference](https://zayenz.se/zirql/guides/library-native/)
 describes common composition; the recipes below supply Zincite's actual native
 operations and source/model policies.
 
-Saved repository examples use the [v0.4.0 checkout](getting-started.md#build-from-a-checkout).
+Saved repository examples use the [v0.5.0 checkout](getting-started.md#build-from-a-checkout).
 Run their repository-relative paths from the checkout root. Examples that give
 file contents can be run in a new directory with the installed commands.
 
@@ -62,7 +62,7 @@ report [echo("ash"),echo("ash")] | tally;
 The `result` object is `{"ash":{"kind":"integer","value":2}}`, matching a
 literal string tally. Zincite retains its tagged integer output.
 
-Run the existing function recipe from the Zincite 0.4.0 checkout:
+Run the existing function recipe from the Zincite 0.5.0 checkout:
 
 ```sh
 cargo run --locked --bin zincite -- query --program-file \

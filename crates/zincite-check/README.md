@@ -19,7 +19,7 @@ reference for accepted forms, predicate semantics and compilation recipes. The
 execution and the existing validation paths.
 
 Install the standalone command with
-`cargo install --locked --version '=0.4.0' zincite-check`, or use `zincite check`
+`cargo install --locked --version '=0.5.0' zincite-check`, or use `zincite check`
 from the `zincite` package. From a checkout, install with
 `cargo install --locked --path crates/zincite-check`.
 
@@ -460,7 +460,7 @@ a registry dependency:
 
 ```toml
 [dependencies]
-zincite-check = { version = "0.4.0", default-features = false }
+zincite-check = { version = "0.5.0", default-features = false }
 ```
 
 Supply `Assignment` values directly in that build. `from_json`

@@ -3,7 +3,7 @@
 The Astro/Starlight site renders the reader guides in `../docs/`. Those Markdown
 files remain authoritative and readable on GitHub. `scripts/prepare-content.mjs`
 adds page metadata and rewrites guide links into site links at build time.
-Other repository links point to the matching `v0.4.0` source. Generated content
+Other repository links point to the matching `v0.5.0` source. Generated content
 is ignored. Edit the guides in `docs/`, not generated site content.
 The landing template lives in `src/landing.mdx`; its installation commands come
 from `docs/getting-started.md`, and its example follows `docs/first-model.md`. Logos and favicon originals
