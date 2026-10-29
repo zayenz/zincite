@@ -3,7 +3,7 @@ schema_version = 1
 id = "base-150"
 key = "shadowing-callable-formals"
 area = "base"
-status = "open"
+status = "done"
 complexity = "standard"
 afk = true
 priority = "normal"
@@ -26,11 +26,21 @@ global-variable-in-function recommends passing a top-level decision into a calla
 
 ## Done when
 
-- [ ] The predicate example in Context reports no suspicious-shadowing finding.
-- [ ] A generator `c` inside a constraint that hides a top-level `c` is still reported.
-- [ ] `docs/lint-scope.md` and the rule's catalogue limitations describe the exemption.
+- [x] The predicate example in Context reports no suspicious-shadowing finding.
+- [x] A generator `c` inside a constraint that hides a top-level `c` is still reported.
+- [x] `docs/lint-scope.md` and the rule's catalogue limitations describe the exemption.
 
 ## Validation
 
 - Add the quiet formal case to the existing shadowing tests.
 - Run the brief's Rust validation commands and `zdev check base --format json`.
+
+## Result
+
+suspicious-shadowing no longer reports a callable formal parameter whose name matches a top-level declaration; generators and let declarations that hide outer bindings are still reported.
+
+Validation:
+
+- cargo fmt --check, cargo clippy -D warnings, cargo test --workspace, zdev check: all pass
+- Release CLI: predicate formal x over global x quiet; generator c hiding top-level c reported
+- Independent Codex verifier: pass on snapshot Wcbaf96ffcb6c92e8

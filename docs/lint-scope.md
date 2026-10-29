@@ -18,16 +18,20 @@ identifies both declarations.
 
 ```minizinc
 int: required = 4;
-function int: shortfall(int: required, int: available) = max([0, required - available]);
+constraint forall (required in 1..3) (required > 0);
 ```
 
-Inside `shortfall`, `required` means the argument. A reader looking at the outer
-declaration might expect it to mean the model's requirement. Choose names such
-as `demand` and `available` for the arguments, or rename the outer declaration
-to express its role more precisely.
+Inside the `forall`, `required` means the generator. A reader looking at the
+outer declaration might expect it to mean the model's requirement. Choose a name
+such as `k` for the generator, or rename the outer declaration to express its
+role more precisely.
 
-Function parameters, `let` declarations and generators are checked. Names in
-disjoint scopes and underscore-prefixed names are exempt. To allow common loop
+Function parameters, `let` declarations and generators are checked. A function
+or predicate parameter may share the name of a top-level declaration, as in
+`predicate p(array[int] of var int: x)` for a global `x`: passing a global into
+a callable under its own name is common practice, as
+[`global-variable-in-function`](#global-variable-in-function) recommends. Names
+in disjoint scopes and underscore-prefixed names are also exempt. To allow common loop
 names, configure exact exceptions:
 
 ```toml

@@ -17,7 +17,9 @@ fn lexical_shadowing_uses_enclosing_identity_and_keeps_scope_exceptions_quiet() 
         "function var int: captured_use() = captured;\n",
         "function int: parameter(int: captured) = captured;\n",
         "function int: local() = let { int: captured=1; } in captured;\n",
+        "predicate p(array[int] of var int: captured) = true;\n",
         "constraint forall(i in 1..2)(forall(i in 1..2)(i>0));\n",
+        "constraint forall(captured in 1..2)(captured>0);\n",
         "constraint forall(reused in 1..2)(reused>0) /\\ forall(reused in 1..2)(reused>0);\n",
         "int: _unused=1; function int: intentional(int: _unused) = _unused;\n",
         "record(int: captured): fields=(captured: 1);\n",
@@ -86,7 +88,7 @@ fn ambiguous_outer_bindings_are_limited_without_inventing_a_shadowed_declaration
     let root = dir.join("root.mzn");
     std::fs::write(
         &root,
-        "int: duplicated=1; int: duplicated=2; function int: inner(int: duplicated)=duplicated;",
+        "int: duplicated=1; int: duplicated=2; function int: inner()=let { int: duplicated=3 } in duplicated;",
     )
     .unwrap();
     let context = load_model(&root, &ModelOptions::default());

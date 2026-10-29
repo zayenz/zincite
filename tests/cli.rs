@@ -179,9 +179,9 @@ fn default_lint_checks_included_shadowing_without_writing() {
     let library = directory.join("library");
     let outer = "int: value = 1;\r\n";
     std::fs::write(&shared, outer).unwrap();
-    for (parameter, status) in [("value", 1), ("item", 0)] {
+    for (local, status) in [("value", 1), ("item", 0)] {
         let source = format!(
-            "include \"shared.mzn\";\r\nfunction int: identity(int: {parameter}) = {parameter};\r\nvar 0..2: chosenValue;\r\nconstraint chosenValue = identity(value);\r\nsolve satisfy;\r\n"
+            "include \"shared.mzn\";\r\nfunction int: identity(int: x) = let {{ int: {local} = x }} in {local};\r\nvar 0..2: chosenValue;\r\nconstraint chosenValue = identity(value);\r\nsolve satisfy;\r\n"
         );
         std::fs::write(&root, &source).unwrap();
         for selection in [None, Some("default"), Some("preset:default")] {

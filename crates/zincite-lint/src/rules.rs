@@ -334,7 +334,7 @@ impl Rule {
                 RuleFamily::Suspicious,
                 "Report binding names that conceal another binding in a surrounding scope.",
                 "Lexical scopes and binding identities.",
-                "Parameters, let declarations and generators are checked against visible enclosing value bindings. Disjoint scopes, field labels, underscore-prefixed names and exact ignore-names exceptions stay quiet. Ambiguous outer bindings report a limitation; types and callable names are not value bindings. Findings identify both declarations; no renaming or fix is offered.",
+                "Parameters, let declarations and generators are checked against visible enclosing value bindings. Callable parameters that share a top-level name, disjoint scopes, field labels, underscore-prefixed names and exact ignore-names exceptions stay quiet. Ambiguous outer bindings report a limitation; types and callable names are not value bindings. Findings identify both declarations; no renaming or fix is offered.",
             ),
             Self::PreferArrayComprehension => (
                 "prefer-array-comprehension",

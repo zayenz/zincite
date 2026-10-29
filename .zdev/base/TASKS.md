@@ -3,9 +3,9 @@
 # Tasks: base
 
 - Total: 159
-- Ready: 4
+- Ready: 3
 - Blocked: 5
-- Done: 150
+- Done: 151
 
 | ID | Task | State | Blocked by |
 | --- | --- | --- | --- |
@@ -158,7 +158,7 @@
 | [base-147](tasks/147-prove-symbolic-offset-mismatches-for-every-parameter-value.md) | Prove symbolic offset mismatches for every parameter value | done | base-146 |
 | [base-148](tasks/148-apply-search-coverage-only-to-annotated-searches.md) | Apply search-coverage only to annotated searches | done | — |
 | [base-149](tasks/149-leave-unused-generator-bindings-to-their-own-rule.md) | Leave unused generator bindings to their own rule | done | — |
-| [base-150](tasks/150-exempt-callable-parameters-that-share-a-top-level-name.md) | Exempt callable parameters that share a top-level name | ready | — |
+| [base-150](tasks/150-exempt-callable-parameters-that-share-a-top-level-name.md) | Exempt callable parameters that share a top-level name | done | — |
 | [base-151](tasks/151-limit-decision-variable-operator-to-arithmetic-operators.md) | Limit decision-variable-operator to arithmetic operators | ready | — |
 | [base-152](tasks/152-record-default-severity-per-rule-and-reassign-style-families.md) | Record default severity per rule and reassign style families | ready | — |
 | [base-153](tasks/153-switch-the-default-preset-to-likely-mistake-checks.md) | Switch the default preset to likely-mistake checks | done | base-149 |
